@@ -1,1 +1,715 @@
-# Kampung-quest
+Yes. This is a cleaner architecture than separating quest creation and matchmaking into two independent agents.
+
+The main change is:
+
+> Merge the Quest Formation Agent and Matching Analyst Agent into one **Quest Synthesis and Matchmaking Agent**.
+
+This agent receives a filtered candidate pool, reads the candidates’ needs, offers and constraints, then simultaneously:
+
+1. Creates a quest that benefits the group
+2. Chooses the most suitable subset of candidates
+3. Assigns meaningful roles
+4. Produces a proposed participant group
+
+This matches the core concept of turning several isolated needs into one shared activity, rather than creating an activity first and hoping suitable participants exist. 
+
+# Final architecture
+
+```text
+1. Personal Memory Micro-Agent
+        ↓
+2. Vector Candidate Retrieval Service
+        ↓
+3. Quest Synthesis and Matchmaking Agent
+        ↓
+4. Deterministic Constraint Validator
+        ↓
+5. Safety Guardian Agent
+        ↓
+6. Event Coordination and Recovery Agent
+```
+
+Only components 1, 3, 5 and 6 are AI-agent roles.
+
+The vector search and constraint validator are normal backend services.
+
+# 1. Personal Memory Micro-Agent
+
+There is one logical micro-agent per senior, but it does not run continuously.
+
+Its job is to convert new user information into:
+
+* Human-readable Markdown memory
+* Structured hard constraints
+* Need embeddings
+* Interest embeddings
+* Offer and ability embeddings
+
+## Example Markdown card
+
+```markdown
+---
+memory_id: need_102_001
+senior_id: senior_102
+memory_type: active_need
+status: active
+confidence: 0.94
+expires_at: 2026-08-05T23:59:59+08:00
+---
+
+# Current need
+
+Wants companionship during lunch and would prefer a small group.
+
+# Interests
+
+- Cooking
+- Healthy eating
+- Sharing traditional recipes
+
+# What the senior can contribute
+
+- Can teach a simple low-sodium recipe
+- Comfortable guiding a small cooking activity
+
+# Preferences
+
+- Prefers indoor activities
+- Prefers groups of two to four people
+- Prefers activities around lunchtime
+
+# Additional context
+
+The senior enjoyed a previous small cooking activity but disliked a large noisy event.
+```
+
+## Structured constraints
+
+The same need should have exact database fields:
+
+```json
+{
+  "available_from": "2026-08-03T11:00:00+08:00",
+  "available_until": "2026-08-03T14:00:00+08:00",
+  "maximum_distance_m": 1000,
+  "minimum_group_size": 2,
+  "maximum_group_size": 4,
+  "indoor_required": true,
+  "stairs_allowed": false,
+  "dietary_requirements": ["low_sodium"],
+  "languages": ["English"],
+  "verified": true,
+  "invitation_consent": true
+}
+```
+
+The Markdown gives the AI context and nuance. The structured fields enforce exact constraints.
+
+# 2. Vector Candidate Retrieval Service
+
+This is not an AI agent.
+
+It retrieves approximately 10 to 20 potentially compatible candidate cards before the expensive matchmaking model runs.
+
+However, do not perform only one similarity search.
+
+If you search only for similar needs, you may retrieve many people who need the same help but nobody who can provide it.
+
+Use at least three retrieval directions.
+
+## A. Need-to-need similarity
+
+Find candidates with related goals:
+
+```text
+Initiating need:
+Wants companionship during lunch
+
+Related needs:
+Wants a small social meal
+Wants to learn healthy cooking
+Wants to meet nearby seniors
+```
+
+## B. Need-to-offer complementarity
+
+Find candidates whose abilities help satisfy the initiating need:
+
+```text
+Need:
+Wants help learning QR payment
+
+Offer:
+Can teach smartphone and QR payment skills
+```
+
+## C. Interest similarity
+
+Find people likely to enjoy the same activity:
+
+```text
+Cooking
+Gardening
+Walking
+Local history
+Digital learning
+```
+
+## Recommended retrieval procedure
+
+```text
+Create embedding from the initiating need
+        ↓
+Retrieve top 10 similar need vectors
+        ↓
+Retrieve top 10 complementary offer vectors
+        ↓
+Retrieve top 10 similar interest vectors
+        ↓
+Combine and remove duplicates
+        ↓
+Apply basic hard filters
+        ↓
+Keep the best 10 to 20 candidates
+```
+
+A candidate retrieval score could be:
+
+[
+R =
+0.30N +
+0.25C +
+0.20I +
+0.15S +
+0.10H
+]
+
+Where:
+
+* (N): need similarity
+* (C): need-to-offer complementarity
+* (I): interest similarity
+* (S): social preference compatibility
+* (H): previous interaction compatibility
+
+## Filters before the AI agent
+
+Before sending candidates to the model, remove anyone who is:
+
+* The initiating senior
+* Unverified
+* Not accepting invitations
+* Already committed to another quest
+* Outside the permitted distance
+* Completely unavailable within the broad time window
+* Language-incompatible
+* Blocked by a safety or relationship restriction
+* Associated with an expired or fulfilled need card
+
+This reduces token usage and prevents the model from considering invalid candidates.
+
+# 3. Quest Synthesis and Matchmaking Agent
+
+This becomes the central reasoning agent.
+
+It answers two questions at the same time:
+
+> What unified quest could address these people’s mutual needs?
+
+> Which candidates should be proposed for that quest?
+
+## Inputs
+
+The agent receives:
+
+### Initiating user
+
+* Current need Markdown
+* Relevant past memories
+* Structured constraints
+* Interests
+* Skills and offers
+
+### Candidate pool
+
+For each of the 10 to 20 candidates:
+
+* Anonymised candidate ID
+* Short Markdown need summary
+* Interests
+* Offers and abilities
+* Soft preferences
+* Structured constraints
+* Retrieval scores
+* Previous group information, when relevant
+
+### Shared system context
+
+* Approved quest templates
+* Available venue types
+* Available reward categories
+* Safety policies
+* Maximum group size
+* Maximum quest duration
+* Public-location requirement
+
+## Example input
+
+```json
+{
+  "initiating_user": {
+    "candidate_id": "candidate_001",
+    "need": "Wants companionship during a healthy lunch.",
+    "interests": ["cooking", "healthy eating"],
+    "offers": ["can teach a low-sodium recipe"],
+    "constraints": {
+      "available_windows": ["2026-08-03T11:00:00+08:00/2026-08-03T14:00:00+08:00"],
+      "maximum_distance_m": 1000,
+      "maximum_group_size": 4,
+      "indoor_required": true,
+      "stairs_allowed": false
+    }
+  },
+  "candidates": [
+    {
+      "candidate_id": "candidate_002",
+      "need": "Wants to learn to prepare healthier meals.",
+      "interests": ["food", "healthy living"],
+      "offers": ["can assist with ingredient preparation"],
+      "constraints": {
+        "available_windows": ["2026-08-03T11:30:00+08:00/2026-08-03T14:00:00+08:00"],
+        "maximum_distance_m": 1500,
+        "maximum_group_size": 5,
+        "indoor_required": false,
+        "stairs_allowed": true
+      },
+      "scores": {
+        "need_similarity": 0.79,
+        "offer_complementarity": 0.86,
+        "interest_similarity": 0.88
+      }
+    },
+    {
+      "candidate_id": "candidate_003",
+      "need": "Wants a small social activity with limited walking.",
+      "interests": ["food", "storytelling"],
+      "offers": ["can organise a table and facilitate conversation"],
+      "constraints": {
+        "available_windows": ["2026-08-03T11:00:00+08:00/2026-08-03T13:00:00+08:00"],
+        "maximum_distance_m": 800,
+        "maximum_group_size": 4,
+        "indoor_required": true,
+        "stairs_allowed": false
+      },
+      "scores": {
+        "need_similarity": 0.83,
+        "offer_complementarity": 0.91,
+        "interest_similarity": 0.71
+      }
+    }
+  ],
+  "approved_templates": [
+    "healthy_kampung_lunch",
+    "sheltered_garden",
+    "market_kaki",
+    "digital_buddy"
+  ],
+  "system_rules": {
+    "minimum_group_size": 2,
+    "maximum_group_size": 5,
+    "maximum_duration_minutes": 120,
+    "public_venue_required": true,
+    "explicit_consent_required": true
+  }
+}
+```
+
+# What the agent should reason about
+
+The agent should evaluate the group as a whole, not candidates independently.
+
+It should determine:
+
+* Which needs can be solved together
+* Whether each person can contribute something
+* Whether the proposed activity is meaningful
+* Whether the interests overlap enough
+* Whether the abilities are complementary
+* Whether every selected person has a clear role
+* Whether the group-size preferences are compatible
+* Whether a shared time appears possible
+* Whether mobility and venue requirements can coexist
+* Whether the quest is practical within available venues
+* Whether one participant is repeatedly being used only as a helper
+* Whether some candidates should remain reserve participants
+
+# Agent output
+
+The output should be strictly structured.
+
+```json
+{
+  "quest": {
+    "title": "Healthy Kampung Lunch",
+    "quest_type": "social_cooking",
+    "shared_goal": "Create companionship, healthier eating and a sense of purpose through a small shared cooking activity.",
+    "description": "Three seniors prepare and share a simple low-sodium lunch in an accessible community kitchen.",
+    "needs_addressed": [
+      "companionship",
+      "healthy eating",
+      "small-group social connection",
+      "sense of contribution"
+    ],
+    "duration_minutes": 90,
+    "group_size": 3,
+    "venue_requirements": [
+      "approved_public_location",
+      "indoor",
+      "no_stairs",
+      "seating_available",
+      "accessible_toilet",
+      "community_kitchen"
+    ],
+    "proposed_time_window": {
+      "start": "2026-08-03T11:30:00+08:00",
+      "end": "2026-08-03T13:00:00+08:00"
+    }
+  },
+  "proposed_participants": [
+    {
+      "candidate_id": "candidate_001",
+      "proposed_role": "recipe_guide",
+      "needs_addressed": ["companionship"],
+      "contributions_used": ["can teach a low-sodium recipe"]
+    },
+    {
+      "candidate_id": "candidate_002",
+      "proposed_role": "ingredient_helper",
+      "needs_addressed": ["learn healthier cooking"],
+      "contributions_used": ["can assist with preparation"]
+    },
+    {
+      "candidate_id": "candidate_003",
+      "proposed_role": "table_host",
+      "needs_addressed": ["small social activity"],
+      "contributions_used": ["can organise the table and facilitate conversation"]
+    }
+  ],
+  "reserve_candidates": [
+    {
+      "candidate_id": "candidate_007",
+      "possible_role": "ingredient_helper",
+      "reason": "Compatible interests and available during the proposed period."
+    }
+  ],
+  "mutual_benefit_explanation": [
+    "The recipe guide gains companionship and a meaningful teaching role.",
+    "The ingredient helper learns healthier meal preparation.",
+    "The table host participates in a small low-mobility social activity."
+  ],
+  "confidence": 0.88
+}
+```
+
+# Important terminology
+
+The output participants are not yet final participants.
+
+They should be called:
+
+```text
+proposed_participants
+```
+
+They become final participants only after:
+
+* Safety approval
+* Invitation acceptance
+* Explicit consent
+* Exact schedule confirmation
+* Venue feasibility confirmation
+
+This distinction is important because the AI cannot commit a senior to an activity.
+
+# 4. Deterministic Constraint Validator
+
+After the Quest Synthesis and Matchmaking Agent returns its plan, normal backend code must validate it.
+
+The validator checks every proposed participant against the quest.
+
+## Validation examples
+
+```text
+Does the proposed time fall inside everyone’s availability?
+
+Is the venue requirement compatible with every mobility constraint?
+
+Does the group size satisfy every selected participant?
+
+Is the activity compatible with dietary restrictions?
+
+Does the proposed travel radius satisfy everyone?
+
+Are all selected participants verified?
+
+Are all need cards active?
+
+Is anyone already booked?
+
+Does the proposed role match the participant’s stated ability?
+
+Is the venue public and approved?
+
+Does the quest avoid peer-to-peer money?
+```
+
+Example validation output:
+
+```json
+{
+  "valid": false,
+  "errors": [
+    {
+      "candidate_id": "candidate_002",
+      "field": "availability",
+      "message": "Candidate is unavailable after 12:30 PM."
+    }
+  ]
+}
+```
+
+If validation fails:
+
+```text
+First failure:
+Return the errors to the agent for one correction call
+
+Second failure:
+Try the next reserve candidate or require human review
+```
+
+Do not let the model repeatedly regenerate plans without a limit.
+
+# 5. Safety Guardian Agent
+
+The Safety Guardian receives only a validated quest proposal.
+
+It reviews:
+
+* Participant verification
+* Venue safety
+* Sensitive-information exposure
+* Unusual role assignments
+* Requests involving money
+* Home visits
+* Potential coercion
+* Distress signals
+* Previous safety incidents
+* Relationship restrictions
+* Whether human approval is required
+
+Example output:
+
+```json
+{
+  "status": "approved",
+  "risk_level": "low",
+  "conditions": [
+    "Do not share participant phone numbers.",
+    "Use coordinator verification at completion.",
+    "Ask for consent before sharing display names."
+  ],
+  "requires_human_review": false
+}
+```
+
+The PDF explicitly requires verified participants and places, minimal consent, no peer-to-peer money and human escalation for unusual or unsafe circumstances. 
+
+# 6. Event Coordination and Recovery Agent
+
+After safety approval, the plan is handed to the Event Coordination Agent.
+
+This agent does not redesign the group unless a real-world event requires it.
+
+## Responsibilities
+
+* Send invitations
+* Collect acceptance and consent
+* Calculate exact availability overlap
+* Confirm or reserve the venue
+* Send reminders
+* Handle no-responses
+* Handle cancellations
+* Find replacements from reserve candidates
+* React to weather changes
+* Obtain consent for plan changes
+* Verify completion
+* Trigger rewards and feedback
+
+The PDF’s agentic distinction is that the system forms the group, checks accessibility, finds a common time, handles cancellations and verifies participation rather than merely recommending an activity. 
+
+## Coordinator input
+
+```json
+{
+  "quest_id": "quest_390",
+  "quest": {
+    "title": "Healthy Kampung Lunch",
+    "duration_minutes": 90,
+    "venue_requirements": [
+      "indoor",
+      "accessible",
+      "community_kitchen"
+    ]
+  },
+  "proposed_participants": [
+    {
+      "senior_id": "senior_102",
+      "role": "recipe_guide"
+    },
+    {
+      "senior_id": "senior_211",
+      "role": "ingredient_helper"
+    },
+    {
+      "senior_id": "senior_304",
+      "role": "table_host"
+    }
+  ],
+  "reserve_candidates": [
+    "senior_315",
+    "senior_417"
+  ],
+  "safety_conditions": [
+    "Do not share phone numbers.",
+    "Completion requires coordinator verification."
+  ]
+}
+```
+
+# Complete pipeline
+
+```text
+Senior submits a need
+        ↓
+Personal Memory Micro-Agent creates:
+- Markdown need card
+- Structured constraints
+- Need, interest and offer vectors
+        ↓
+Vector retrieval performs:
+- Need similarity search
+- Offer complementarity search
+- Interest similarity search
+        ↓
+Candidate sets are combined and deduplicated
+        ↓
+Basic hard filters remove invalid candidates
+        ↓
+Top 10 to 20 candidates remain
+        ↓
+Quest Synthesis and Matchmaking Agent:
+- Reads candidate Markdown
+- Reads structured constraints
+- Identifies mutual needs
+- Designs one shared quest
+- Selects a proposed group
+- Assigns roles
+- Saves reserve candidates
+        ↓
+Deterministic validator:
+- Rechecks every exact constraint
+- Validates time, distance, accessibility and rules
+        ↓
+Safety Guardian:
+- Reviews people, place, consent and risks
+        ↓
+Event Coordination and Recovery Agent:
+- Invites participants
+- Collects consent
+- Finalises schedule
+- Reserves venue
+- Monitors changes
+- Replaces participants when needed
+- Verifies completion
+        ↓
+Rewards and feedback
+        ↓
+Personal memories and vectors are updated
+```
+
+# Revised agent count
+
+Your architecture now requires three primary agent roles plus one lightweight memory role.
+
+## 1. Personal Memory Micro-Agent
+
+One logical instance per senior, invoked only when information changes.
+
+## 2. Quest Synthesis and Matchmaking Agent
+
+One temporary instance per new quest request.
+
+This replaces the previously separate Quest Formation Agent and Matching Analyst Agent.
+
+## 3. Safety Guardian Agent
+
+One shared safety service across all quests.
+
+## 4. Event Coordination and Recovery Agent
+
+One temporary stateful agent per active quest.
+
+Therefore:
+
+```text
+N dormant personal memory agents
++
+1 shared quest synthesis model invoked per request
++
+1 shared safety guardian
++
+Q event coordinators for Q active quests
+```
+
+The event coordinators should remain dormant between events.
+
+# Recommended candidate count
+
+Start with:
+
+```text
+Retrieve approximately 30 raw vector results
+        ↓
+Deduplicate and hard-filter
+        ↓
+Send 10 to 15 candidates to the AI agent
+```
+
+Ten to fifteen is usually more practical than twenty because:
+
+* Lower token cost
+* Less irrelevant context
+* Easier model reasoning
+* More consistent structured output
+* Faster response
+
+Use twenty only when the cards are very compact or when the first retrieval pool lacks sufficient role diversity.
+
+Each candidate package should ideally remain under approximately 100 to 180 tokens.
+
+# Key design rule
+
+Use each data representation for a different purpose:
+
+| Representation         | Purpose                                              |
+| ---------------------- | ---------------------------------------------------- |
+| Markdown memory        | Human meaning, needs, nuance and abilities           |
+| Vector embeddings      | Candidate discovery                                  |
+| Structured constraints | Exact eligibility and validation                     |
+| LLM agent              | Quest synthesis, group selection and role assignment |
+| Deterministic code     | Enforcement, scheduling and correctness              |
+| Safety agent           | Contextual risk assessment                           |
+| Coordination agent     | Real-world execution and adaptation                  |
+
+This approach is more tangible, less expensive and easier to demonstrate than creating a quest before knowing which people are realistically available. It also gives the central agent enough information to design a quest around actual mutual needs and complementary contributions.
