@@ -1,4 +1,103 @@
-Yes. This is a cleaner architecture than separating quest creation and matchmaking into two independent agents.
+# Kampung Quest
+
+Kampung Quest is a modular Next.js web server for turning seniors' needs, interests, offers and constraints into safe, mutually beneficial group activities. The implementation follows the pipeline described below and exposes it through versioned App Router API endpoints.
+
+## Run with Docker
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The service will be available at:
+
+- Landing page: `http://localhost:3000`
+- Health check: `http://localhost:3000/health`
+
+Stop it with `docker compose down`.
+
+## Run locally
+
+Node.js 20.9 or newer is required.
+
+```bash
+npm install
+npm run dev
+```
+
+Run the automated checks with:
+
+```bash
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+## API workflow
+
+1. Create at least two memory profiles with `POST /api/v1/memories`.
+2. Inspect eligible matches with `GET /api/v1/candidates/{candidateId}/retrieve`.
+3. Run synthesis, validation, safety review and coordination with `POST /api/v1/quests/propose/{candidateId}`.
+
+Example profile:
+
+```json
+{
+  "candidateId": "candidate_001",
+  "need": "Wants companionship during a healthy lunch",
+  "interests": ["cooking", "healthy eating"],
+  "offers": ["can teach a low-sodium recipe"],
+  "constraints": {
+    "availableWindows": [
+      {
+        "start": "2026-08-03T11:00:00+08:00",
+        "end": "2026-08-03T14:00:00+08:00"
+      }
+    ],
+    "maximumDistanceM": 1000,
+    "minimumGroupSize": 2,
+    "maximumGroupSize": 4,
+    "indoorRequired": true,
+    "stairsAllowed": false,
+    "languages": ["English"],
+    "verified": true,
+    "invitationConsent": true
+  }
+}
+```
+
+## Project structure
+
+```text
+src/
+├── app/
+│   ├── api/v1/                    Next.js API route handlers
+│   ├── health/route.ts            Container health endpoint
+│   ├── layout.tsx                 Root application layout
+│   └── page.tsx                   Service landing page
+└── server/
+    ├── domain/schemas.ts          Zod validation and domain types
+    ├── features/
+    │   ├── memory-service.ts      Markdown memory-card creation
+    │   ├── retrieval-service.ts   Filtering and multi-factor scoring
+    │   ├── synthesis-service.ts   Quest and group synthesis boundary
+    │   ├── validation-service.ts  Deterministic constraint enforcement
+    │   ├── safety-service.ts      Contextual safety review
+    │   ├── coordination-service.ts Invitation and event preparation
+    │   └── quest-pipeline.ts      Ordered workflow orchestration
+    ├── repositories/              Replaceable persistence adapters
+    └── container.ts               Service dependency wiring
+tests/                              Service and pipeline tests
+Dockerfile                          Multi-stage, non-root production image
+compose.yaml                        Local container deployment
+```
+
+Each business capability is isolated behind a TypeScript service class. The initial repository and synthesis implementation are deliberately local and deterministic, making the project runnable without database or model credentials. In-memory data is process-local and is lost on restart. For production, replace `InMemoryMemoryRepository` with a persistent database/vector-store adapter and replace `QuestSynthesisService` with an LLM-backed implementation while retaining the deterministic validator and safety boundaries.
+
+## Product and agent architecture
+
+This is a cleaner architecture than separating quest creation and matchmaking into two independent agents.
 
 The main change is:
 

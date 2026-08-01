@@ -1,0 +1,11 @@
+services:
+  api:
+    build:
+      context: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_MAX_CANDIDATES: ${APP_MAX_CANDIDATES:-15}
+    restart: unless-stopped
