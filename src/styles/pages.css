@@ -1,0 +1,998 @@
+/* Welcome */
+.welcome-page {
+  min-height: 100dvh;
+  padding: 22px 20px 28px;
+  background: linear-gradient(180deg, #ffffff 0%, #f6fbf8 100%);
+  display: grid;
+  align-items: center;
+}
+
+.welcome-panel {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+}
+
+.welcome-copy {
+  max-width: 470px;
+  margin: 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.welcome-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo {
+  width: 66px;
+  height: 66px;
+  border-radius: 22px;
+  background: var(--green-600);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 31px;
+  box-shadow: 0 12px 28px rgba(16, 157, 112, 0.2);
+}
+
+.welcome-brand h1 {
+  margin: 0;
+  font-size: clamp(30px, 8vw, 42px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.welcome-brand p {
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.welcome-mobile-art {
+  position: relative;
+  width: min(78vw, 340px);
+  height: min(49vw, 215px);
+  margin: 28px auto 18px;
+}
+
+.welcome-mobile-art img,
+.welcome-desktop-art img {
+  object-fit: contain;
+}
+
+.welcome-message h2 {
+  max-width: 340px;
+  margin: 0 auto;
+  font-size: clamp(24px, 6.8vw, 31px);
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+.welcome-message p {
+  max-width: 330px;
+  margin: 15px auto 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.welcome-actions {
+  margin-top: 28px;
+  display: grid;
+  gap: 12px;
+}
+
+.welcome-actions a {
+  width: 100%;
+}
+
+.pager-dots {
+  padding-top: 28px;
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+}
+
+.pager-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cad7d2;
+}
+
+.pager-dots span.active {
+  background: var(--green-600);
+}
+
+.welcome-desktop-art {
+  display: none;
+}
+
+/* Home */
+.home-header {
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-greeting p {
+  margin: 0 0 3px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.home-greeting h1 {
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+
+.home-avatar {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 2px solid var(--green-500);
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.home-avatar img {
+  object-fit: cover;
+}
+
+.home-layout {
+  display: grid;
+  gap: 24px;
+}
+
+.home-primary {
+  min-width: 0;
+}
+
+.invite-banner {
+  min-height: 116px;
+  padding: 17px 16px;
+  border: 1px solid #f2dfbb;
+  border-radius: var(--radius-md);
+  background: #fffaf0;
+  display: grid;
+  grid-template-columns: 43px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.invite-gift {
+  font-size: 31px;
+  align-self: start;
+}
+
+.invite-banner > span:nth-child(2) {
+  display: grid;
+  gap: 4px;
+}
+
+.invite-banner strong {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.invite-banner small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.banner-action {
+  grid-column: 1 / -1;
+  min-height: 46px;
+  border-radius: 999px;
+  background: var(--green-600);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.section-heading {
+  margin: 25px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.section-heading a {
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.home-recommendation .quest-card-image {
+  height: 170px;
+}
+
+.home-recommendation .save-button {
+  top: 181px;
+}
+
+.status-card {
+  min-height: 62px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  background: var(--green-50);
+  color: var(--green-900);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.status-card strong {
+  color: var(--green-700);
+  font-size: 12px;
+}
+
+.home-sidebar {
+  display: none;
+}
+
+/* Needs */
+.need-list,
+.invite-list,
+.joined-list {
+  display: grid;
+  gap: 14px;
+}
+
+.need-card {
+  min-height: 132px;
+  padding: 18px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 11px;
+  box-shadow: var(--shadow-sm);
+}
+
+.need-emoji {
+  font-size: 34px;
+  text-align: center;
+}
+
+.need-card h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.need-card p {
+  margin: 4px 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.need-card strong {
+  margin-top: 9px;
+  color: var(--green-700);
+  display: inline-block;
+  font-size: 12px;
+}
+
+/* Recommended quests */
+.matched-copy {
+  margin: 0 2px 14px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* Quest detail */
+.detail-page {
+  min-height: 100dvh;
+  background: var(--surface);
+}
+
+.detail-header-wrap {
+  padding: 0 18px;
+}
+
+.detail-layout {
+  display: grid;
+}
+
+.detail-image {
+  position: relative;
+  height: 250px;
+  background: #e8efec;
+  overflow: hidden;
+}
+
+.detail-image img {
+  object-fit: cover;
+}
+
+.detail-image .image-badge {
+  top: 16px;
+  left: 18px;
+}
+
+.detail-content {
+  padding: 20px 20px 28px;
+}
+
+.detail-content > h1 {
+  margin: 0 0 13px;
+  font-size: 26px;
+  line-height: 1.18;
+  letter-spacing: -0.04em;
+}
+
+.detail-description {
+  margin: 0 0 25px;
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.detail-facts {
+  display: grid;
+  gap: 18px;
+}
+
+.detail-fact {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.detail-fact > svg {
+  margin-top: 3px;
+}
+
+.detail-fact > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.detail-fact small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detail-fact strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.host-fact {
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+}
+
+.host-avatar {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.host-avatar img {
+  object-fit: cover;
+}
+
+.detail-action {
+  width: 100%;
+  margin-top: 28px;
+}
+
+.detail-action.confirmed {
+  background: var(--green-800);
+}
+
+/* Invites */
+.invite-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.invite-image,
+.joined-image {
+  position: relative;
+  height: 155px;
+  border-radius: 13px;
+  background: #e8efec;
+  overflow: hidden;
+}
+
+.invite-image img,
+.joined-image img {
+  object-fit: cover;
+}
+
+.invite-card h2 {
+  margin: 14px 2px 9px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.invite-card .meta-row {
+  margin: 7px 2px 0;
+}
+
+.split-actions {
+  margin-top: 15px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.split-actions button {
+  width: 100%;
+  min-height: 46px;
+}
+
+.decision-message {
+  min-height: 50px;
+  margin-top: 15px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.decision-message.accepted {
+  background: var(--green-100);
+  color: var(--green-800);
+}
+
+.decision-message.declined {
+  background: #f1f4f3;
+  color: var(--muted);
+}
+
+/* My quests */
+.joined-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.joined-image {
+  height: 160px;
+  border-radius: 0;
+}
+
+.joined-image .image-badge {
+  background: var(--green-700);
+  color: white;
+}
+
+.joined-body {
+  padding: 14px 15px 16px;
+  display: grid;
+  gap: 7px;
+}
+
+.joined-body h2 {
+  margin: 0 0 2px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.joined-footer {
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+/* Messages */
+.message-list {
+  border-top: 1px solid var(--line);
+}
+
+.message-row {
+  width: 100%;
+  min-height: 86px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-row:hover {
+  background: var(--green-50);
+}
+
+.message-avatar {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 2px solid #e0ebe6;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.message-avatar img {
+  object-fit: cover;
+}
+
+.message-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.message-copy strong {
+  font-size: 15px;
+}
+
+.message-copy small {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.message-side {
+  align-self: stretch;
+  padding: 5px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.message-side time {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.message-side b {
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: var(--green-600);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+}
+
+/* Profile */
+.profile-summary {
+  text-align: center;
+}
+
+.profile-photo {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  margin: 6px auto 13px;
+  border: 4px solid var(--green-500);
+  border-radius: 50%;
+}
+
+.profile-photo > img {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.profile-photo button {
+  position: absolute;
+  right: -3px;
+  bottom: 2px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: var(--green-600);
+  color: white;
+  display: grid;
+  place-items: center;
+}
+
+.profile-summary h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.profile-summary > p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.profile-stats {
+  margin: 21px 0 24px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.profile-stats div {
+  display: grid;
+  gap: 3px;
+}
+
+.profile-stats strong {
+  font-size: 20px;
+}
+
+.profile-stats span {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+/* Settings */
+.settings-group-title {
+  margin: 11px 3px 10px;
+  color: var(--green-900);
+  font-size: 14px;
+}
+
+.settings-page .menu-card {
+  margin-bottom: 25px;
+}
+
+.logout-button {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 750;
+  cursor: pointer;
+}
+
+@media (max-height: 720px) and (max-width: 767px) {
+  .welcome-page {
+    align-items: start;
+  }
+
+  .welcome-mobile-art {
+    width: 250px;
+    height: 150px;
+    margin-top: 18px;
+    margin-bottom: 10px;
+  }
+
+  .welcome-actions {
+    margin-top: 20px;
+  }
+
+  .pager-dots {
+    padding-top: 18px;
+  }
+}
+
+@media (min-width: 768px) {
+  .welcome-page {
+    padding: 42px;
+  }
+
+  .welcome-panel {
+    min-height: min(700px, calc(100dvh - 84px));
+    padding: 48px clamp(42px, 6vw, 78px);
+    border: 1px solid var(--line);
+    border-radius: 34px;
+    background: white;
+    display: grid;
+    grid-template-columns: minmax(340px, 0.85fr) minmax(390px, 1.15fr);
+    align-items: center;
+    gap: 70px;
+    box-shadow: var(--shadow-md);
+  }
+
+  .welcome-copy {
+    margin: 0;
+    text-align: left;
+    align-items: stretch;
+  }
+
+  .welcome-brand {
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+  }
+
+  .welcome-brand h1 {
+    font-size: 41px;
+  }
+
+  .welcome-mobile-art {
+    display: none;
+  }
+
+  .welcome-message {
+    margin-top: 48px;
+  }
+
+  .welcome-message h2,
+  .welcome-message p {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .welcome-message h2 {
+    font-size: 36px;
+  }
+
+  .welcome-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pager-dots {
+    justify-content: flex-start;
+  }
+
+  .welcome-desktop-art {
+    display: grid;
+    justify-items: center;
+    gap: 25px;
+  }
+
+  .welcome-art-circle {
+    position: relative;
+    width: min(42vw, 500px);
+    height: min(35vw, 420px);
+    border-radius: 45% 55% 50% 50%;
+    background: linear-gradient(145deg, #ecf8f3, #dff3eb);
+  }
+
+  .welcome-principles {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .welcome-principles span {
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: var(--green-50);
+    color: var(--green-900);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .home-header {
+    min-height: 82px;
+    grid-template-columns: minmax(0, 1fr) 58px;
+  }
+
+  .home-greeting {
+    grid-column: 1;
+  }
+
+  .home-greeting h1 {
+    font-size: 34px;
+  }
+
+  .home-avatar {
+    grid-column: 2;
+  }
+
+  .home-layout {
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+    align-items: start;
+    gap: 28px;
+  }
+
+  .home-primary {
+    max-width: 720px;
+  }
+
+  .invite-banner {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+
+  .banner-action {
+    grid-column: auto;
+    min-width: 132px;
+    padding: 0 20px;
+  }
+
+  .home-recommendation {
+    max-width: 640px;
+  }
+
+  .home-recommendation .quest-card-image {
+    height: 235px;
+  }
+
+  .home-recommendation .save-button {
+    top: 246px;
+  }
+
+  .home-sidebar {
+    position: sticky;
+    top: 102px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: white;
+    display: grid;
+    gap: 4px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .home-sidebar h2 {
+    margin: 0 0 10px;
+    font-size: 18px;
+  }
+
+  .home-sidebar a {
+    min-height: 68px;
+    padding: 10px 7px;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 20px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .home-sidebar a:last-child {
+    border-bottom: 0;
+  }
+
+  .home-sidebar a > span {
+    display: grid;
+    gap: 2px;
+  }
+
+  .home-sidebar strong {
+    font-size: 14px;
+  }
+
+  .home-sidebar small {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .need-list,
+  .invite-list,
+  .joined-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-page {
+    width: min(var(--content-width), calc(100% - 56px));
+    min-height: auto;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .detail-header-wrap {
+    padding: 0 22px;
+  }
+
+  .detail-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(390px, 0.85fr);
+    min-height: 620px;
+  }
+
+  .detail-image {
+    height: 100%;
+    min-height: 620px;
+  }
+
+  .detail-content {
+    padding: 42px 38px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .detail-content > h1 {
+    font-size: 34px;
+  }
+
+  .detail-action {
+    margin-top: auto;
+  }
+
+  .message-list {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: white;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .message-row {
+    padding: 12px 18px;
+  }
+
+  .profile-page .menu-card,
+  .settings-page .menu-card {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+@media (min-width: 1080px) {
+  .need-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.welcome-mobile-art > img,
+.welcome-art-circle > img,
+.detail-image > img {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 767px) {
+  .detail-content {
+    padding-bottom: 128px;
+  }
+
+  .detail-action {
+    position: fixed;
+    z-index: 70;
+    right: 20px;
+    bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) + 10px);
+    left: 20px;
+    width: auto;
+    margin: 0;
+    box-shadow: 0 10px 26px rgba(7, 92, 72, 0.24);
+  }
+}
+
+@media (min-width: 768px) {
+  .detail-action {
+    position: static;
+    width: 100%;
+    margin-top: auto;
+  }
+}
