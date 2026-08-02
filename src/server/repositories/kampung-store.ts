@@ -44,6 +44,7 @@ export interface KampungStore {
   ): Promise<QuestRun>;
   findQuestRun(runId: string): Promise<QuestRun | null>;
   findQuestByIdempotencyKey(key: string): Promise<QuestRun | null>;
+  listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]>;
   appendCoordinationEvent(event: CoordinationEventRecord): Promise<void>;
   healthCheck(): Promise<{ database: boolean; vector: boolean }>;
   recordAgentRun(record: AgentRunAudit): Promise<void>;
@@ -182,6 +183,14 @@ export class InMemoryKampungStore implements KampungStore {
   async findQuestByIdempotencyKey(key: string): Promise<QuestRun | null> {
     const run = [...this.questRuns.values()].find((candidate) => candidate.idempotencyKey === key);
     return run ? structuredClone(run) : null;
+  }
+
+  async listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]> {
+    return [...this.questRuns.values()]
+      .filter((run) => run.initiatingCandidateId === candidateId)
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .slice(0, Math.min(50, Math.max(1, limit)))
+      .map((run) => structuredClone(run));
   }
 
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {

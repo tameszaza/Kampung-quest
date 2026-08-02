@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assistantRecommendationRequestSchema,
   coordinationEventRequestSchema,
   memoryUpdateRequestSchema,
 } from "@/server/domain/schemas";
@@ -39,5 +40,22 @@ describe("version 1 request contracts", () => {
 
   it("rejects coordination events without a supported type", () => {
     expect(() => coordinationEventRequestSchema.parse({ type: "force_confirmed" })).toThrow();
+  });
+
+  it("accepts a complete Maria assistant conversation and rejects another identity", () => {
+    const request = {
+      conversationId: "conversation_001",
+      candidateId: "maria",
+      narrative: "I would enjoy company over lunch.",
+      interests: ["healthy cooking"],
+      offers: ["can bring fruit"],
+      constraints,
+    };
+
+    expect(assistantRecommendationRequestSchema.parse(request).candidateId).toBe("maria");
+    expect(() => assistantRecommendationRequestSchema.parse({
+      ...request,
+      candidateId: "another-user",
+    })).toThrow();
   });
 });

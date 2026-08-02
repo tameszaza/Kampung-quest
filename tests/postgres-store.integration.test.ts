@@ -67,6 +67,8 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     });
     expect((await restartedEngine.getMemory(firstId))?.retrievalReady).toBe(true);
     expect((await restartedEngine.getQuest(run.runId))?.status).toBe("confirmed");
+    const persistedRunIds = (await store!.listQuestRuns(firstId, 10)).map((item) => item.runId);
+    expect(persistedRunIds).toContain(run.runId);
   });
 
   it("does not let a slower older memory activation replace a newer version", async () => {

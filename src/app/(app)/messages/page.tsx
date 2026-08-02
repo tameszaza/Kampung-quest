@@ -19,6 +19,7 @@ export default function MessagesPage() {
           </button>
         }
       />
+      <p className="demo-page-note"><strong>Demo preview:</strong> these conversations are examples and no real messages are sent.</p>
       <section className="message-list" aria-label="Message conversations">
         {messageThreads.map((thread) => (
           <button className="message-row" type="button" key={thread.id} onClick={() => showToast(`Opening ${thread.name}`)}>

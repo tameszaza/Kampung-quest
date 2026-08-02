@@ -366,6 +366,18 @@ export class PostgresKampungStore implements KampungStore {
     return result.rows[0]?.payload ?? null;
   }
 
+  async listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]> {
+    const result = await this.pool.query<{ payload: QuestRun }>(
+      `SELECT payload
+       FROM quest.quest_runs
+       WHERE initiating_candidate_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [candidateId, Math.min(50, Math.max(1, limit))],
+    );
+    return result.rows.map((row) => row.payload);
+  }
+
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {
     await this.pool.query(
       `INSERT INTO quest.coordination_events

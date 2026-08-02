@@ -1,8 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
+import { LatestEngineQuest } from "@/components/engine-quest-views";
 import { Icon } from "@/components/icons";
-import { QuestCard } from "@/components/quest-card";
-import { quests } from "@/data/mock-data";
 
 export default function HomePage() {
   return (
@@ -22,11 +21,17 @@ export default function HomePage() {
 
       <div className="home-layout">
         <section className="home-primary">
+          <Link className="assistant-home-callout" href="/assistant">
+            <span aria-hidden="true">♥</span>
+            <div><strong>What would feel good today?</strong><small>Talk with Senior Quest and I&apos;ll find a safe activity with neighbours.</small></div>
+            <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
+          </Link>
+
           <Link className="invite-banner" href="/invites">
             <span className="invite-gift" aria-hidden="true">🎁</span>
             <span>
-              <strong>You have 2 new quest invites</strong>
-              <small>See who wants you to join</small>
+              <strong>2 demo quest invites</strong>
+              <small>Preview only — no real invitations were sent</small>
             </span>
             <span className="banner-action">View Invites</span>
           </Link>
@@ -36,7 +41,7 @@ export default function HomePage() {
             <Link href="/quests">See all</Link>
           </div>
           <div className="home-recommendation">
-            <QuestCard quest={quests[0]} compact />
+            <LatestEngineQuest />
           </div>
 
           <section className="status-section">
@@ -50,9 +55,9 @@ export default function HomePage() {
 
         <aside className="home-sidebar" aria-label="Your Senior Quest shortcuts">
           <h2>Your Community</h2>
-          <Link href="/needs"><Icon name="needs" /><span><strong>My Needs</strong><small>3 active needs</small></span><Icon name="chevron" /></Link>
-          <Link href="/my-quests"><Icon name="quests" /><span><strong>My Quests</strong><small>2 upcoming quests</small></span><Icon name="chevron" /></Link>
-          <Link href="/invites"><Icon name="invite" /><span><strong>My Invites</strong><small>2 new invitations</small></span><Icon name="chevron" /></Link>
+          <Link href="/needs"><Icon name="needs" /><span><strong>What I&apos;ve shared</strong><small>Review your Senior Quest memory</small></span><Icon name="chevron" /></Link>
+          <Link href="/quests"><Icon name="quests" /><span><strong>My Recommendations</strong><small>Quests prepared by the engine</small></span><Icon name="chevron" /></Link>
+          <Link href="/invites"><Icon name="invite" /><span><strong>My Invites</strong><small>2 demo invitations</small></span><Icon name="chevron" /></Link>
         </aside>
       </div>
     </div>

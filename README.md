@@ -36,10 +36,16 @@ npm run build
 
 ## API workflow
 
-1. Create at least two memory profiles with `POST /api/v1/memories`.
+The Senior Quest frontend exposes this workflow as one guided conversation at `/assistant`.
+Maria can describe a need naturally, confirm hard constraints with large quick replies, and
+receive a safety-reviewed recommendation without switching between technical agent roles.
+
+For direct API use:
+
+1. Create at least two memory profiles with `POST /api/v1/memories`, or submit the complete demo flow with `POST /api/v1/assistant/recommend`.
 2. Inspect eligible matches with `GET /api/v1/candidates/{candidateId}/retrieve`.
 3. Run synthesis, validation, safety review and coordination with `POST /api/v1/quests/propose/{candidateId}`.
-4. Read durable quest state with `GET /api/v1/quests/{questId}` and submit demo coordination events to `POST /api/v1/quests/{questId}/events`.
+4. List recommendations with `GET /api/v1/quests?candidateId={candidateId}`, read durable quest state with `GET /api/v1/quests/{questId}`, and submit demo coordination events to `POST /api/v1/quests/{questId}/events`.
 
 Example profile:
 
@@ -143,6 +149,17 @@ changing embedding providers, update every user's memory again (or rebuild all d
 embeddings from the stored memory records) before expecting the full pool to match.
 
 Agent roles do not hand control to one another. Application code invokes them in sequence, validates structured output with Zod, allows one synthesis correction, and remains the only code allowed to change participants, invitations or quest state.
+
+## Guided assistant demo
+
+The central action in the application opens `/assistant`. The browser keeps an unfinished
+conversation draft in local storage, while confirmed memories and quest runs remain owned by
+the configured engine store. `DEMO_SEED_ENABLED=true` supplies four synthetic neighbours for
+the fixed Maria demo identity. Disable it when real participant profiles are available.
+
+The default deterministic provider makes this flow credential-free. Setting `AGENT_PROVIDER`
+to `openai` or `gemini` uses the existing hosted memory, synthesis and safety adapters without
+changing the frontend contract.
 
 ## Coordination events
 

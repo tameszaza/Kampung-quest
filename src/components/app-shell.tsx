@@ -2,10 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAppState } from "@/components/app-state";
-import { CreateQuestSheet } from "@/components/create-quest-sheet";
 import { Icon, type IconName } from "@/components/icons";
 
 const navItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
@@ -21,7 +20,8 @@ function isActive(pathname: string, matches: string[]) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { openCreateQuest, toast } = useAppState();
+  const router = useRouter();
+  const { toast } = useAppState();
 
   return (
     <div className="app-shell">
@@ -43,9 +43,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <button className="desktop-create" type="button" onClick={openCreateQuest}>
+          <button className="desktop-create" type="button" onClick={() => router.push("/assistant")}>
             <Icon name="plus" size={22} />
-            Create Quest
+            Talk to Senior Quest
           </button>
           <Link className="desktop-avatar" href="/profile" aria-label="Open profile">
             <Image src="/assets/profile-maria.jpg" alt="Maria Santos" fill sizes="44px" />
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>{item.label}</span>
           </Link>
         ))}
-        <button className="mobile-create" type="button" onClick={openCreateQuest} aria-label="Create a quest">
+        <button className="mobile-create" type="button" onClick={() => router.push("/assistant")} aria-label="Talk to Senior Quest">
           <Icon name="plus" size={28} />
         </button>
         {navItems.slice(2).map((item) => (
@@ -82,7 +82,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       {toast ? <div className="toast" role="status">{toast}</div> : null}
-      <CreateQuestSheet />
     </div>
   );
 }

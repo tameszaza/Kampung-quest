@@ -17,13 +17,10 @@ type AppStateValue = {
   savedQuests: Set<string>;
   interestedQuests: Set<string>;
   inviteDecisions: Record<string, InviteDecision>;
-  createQuestOpen: boolean;
   toast: string | null;
   toggleSaved: (slug: string) => void;
   toggleInterested: (slug: string) => void;
   decideInvite: (inviteId: string, decision: InviteDecision) => void;
-  openCreateQuest: () => void;
-  closeCreateQuest: () => void;
   showToast: (message: string) => void;
 };
 
@@ -40,7 +37,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [savedQuests, setSavedQuests] = useState<Set<string>>(new Set());
   const [interestedQuests, setInterestedQuests] = useState<Set<string>>(new Set());
   const [inviteDecisions, setInviteDecisions] = useState<Record<string, InviteDecision>>({});
-  const [createQuestOpen, setCreateQuestOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(false);
@@ -113,20 +109,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       savedQuests,
       interestedQuests,
       inviteDecisions,
-      createQuestOpen,
       toast,
       toggleSaved,
       toggleInterested,
       decideInvite,
-      openCreateQuest: () => setCreateQuestOpen(true),
-      closeCreateQuest: () => setCreateQuestOpen(false),
       showToast,
     }),
     [
       savedQuests,
       interestedQuests,
       inviteDecisions,
-      createQuestOpen,
       toast,
       toggleSaved,
       toggleInterested,

@@ -31,11 +31,11 @@ The UI uses real Next.js App Router routes:
 - `src/styles/`: split design system, base layout, navigation, components, and page styles.
 - `src/app/(app)/`: separate route modules for each application page.
 
-The placeholder state is stored in `localStorage` through `AppStateProvider`. Saving quests, accepting or declining invites, marking interest, opening the create flow, and placeholder settings actions work without a backend.
+Unfinished assistant answers are stored in `localStorage`, while confirmed Maria memories and recommended quests are loaded from the core engine. Invites, messages, joined-quest history, and settings actions remain demo placeholders.
 
 ## Backend integration points
 
-Replace the data in `src/data/mock-data.ts` with API requests. Keep the page and component interfaces stable where possible. The existing server and API files were not changed.
+`/assistant` calls the assistant recommendation endpoint, `/needs` loads Maria's active memory, and `/quests` plus quest details load durable engine runs. `src/data/mock-data.ts` remains only for frontend areas that are still explicitly demo-only.
 
 ## Validation completed
 

@@ -16,6 +16,7 @@ export default function InvitesPage() {
   return (
     <div className="page-container narrow-page">
       <PageHeader title="My Invites" />
+      <p className="demo-page-note"><strong>Demo preview:</strong> these invitations are examples. Accepting or declining them does not message anyone.</p>
       <Tabs tabs={["Received", "Sent"]} active={tab} onChange={setTab} />
 
       {tab === "Sent" ? (

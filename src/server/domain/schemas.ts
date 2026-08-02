@@ -44,6 +44,17 @@ export const candidateProfileSchema = z.object({
 export type AvailabilityWindow = z.infer<typeof availabilityWindowSchema>;
 export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 
+export const assistantRecommendationRequestSchema = z.object({
+  conversationId: z.string().min(1),
+  candidateId: z.literal("maria"),
+  narrative: z.string().min(3),
+  interests: z.array(z.string().min(1)).default([]),
+  offers: z.array(z.string().min(1)).default([]),
+  constraints: constraintsSchema,
+});
+
+export type AssistantRecommendationCommand = z.infer<typeof assistantRecommendationRequestSchema>;
+
 export interface MemoryCard {
   profile: CandidateProfile;
   markdown: string;

@@ -8,6 +8,7 @@ import { HostedAgentRuntime } from "@/server/agents/openai-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
+import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
 
@@ -70,6 +71,14 @@ export const kampungQuestEngine = new KampungQuestEngine({
   ...agentDependencies,
   invitations: new MockInvitationAdapter(),
   venues: new MockVenueAdapter(),
+});
+
+export const assistantRecommendationService = new AssistantRecommendationService({
+  engine: kampungQuestEngine,
+  store: kampungStore,
+  provider: providerConfiguration.provider,
+  demoSeedEnabled: process.env.DEMO_SEED_ENABLED === "true"
+    || (process.env.DEMO_SEED_ENABLED === undefined && process.env.NODE_ENV !== "production"),
 });
 
 export const runtimeConfiguration = {
