@@ -50,9 +50,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as StoredState;
+        /* eslint-disable react-hooks/set-state-in-effect -- This effect hydrates
+         * client-only state from localStorage after the initial server render. */
         setSavedQuests(new Set(parsed.savedQuests ?? []));
         setInterestedQuests(new Set(parsed.interestedQuests ?? []));
         setInviteDecisions(parsed.inviteDecisions ?? {});
+        /* eslint-enable react-hooks/set-state-in-effect */
       }
     } catch {
       // Placeholder state should never prevent the interface from loading.
