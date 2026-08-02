@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryIdentityStore } from "@/server/identity/identity-store";
-import { hashPassword, verifyPassword } from "@/server/identity/password";
 import { createConversationSchema, registerSchema } from "@/server/identity/schemas";
-import { hashSessionToken } from "@/server/identity/session";
 import { defaultPreferences } from "@/server/identity/types";
+import { normalizeUsername } from "@/server/identity/username";
 
 function member(email: string, passwordHash = "scrypt$stored-only-for-test") {
   return {
     fullName: "Maria Santos",
+    username: email.split("@")[0],
     email,
     phone: null,
     passwordHash,
@@ -21,21 +21,10 @@ function member(email: string, passwordHash = "scrypt$stored-only-for-test") {
 }
 
 describe("member identity security", () => {
-  it("stores a salted scrypt hash and verifies without retaining the password", async () => {
-    const password = "Friendly123";
-    const first = await hashPassword(password);
-    const second = await hashPassword(password);
-
-    expect(first).toMatch(/^scrypt\$16384\$8\$1\$/);
-    expect(first).not.toContain(password);
-    expect(first).not.toBe(second);
-    await expect(verifyPassword(password, first)).resolves.toBe(true);
-    await expect(verifyPassword("Wrong123", first)).resolves.toBe(false);
-  });
-
   it("validates account and conversation contracts", () => {
     const input = registerSchema.parse({
       fullName: "Maria Santos",
+      username: "Maria Santos",
       email: "maria@example.com",
       password: "Friendly123",
       preferredLanguage: "English",
@@ -45,10 +34,10 @@ describe("member identity security", () => {
     expect(() => createConversationSchema.parse({ type: "direct", participantIds: ["a", "b"] })).toThrow();
   });
 
-  it("hashes session tokens before persistence", () => {
-    const token = "a-private-random-cookie-token";
-    expect(hashSessionToken(token)).not.toContain(token);
-    expect(hashSessionToken(token)).toBe(hashSessionToken(token));
+  it("normalizes searchable display names consistently", () => {
+    expect(normalizeUsername("  María Santos  ")).toBe("maria.santos");
+    expect(normalizeUsername("David_Lee")).toBe("david_lee");
+    expect(normalizeUsername("王 阿姨")).toBe("王.阿姨");
   });
 });
 
@@ -58,6 +47,7 @@ describe("member preferences and chat", () => {
     const user = await store.createUser(member("maria@example.com"));
     expect(user.preferences.textSize).toBe("large");
     await expect(store.createUser(member("MARIA@example.com"))).rejects.toThrow("already exists");
+    await expect(store.createUser({ ...member("another@example.com"), username: "MARIA" })).rejects.toThrow("display name");
 
     const updated = await store.updatePreferences(user.id, {
       textSize: "extra-large",
@@ -65,6 +55,8 @@ describe("member preferences and chat", () => {
       interests: ["Cooking"],
     });
     expect(updated.preferences).toMatchObject({ textSize: "extra-large", highContrast: true, interests: ["Cooking"] });
+    const matches = await store.listContacts(user.id, "anne");
+    expect(matches.some((contact) => contact.username === "anne.lim")).toBe(true);
   });
 
   it("supports welcome chats, direct-message reuse, groups, and stored messages", async () => {

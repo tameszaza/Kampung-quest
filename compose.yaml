@@ -24,6 +24,11 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-kampung}:${POSTGRES_PASSWORD:-kampung_dev_password}@database:5432/${POSTGRES_DB:-kampung_quest}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-compose-secret-change-before-production-1234}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      AVATAR_STORAGE_DIR: /app/.data/avatars
       AGENT_PROVIDER: ${AGENT_PROVIDER:-deterministic}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
@@ -45,6 +50,9 @@ services:
       database:
         condition: service_healthy
     restart: unless-stopped
+    volumes:
+      - kampung-uploads:/app/.data
 
 volumes:
   kampung-data:
+  kampung-uploads:

@@ -12,6 +12,7 @@ export type UserPreferences = {
 export type UserProfile = {
   id: string;
   fullName: string;
+  username: string | null;
   email: string | null;
   phone: string | null;
   dateOfBirth: string | null;
@@ -19,6 +20,7 @@ export type UserProfile = {
   preferredLanguage: string;
   area: string | null;
   photoUrl: string | null;
+  onboardingComplete: boolean;
   preferences: UserPreferences;
 };
 
@@ -52,6 +54,7 @@ export type ChatMessage = {
 export type ChatContact = {
   id: string;
   fullName: string;
+  username: string | null;
   photoUrl: string | null;
 };
 
@@ -70,6 +73,7 @@ export function publicUser(user: StoredUser): UserProfile {
   return {
     id: user.id,
     fullName: user.fullName,
+    username: user.username,
     email: user.email,
     phone: user.phone,
     dateOfBirth: user.dateOfBirth,
@@ -77,6 +81,7 @@ export function publicUser(user: StoredUser): UserProfile {
     preferredLanguage: user.preferredLanguage,
     area: user.area,
     photoUrl: user.photoUrl,
+    onboardingComplete: user.onboardingComplete,
     preferences: structuredClone(user.preferences),
   };
 }

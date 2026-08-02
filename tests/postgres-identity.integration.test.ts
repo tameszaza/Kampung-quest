@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
-import { hashPassword } from "@/server/identity/password";
 import { PostgresIdentityStore } from "@/server/identity/postgres-identity-store";
 import { defaultPreferences } from "@/server/identity/types";
 
@@ -17,11 +16,12 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
     await store.pool.end();
   });
 
-  it("persists member settings, sessions, direct chat, and group messages", async () => {
+  it("persists member settings, unique names, direct chat, and group messages", async () => {
     const suffix = randomUUID().slice(0, 8);
-    const passwordHash = await hashPassword("Friendly123");
+    const passwordHash = "legacy-column-unused-by-better-auth";
     const maria = await store!.createUser({
       fullName: "Maria Integration",
+      username: `maria.${suffix}`,
       email: `maria.${suffix}@example.com`,
       phone: null,
       passwordHash,
@@ -34,6 +34,7 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
     });
     const lee = await store!.createUser({
       fullName: "Lee Integration",
+      username: `lee.${suffix}`,
       email: `lee.${suffix}@example.com`,
       phone: null,
       passwordHash,
@@ -45,13 +46,13 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
       preferences: structuredClone(defaultPreferences),
     });
     createdIds.push(maria.id, lee.id);
+    expect(maria.dateOfBirth).toBe("1950-05-12");
 
     const updated = await store!.updatePreferences(maria.id, { highContrast: true, textSize: "extra-large" });
     expect(updated.preferences).toMatchObject({ highContrast: true, textSize: "extra-large" });
 
-    const sessionHash = `session_${randomUUID()}`;
-    await store!.createSession(sessionHash, maria.id, new Date(Date.now() + 60_000));
-    expect((await store!.findUserBySession(sessionHash))?.id).toBe(maria.id);
+    expect(await store!.isUsernameAvailable(`MARIA.${suffix}`)).toBe(false);
+    expect((await store!.listContacts(lee.id, `maria.${suffix}`))[0]?.id).toBe(maria.id);
 
     const direct = await store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
     const reused = await store!.createConversation(lee.id, { type: "direct", participantIds: [maria.id] });

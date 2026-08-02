@@ -6,6 +6,7 @@ import { useAppState } from "@/components/app-state";
 import { MenuRow } from "@/components/menu-row";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/components/user-context";
+import { authClient } from "@/lib/auth-client";
 import type { UserPreferences, UserProfile } from "@/server/identity/types";
 
 export default function SettingsPage() {
@@ -41,7 +42,7 @@ export default function SettingsPage() {
   }
 
   async function logOut() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await authClient.signOut();
     router.replace("/login");
     router.refresh();
   }

@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useAppState } from "@/components/app-state";
 import { Icon } from "@/components/icons";
 import { MenuRow } from "@/components/menu-row";
 import { PageHeader } from "@/components/page-header";
+import { ProfilePhotoEditor } from "@/components/profile-photo-editor";
 import { useUser } from "@/components/user-context";
 
 export default function ProfilePage() {
@@ -23,14 +23,9 @@ export default function ProfilePage() {
         }
       />
       <section className="profile-summary">
-        <div className="profile-photo">
-          <Image src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill priority sizes="110px" />
-          <button type="button" onClick={() => showToast("Profile photo picker is ready for backend wiring")} aria-label="Change profile photo">
-            <Icon name="camera" size={18} />
-          </button>
-        </div>
+        <ProfilePhotoEditor />
         <h1>{user.fullName}</h1>
-        <p>Senior Member</p>
+        <p>{user.username ? `@${user.username}` : "Senior Member"}</p>
         <div className="profile-stats">
           <div><strong>12</strong><span>Quests Joined</span></div>
           <div><strong>8</strong><span>Connections</span></div>

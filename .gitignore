@@ -24,6 +24,7 @@ Thumbs.db
 
 # Runtime data and logs
 /data/
+.data/
 logs/
 *.log
 npm-debug.log*
@@ -32,3 +33,4 @@ yarn-error.log*
 pnpm-debug.log*
 AGENTS.md
 .agents
+prompt.txt

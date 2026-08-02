@@ -29,7 +29,9 @@ export function ChatCenter() {
       const response = await fetch("/api/chat/conversations", { cache: "no-store" });
       const result = await response.json() as { conversations?: ConversationSummary[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not load conversations");
-      setConversations(result.conversations ?? []);
+      const nextConversations = result.conversations ?? [];
+      setConversations(nextConversations);
+      setSelectedId((current) => current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? null : null));
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load conversations");
@@ -170,16 +172,25 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/chat/contacts", { cache: "no-store" })
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      fetch(`/api/chat/contacts${search.trim() ? `?q=${encodeURIComponent(search.trim())}` : ""}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const result = await response.json() as { contacts?: ChatContact[]; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not load people");
         setContacts(result.contacts ?? []);
+        setError("");
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "Could not load people"));
-  }, []);
+      .catch((reason) => { if (reason instanceof Error && reason.name !== "AbortError") setError(reason.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [search]);
 
   function choose(id: string) {
     setSelected((items) => type === "direct" ? [id] : items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
@@ -216,8 +227,9 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
         <p>Choose one person or create a friendly group.</p>
         <div className="chat-type-switch"><button className={type === "direct" ? "active" : ""} type="button" onClick={() => { setType("direct"); setSelected([]); }}>Direct message</button><button className={type === "group" ? "active" : ""} type="button" onClick={() => { setType("group"); setSelected([]); }}>Group chat</button></div>
         {type === "group" ? <label><span>Group name</span><input name="title" placeholder="For example, Walking Friends" required /></label> : null}
+        <label className="contact-search"><span>Find by display name</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search Maria Santos or maria.santos" autoComplete="off" /></label>
         {error ? <div className="form-alert" role="alert">{error}</div> : null}
-        <fieldset className="contact-picker"><legend>{type === "direct" ? "Choose a person" : "Choose group members"}</legend>{contacts.map((contact) => <button className={selected.includes(contact.id) ? "selected" : ""} type="button" key={contact.id} onClick={() => choose(contact.id)}><Avatar src={contact.photoUrl} name={contact.fullName} size={44} /><span>{contact.fullName}</span><b>{selected.includes(contact.id) ? "✓" : "+"}</b></button>)}</fieldset>
+        <fieldset className="contact-picker"><legend>{type === "direct" ? "Choose a person" : "Choose group members"}</legend>{loading ? <p className="contact-status">Searching…</p> : null}{!loading && contacts.length === 0 ? <p className="contact-status">No people found. Check the display name and try again.</p> : null}{contacts.map((contact) => <button className={selected.includes(contact.id) ? "selected" : ""} type="button" key={contact.id} onClick={() => choose(contact.id)}><Avatar src={contact.photoUrl} name={contact.fullName} size={44} /><span><strong>{contact.fullName}</strong>{contact.username ? <small>@{contact.username}</small> : null}</span><b>{selected.includes(contact.id) ? "✓" : "+"}</b></button>)}</fieldset>
         <button className="primary-button" disabled={busy}>{busy ? "Creating…" : type === "direct" ? "Start Chat" : `Create Group${selected.length ? ` (${selected.length + 1})` : ""}`}</button>
       </form>
     </div>

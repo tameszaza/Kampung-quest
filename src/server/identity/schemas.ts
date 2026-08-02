@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-const optionalEmail = z.union([z.string().trim().email("Enter a valid email address"), z.literal("")]).optional();
+const requiredEmail = z.string().trim().email("Enter a valid email address");
 const optionalPhone = z.union([z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"), z.literal("")]).optional();
+const usernameSchema = z.string().trim().min(3, "Use at least 3 characters").max(40)
+  .regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u, "Use letters, numbers, spaces, dots, dashes, or underscores");
 
 export const passwordSchema = z.string()
   .min(8, "Use at least 8 characters")
@@ -11,7 +13,8 @@ export const passwordSchema = z.string()
 
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2, "Enter your full name").max(100),
-  email: optionalEmail,
+  username: usernameSchema,
+  email: requiredEmail,
   phone: optionalPhone,
   password: passwordSchema,
   dateOfBirth: z.union([z.string().date(), z.literal("")]).optional(),
@@ -21,16 +24,6 @@ export const registerSchema = z.object({
   interests: z.array(z.string().trim().min(1).max(50)).max(12).default([]),
   groupSize: z.enum(["one-to-one", "small", "any"]).default("small"),
   activityLevel: z.enum(["gentle", "moderate", "any"]).default("gentle"),
-}).superRefine((value, context) => {
-  if (!value.email?.trim() && !value.phone?.trim()) {
-    context.addIssue({ code: "custom", path: ["email"], message: "Add an email or phone number" });
-  }
-});
-
-export const loginSchema = z.object({
-  identifier: z.string().trim().min(3, "Enter your email or phone number").max(150),
-  password: z.string().min(1, "Enter your password").max(128),
-  rememberMe: z.boolean().default(true),
 });
 
 export const preferenceUpdateSchema = z.object({
@@ -44,6 +37,20 @@ export const preferenceUpdateSchema = z.object({
   highContrast: z.boolean().optional(),
   messageNotifications: z.boolean().optional(),
   questNotifications: z.boolean().optional(),
+});
+
+export const profileCompletionSchema = z.object({
+  fullName: z.string().trim().min(2, "Enter your full name").max(100),
+  username: usernameSchema,
+  phone: optionalPhone,
+  dateOfBirth: z.union([z.string().date(), z.literal("")]).optional(),
+  gender: z.union([z.enum(["Female", "Male", "Prefer not to say"]), z.literal("")]).optional(),
+  preferredLanguage: z.string().trim().min(2).max(50).default("English"),
+  area: z.string().trim().max(100).optional(),
+  interests: z.array(z.string().trim().min(1).max(50)).max(12).default([]),
+  groupSize: z.enum(["one-to-one", "small", "any"]).default("small"),
+  activityLevel: z.enum(["gentle", "moderate", "any"]).default("gentle"),
+  useProviderPhoto: z.boolean().default(true),
 });
 
 export const createConversationSchema = z.object({

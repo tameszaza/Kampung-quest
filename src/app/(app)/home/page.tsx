@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { LatestEngineQuest } from "@/components/engine-quest-views";
 import { Icon } from "@/components/icons";
+import { QuestCard } from "@/components/quest-card";
 import { useUser } from "@/components/user-context";
+import { quests } from "@/data/mock-data";
 
 export default function HomePage() {
   const { user } = useUser();
@@ -26,6 +27,12 @@ export default function HomePage() {
 
       <div className="home-layout">
         <section className="home-primary">
+          <section className="dashboard-stats" aria-label="Your Senior Quest summary">
+            <Link href="/my-quests"><span>Upcoming Activities</span><strong>2</strong><small>View your schedule</small></Link>
+            <Link href="/messages"><span>New Messages</span><strong>2</strong><small>Unread messages</small></Link>
+            <Link href="/quests"><span>New Matches</span><strong>3</strong><small>Activities for you</small></Link>
+            <Link href="/invites"><span>Invites</span><strong>2</strong><small>Pending invitations</small></Link>
+          </section>
           <Link className="assistant-home-callout" href="/assistant">
             <span aria-hidden="true">♥</span>
             <div><strong>What would feel good today?</strong><small>Talk with Senior Quest and I&apos;ll find a safe activity with neighbours.</small></div>
@@ -45,8 +52,8 @@ export default function HomePage() {
             <h2>Recommended for You</h2>
             <Link href="/quests">See all</Link>
           </div>
-          <div className="home-recommendation">
-            <LatestEngineQuest />
+          <div className="home-recommendation dashboard-quest-grid">
+            {quests.slice(0, 3).map((quest) => <QuestCard key={quest.slug} quest={quest} compact />)}
           </div>
 
           <section className="status-section">
@@ -56,6 +63,7 @@ export default function HomePage() {
               <strong>Change</strong>
             </Link>
           </section>
+          <section className="desktop-wellbeing-banner"><span><strong>Stay Active, Stay Connected</strong><small>Joining activities regularly can improve your well-being and brighten every day.</small></span><Link className="primary-button" href="/quests">Browse Activities</Link></section>
         </section>
 
         <aside className="home-sidebar" aria-label="Your Senior Quest shortcuts">

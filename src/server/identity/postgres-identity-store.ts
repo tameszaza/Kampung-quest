@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
-import type { IdentityStore, NewUser } from "@/server/identity/identity-store";
+import type { AuthIdentityInput, CompleteProfileInput, IdentityStore, NewUser } from "@/server/identity/identity-store";
 import { normalizePhone, seededCommunityMembers } from "@/server/identity/identity-store";
 import type {
   ChatContact,
@@ -11,10 +11,12 @@ import type {
   UserProfile,
 } from "@/server/identity/types";
 import { defaultPreferences, publicUser } from "@/server/identity/types";
+import { normalizeUsername } from "@/server/identity/username";
 
 type UserRow = {
   user_id: string;
   full_name: string;
+  username: string | null;
   email: string | null;
   phone: string | null;
   password_hash: string | null;
@@ -24,6 +26,7 @@ type UserRow = {
   area: string | null;
   photo_url: string | null;
   account_type: "member" | "community";
+  onboarding_complete: boolean;
   interests: string[] | null;
   group_size: UserPreferences["groupSize"] | null;
   activity_level: UserPreferences["activityLevel"] | null;
@@ -35,8 +38,8 @@ type UserRow = {
 };
 
 const userSelect = `
-  SELECT u.user_id, u.full_name, u.email, u.phone, u.password_hash, u.date_of_birth,
-         u.gender, u.preferred_language, u.area, u.photo_url, u.account_type,
+  SELECT u.user_id, u.full_name, u.username, u.email, u.phone, u.password_hash, u.date_of_birth,
+         u.gender, u.preferred_language, u.area, u.photo_url, u.account_type, u.onboarding_complete,
          p.interests, p.group_size, p.activity_level, p.accessibility_needs,
          p.text_size, p.high_contrast, p.message_notifications, p.quest_notifications
   FROM identity.users u
@@ -55,15 +58,17 @@ export class PostgresIdentityStore implements IdentityStore {
       await client.query("BEGIN");
       await this.ensureCommunityMembers(client);
       const id = randomUUID();
+      const username = normalizeUsername(input.username ?? input.fullName);
       await client.query(
         `INSERT INTO identity.users
            (user_id, full_name, email, phone, password_hash, date_of_birth, gender,
-            preferred_language, area, photo_url, account_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'member')`,
+            preferred_language, area, photo_url, account_type, username, onboarding_complete)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'member', $11, $12)`,
         [
           id, input.fullName, input.email?.toLowerCase() ?? null, normalizePhone(input.phone),
           input.passwordHash, input.dateOfBirth || null, input.gender || null,
-          input.preferredLanguage, input.area || null, input.photoUrl,
+          input.preferredLanguage, input.area || null, input.photoUrl, username,
+          input.onboardingComplete ?? true,
         ],
       );
       await client.query(
@@ -80,7 +85,15 @@ export class PostgresIdentityStore implements IdentityStore {
       );
       await this.seedWelcomeChats(client, id);
       await client.query("COMMIT");
-      return publicUser({ ...input, id, email: input.email?.toLowerCase() ?? null, phone: normalizePhone(input.phone), accountType: "member" });
+      return publicUser({
+        ...input,
+        id,
+        username,
+        onboardingComplete: input.onboardingComplete ?? true,
+        email: input.email?.toLowerCase() ?? null,
+        phone: normalizePhone(input.phone),
+        accountType: "member",
+      });
     } catch (error) {
       await client.query("ROLLBACK");
       if (isUniqueViolation(error)) throw new Error("An account already exists for that email or phone number");
@@ -90,15 +103,101 @@ export class PostgresIdentityStore implements IdentityStore {
     }
   }
 
-  async findUserByIdentifier(identifier: string): Promise<StoredUser | null> {
+  async ensureAuthUser(input: AuthIdentityInput): Promise<UserProfile> {
+    await this.ensureCommunityMembers(this.pool);
+    const username = input.username ? normalizeUsername(input.username) : null;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [input.id]);
+      await client.query(
+        `INSERT INTO identity.users
+           (user_id, full_name, username, email, phone, password_hash, preferred_language,
+            photo_url, account_type, onboarding_complete)
+         VALUES ($1, $2, $3, lower($4), NULL, NULL, 'English', $5, 'member', false)
+         ON CONFLICT (user_id) DO UPDATE SET
+           email = lower(EXCLUDED.email),
+           full_name = CASE WHEN identity.users.onboarding_complete THEN identity.users.full_name ELSE EXCLUDED.full_name END,
+           username = COALESCE(identity.users.username, EXCLUDED.username),
+           photo_url = CASE WHEN identity.users.onboarding_complete THEN identity.users.photo_url ELSE COALESCE(identity.users.photo_url, EXCLUDED.photo_url) END,
+           updated_at = now()`,
+        [input.id, input.fullName, username, input.email, input.photoUrl],
+      );
+      await client.query(
+        `INSERT INTO identity.user_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING`,
+        [input.id],
+      );
+      const existingChats = await client.query(
+        "SELECT 1 FROM chat.conversation_members WHERE user_id = $1 LIMIT 1",
+        [input.id],
+      );
+      if (!existingChats.rowCount) {
+        await this.seedWelcomeChats(client, input.id);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    const user = await this.findUserById(input.id);
+    if (!user) throw new Error("User not found");
+    return publicUser(user);
+  }
+
+  async completeProfile(userId: string, input: CompleteProfileInput): Promise<UserProfile> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE identity.users SET
+           full_name = $2, username = $3, phone = $4, date_of_birth = $5, gender = $6,
+           preferred_language = $7, area = $8, photo_url = $9,
+           onboarding_complete = true, updated_at = now()
+         WHERE user_id = $1`,
+        [
+          userId, input.fullName, normalizeUsername(input.username), normalizePhone(input.phone),
+          input.dateOfBirth, input.gender, input.preferredLanguage, input.area, input.photoUrl,
+        ],
+      );
+      await client.query(
+        `UPDATE identity.user_preferences SET interests = $2, group_size = $3,
+           activity_level = $4, updated_at = now() WHERE user_id = $1`,
+        [userId, input.preferences.interests, input.preferences.groupSize, input.preferences.activityLevel],
+      );
+      const result = await client.query<UserRow>(`${userSelect} WHERE u.user_id = $1`, [userId]);
+      if (!result.rows[0]) throw new Error("User not found");
+      await client.query("COMMIT");
+      return publicUser(this.mapUser(result.rows[0]));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (isUniqueViolation(error)) throw new Error("That display name is already taken");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile> {
     const result = await this.pool.query<UserRow>(
-      `${userSelect}
-       WHERE u.account_type = 'member'
-         AND (lower(u.email) = lower($1) OR u.phone = $2)
-       LIMIT 1`,
-      [identifier.trim(), normalizePhone(identifier)],
+      `WITH updated AS (
+         UPDATE identity.users SET photo_url = $2, updated_at = now()
+         WHERE user_id = $1 RETURNING user_id
+       ) ${userSelect} WHERE u.user_id = (SELECT user_id FROM updated)`,
+      [userId, photoUrl],
     );
-    return result.rows[0] ? this.mapUser(result.rows[0]) : null;
+    if (!result.rows[0]) throw new Error("User not found");
+    return publicUser(this.mapUser(result.rows[0]));
+  }
+
+  async isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1 FROM identity.users
+       WHERE lower(username) = $1 AND ($2::text IS NULL OR user_id <> $2) LIMIT 1`,
+      [normalizeUsername(username), excludeUserId ?? null],
+    );
+    return !result.rowCount;
   }
 
   async findUserById(userId: string): Promise<StoredUser | null> {
@@ -150,36 +249,18 @@ export class PostgresIdentityStore implements IdentityStore {
     }
   }
 
-  async createSession(sessionHash: string, userId: string, expiresAt: Date): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO identity.sessions (session_hash, user_id, expires_at) VALUES ($1, $2, $3)`,
-      [sessionHash, userId, expiresAt],
-    );
-  }
-
-  async findUserBySession(sessionHash: string): Promise<UserProfile | null> {
-    const result = await this.pool.query<UserRow>(
-      `${userSelect}
-       JOIN identity.sessions s ON s.user_id = u.user_id
-       WHERE s.session_hash = $1 AND s.expires_at > now()`,
-      [sessionHash],
-    );
-    return result.rows[0] ? publicUser(this.mapUser(result.rows[0])) : null;
-  }
-
-  async deleteSession(sessionHash: string): Promise<void> {
-    await this.pool.query("DELETE FROM identity.sessions WHERE session_hash = $1", [sessionHash]);
-  }
-
-  async listContacts(userId: string): Promise<ChatContact[]> {
+  async listContacts(userId: string, query = ""): Promise<ChatContact[]> {
     await this.ensureCommunityMembers(this.pool);
-    const result = await this.pool.query<{ user_id: string; full_name: string; photo_url: string | null }>(
-      `SELECT user_id, full_name, photo_url FROM identity.users
-       WHERE user_id <> $1
+    const normalizedQuery = query.trim().toLowerCase();
+    const usernameQuery = normalizeUsername(query);
+    const result = await this.pool.query<{ user_id: string; full_name: string; username: string | null; photo_url: string | null }>(
+      `SELECT user_id, full_name, username, photo_url FROM identity.users
+       WHERE user_id <> $1 AND onboarding_complete = true
+         AND ($2 = '' OR lower(full_name) LIKE '%' || $2 || '%' OR lower(COALESCE(username, '')) LIKE '%' || $3 || '%')
        ORDER BY CASE WHEN account_type = 'community' THEN 0 ELSE 1 END, full_name`,
-      [userId],
+      [userId, normalizedQuery, usernameQuery],
     );
-    return result.rows.map((row) => ({ id: row.user_id, fullName: row.full_name, photoUrl: row.photo_url }));
+    return result.rows.map((row) => ({ id: row.user_id, fullName: row.full_name, username: row.username, photoUrl: row.photo_url }));
   }
 
   async listConversations(userId: string): Promise<ConversationSummary[]> {
@@ -344,10 +425,14 @@ export class PostgresIdentityStore implements IdentityStore {
       await queryable.query(
         `INSERT INTO identity.users
            (user_id, full_name, email, phone, password_hash, preferred_language, area,
-            photo_url, account_type)
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, 'community')
-         ON CONFLICT (user_id) DO NOTHING`,
-        [user.id, user.fullName, user.email, user.phone, user.preferredLanguage, user.area, user.photoUrl],
+            photo_url, account_type, username, onboarding_complete)
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, 'community', $8, true)
+         ON CONFLICT (user_id) DO UPDATE SET onboarding_complete = true,
+           username = COALESCE(identity.users.username, EXCLUDED.username)`,
+        [
+          user.id, user.fullName, user.email, user.phone, user.preferredLanguage,
+          user.area, user.photoUrl, user.username,
+        ],
       );
       await queryable.query(
         `INSERT INTO identity.user_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING`,
@@ -404,6 +489,7 @@ export class PostgresIdentityStore implements IdentityStore {
     return {
       id: row.user_id,
       fullName: row.full_name,
+      username: row.username,
       email: row.email,
       phone: row.phone,
       passwordHash: row.password_hash,
@@ -413,6 +499,7 @@ export class PostgresIdentityStore implements IdentityStore {
       area: row.area,
       photoUrl: row.photo_url,
       accountType: row.account_type,
+      onboardingComplete: row.onboarding_complete,
       preferences: {
         interests: row.interests ?? [],
         groupSize: row.group_size ?? defaultPreferences.groupSize,
@@ -432,7 +519,12 @@ function asIso(value: Date | string): string {
 }
 
 function asIsoDate(value: Date | string): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) {
+    const year = String(value.getFullYear()).padStart(4, "0");
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   return String(value).slice(0, 10);
 }
 

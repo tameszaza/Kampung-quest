@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EngineQuestCard, questDate, questImage } from "@/components/engine-quest-card";
 import { Icon } from "@/components/icons";
+import { QuestCard } from "@/components/quest-card";
 import { getQuestRun, listUserQuests } from "@/features/assistant/client";
+import { quests } from "@/data/mock-data";
 import type { QuestRun } from "@/server/domain/schemas";
 import { useUser } from "@/components/user-context";
 
@@ -31,7 +33,7 @@ export function EngineQuestList() {
   if (state.status === "loading") return <ConnectedLoading label="Loading your recommendations…" />;
   if (state.status === "error") return <ConnectedError message={state.message} />;
   const visibleRuns = state.value.filter((run) => run.proposal !== null);
-  if (visibleRuns.length === 0) return <NoRecommendations />;
+  if (visibleRuns.length === 0) return <section className="quest-grid" aria-label="Featured activities">{quests.map((quest) => <QuestCard key={quest.slug} quest={quest} />)}</section>;
   return <section className="quest-grid" aria-label="Your recommended quests">{visibleRuns.map((run) => <EngineQuestCard key={run.runId} run={run} />)}</section>;
 }
 
@@ -116,8 +118,4 @@ function ConnectedLoading({ label }: { label: string }) {
 
 function ConnectedError({ message }: { message: string }) {
   return <div className="connected-state error" role="alert"><Icon name="shield" /><strong>{message}</strong><Link href="/assistant">Talk to Senior Quest</Link></div>;
-}
-
-function NoRecommendations() {
-  return <div className="connected-state empty"><span aria-hidden="true">♥</span><h2>No recommendations yet</h2><p>Have a friendly conversation with Senior Quest and we&apos;ll look for a safe match.</p><Link className="primary-button" href="/assistant">Talk to Senior Quest</Link></div>;
 }

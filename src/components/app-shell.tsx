@@ -7,12 +7,22 @@ import { useEffect, type ReactNode } from "react";
 import { useAppState } from "@/components/app-state";
 import { Icon, type IconName } from "@/components/icons";
 import { useUser } from "@/components/user-context";
+import { authClient } from "@/lib/auth-client";
 
 const navItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
   { href: "/home", label: "Home", icon: "home", match: ["/home"] },
   { href: "/quests", label: "Quests", icon: "quests", match: ["/quests", "/needs", "/invites", "/my-quests"] },
   { href: "/messages", label: "Messages", icon: "message", match: ["/messages"] },
   { href: "/profile", label: "Profile", icon: "profile", match: ["/profile", "/settings"] },
+];
+
+const desktopItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
+  { href: "/home", label: "Home", icon: "home", match: ["/home"] },
+  { href: "/quests", label: "Activities", icon: "quests", match: ["/quests"] },
+  { href: "/my-quests", label: "My Activities", icon: "check", match: ["/my-quests", "/invites", "/needs"] },
+  { href: "/messages", label: "Messages", icon: "message", match: ["/messages"] },
+  { href: "/profile", label: "My Profile", icon: "profile", match: ["/profile"] },
+  { href: "/settings", label: "Settings", icon: "settings", match: ["/settings"] },
 ];
 
 function isActive(pathname: string, matches: string[]) {
@@ -25,6 +35,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { toast } = useAppState();
   const { user } = useUser();
 
+  async function logOut() {
+    await authClient.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
+
   useEffect(() => {
     document.documentElement.dataset.textSize = user.preferences.textSize;
     document.documentElement.dataset.contrast = user.preferences.highContrast ? "high" : "standard";
@@ -36,14 +52,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="app-shell">
-      <header className="desktop-nav">
+      <aside className="desktop-nav">
         <div className="desktop-nav-inner">
           <Link className="desktop-brand" href="/home" aria-label="Senior Quest home">
             <span className="brand-symbol" aria-hidden="true">♥</span>
             <span>Senior Quest</span>
           </Link>
           <nav aria-label="Primary navigation">
-            {navItems.map((item) => (
+            {desktopItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -61,8 +77,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link className="desktop-avatar" href="/profile" aria-label="Open profile">
             <Image src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="44px" />
           </Link>
+          <div className="desktop-user-copy"><strong>{user.fullName}</strong><small>{user.username ? `@${user.username}` : "Senior member"}</small></div>
+          <button className="desktop-logout" type="button" onClick={logOut}>Log Out</button>
         </div>
-      </header>
+      </aside>
 
       <main className="app-main">{children}</main>
 

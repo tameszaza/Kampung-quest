@@ -8,18 +8,42 @@ import type {
   UserProfile,
 } from "@/server/identity/types";
 import { defaultPreferences, publicUser } from "@/server/identity/types";
+import { normalizeUsername } from "@/server/identity/username";
 
-export type NewUser = Omit<StoredUser, "id" | "accountType">;
+export type NewUser = Omit<StoredUser, "id" | "accountType" | "username" | "onboardingComplete"> & {
+  username?: string | null;
+  onboardingComplete?: boolean;
+};
+
+export type AuthIdentityInput = {
+  id: string;
+  fullName: string;
+  email: string;
+  photoUrl: string | null;
+  username?: string | null;
+};
+
+export type CompleteProfileInput = {
+  fullName: string;
+  username: string;
+  phone: string | null;
+  dateOfBirth: string | null;
+  gender: string | null;
+  preferredLanguage: string;
+  area: string | null;
+  photoUrl: string | null;
+  preferences: Pick<UserPreferences, "interests" | "groupSize" | "activityLevel">;
+};
 
 export interface IdentityStore {
   createUser(input: NewUser): Promise<UserProfile>;
-  findUserByIdentifier(identifier: string): Promise<StoredUser | null>;
+  ensureAuthUser(input: AuthIdentityInput): Promise<UserProfile>;
+  completeProfile(userId: string, input: CompleteProfileInput): Promise<UserProfile>;
+  updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile>;
+  isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean>;
   findUserById(userId: string): Promise<StoredUser | null>;
   updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile>;
-  createSession(sessionHash: string, userId: string, expiresAt: Date): Promise<void>;
-  findUserBySession(sessionHash: string): Promise<UserProfile | null>;
-  deleteSession(sessionHash: string): Promise<void>;
-  listContacts(userId: string): Promise<ChatContact[]>;
+  listContacts(userId: string, query?: string): Promise<ChatContact[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
   createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary>;
   listMessages(userId: string, conversationId: string): Promise<ChatMessage[]>;
@@ -54,6 +78,7 @@ function communityUser(id: string, fullName: string, photoUrl: string): StoredUs
   return {
     id,
     fullName,
+    username: normalizeUsername(fullName),
     email: `${id}@community.seniorquest.local`,
     phone: null,
     passwordHash: null,
@@ -62,6 +87,7 @@ function communityUser(id: string, fullName: string, photoUrl: string): StoredUs
     preferredLanguage: "English",
     area: "Nearby",
     photoUrl,
+    onboardingComplete: true,
     accountType: "community",
     preferences: structuredClone(defaultPreferences),
   };
@@ -69,7 +95,6 @@ function communityUser(id: string, fullName: string, photoUrl: string): StoredUs
 
 export class InMemoryIdentityStore implements IdentityStore {
   private readonly users = new Map<string, StoredUser>(communityMembers.map((user) => [user.id, user]));
-  private readonly sessions = new Map<string, { userId: string; expiresAt: Date }>();
   private readonly conversations = new Map<string, MemoryConversation>();
   private readonly messages = new Map<string, MemoryMessage[]>();
 
@@ -82,11 +107,17 @@ export class InMemoryIdentityStore implements IdentityStore {
     if ([...this.users.values()].some((user) => phone && normalizePhone(user.phone) === phone)) {
       throw new Error("An account already exists for that phone number");
     }
+    const username = normalizeUsername(input.username ?? input.fullName);
+    if ([...this.users.values()].some((user) => user.username === username)) {
+      throw new Error("That display name is already taken");
+    }
     const user: StoredUser = {
       ...input,
       id: randomUUID(),
       email,
       phone,
+      username,
+      onboardingComplete: input.onboardingComplete ?? true,
       accountType: "member",
       preferences: { ...defaultPreferences, ...input.preferences },
     };
@@ -95,14 +126,68 @@ export class InMemoryIdentityStore implements IdentityStore {
     return publicUser(user);
   }
 
-  async findUserByIdentifier(identifier: string): Promise<StoredUser | null> {
-    const normalizedEmail = identifier.trim().toLowerCase();
-    const normalizedPhone = normalizePhone(identifier);
-    return [...this.users.values()].find((user) =>
-      user.accountType === "member" && (
-        user.email?.toLowerCase() === normalizedEmail ||
-        (normalizedPhone && normalizePhone(user.phone) === normalizedPhone)
-      )) ?? null;
+  async ensureAuthUser(input: AuthIdentityInput): Promise<UserProfile> {
+    const existing = this.users.get(input.id);
+    if (existing) {
+      const next = {
+        ...existing,
+        email: input.email.toLowerCase(),
+        fullName: existing.onboardingComplete ? existing.fullName : input.fullName,
+        photoUrl: existing.onboardingComplete ? existing.photoUrl : input.photoUrl,
+        username: existing.username ?? (input.username ? normalizeUsername(input.username) : null),
+      };
+      this.users.set(input.id, next);
+      return publicUser(next);
+    }
+    const user: StoredUser = {
+      id: input.id,
+      fullName: input.fullName,
+      username: input.username ? normalizeUsername(input.username) : null,
+      email: input.email.toLowerCase(),
+      phone: null,
+      passwordHash: null,
+      dateOfBirth: null,
+      gender: null,
+      preferredLanguage: "English",
+      area: null,
+      photoUrl: input.photoUrl,
+      onboardingComplete: false,
+      accountType: "member",
+      preferences: structuredClone(defaultPreferences),
+    };
+    this.users.set(user.id, user);
+    this.seedWelcomeChats(user.id);
+    return publicUser(user);
+  }
+
+  async completeProfile(userId: string, input: CompleteProfileInput): Promise<UserProfile> {
+    const user = this.requireUser(userId);
+    const username = normalizeUsername(input.username);
+    if ([...this.users.values()].some((candidate) => candidate.id !== userId && candidate.username === username)) {
+      throw new Error("That display name is already taken");
+    }
+    const next: StoredUser = {
+      ...user,
+      ...input,
+      username,
+      phone: normalizePhone(input.phone),
+      onboardingComplete: true,
+      preferences: { ...user.preferences, ...input.preferences },
+    };
+    this.users.set(userId, next);
+    return publicUser(next);
+  }
+
+  async updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile> {
+    const user = this.requireUser(userId);
+    const next = { ...user, photoUrl };
+    this.users.set(userId, next);
+    return publicUser(next);
+  }
+
+  async isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean> {
+    const normalized = normalizeUsername(username);
+    return ![...this.users.values()].some((user) => user.id !== excludeUserId && user.username === normalized);
   }
 
   async findUserById(userId: string): Promise<StoredUser | null> {
@@ -122,30 +207,14 @@ export class InMemoryIdentityStore implements IdentityStore {
     return publicUser(next);
   }
 
-  async createSession(sessionHash: string, userId: string, expiresAt: Date): Promise<void> {
+  async listContacts(userId: string, query = ""): Promise<ChatContact[]> {
     this.requireUser(userId);
-    this.sessions.set(sessionHash, { userId, expiresAt });
-  }
-
-  async findUserBySession(sessionHash: string): Promise<UserProfile | null> {
-    const session = this.sessions.get(sessionHash);
-    if (!session || session.expiresAt <= new Date()) {
-      if (session) this.sessions.delete(sessionHash);
-      return null;
-    }
-    const user = this.users.get(session.userId);
-    return user ? publicUser(user) : null;
-  }
-
-  async deleteSession(sessionHash: string): Promise<void> {
-    this.sessions.delete(sessionHash);
-  }
-
-  async listContacts(userId: string): Promise<ChatContact[]> {
-    this.requireUser(userId);
+    const normalizedQuery = query.trim().toLowerCase();
+    const usernameQuery = normalizeUsername(query);
     return [...this.users.values()]
-      .filter((user) => user.id !== userId)
-      .map((user) => ({ id: user.id, fullName: user.fullName, photoUrl: user.photoUrl }))
+      .filter((user) => user.id !== userId && user.onboardingComplete)
+      .filter((user) => !normalizedQuery || user.fullName.toLowerCase().includes(normalizedQuery) || user.username?.includes(usernameQuery))
+      .map((user) => ({ id: user.id, fullName: user.fullName, username: user.username, photoUrl: user.photoUrl }))
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   }
 

@@ -16,7 +16,7 @@ export default function MyQuestsPage() {
 
   return (
     <div className="page-container narrow-page">
-      <PageHeader title="My Quests" />
+      <PageHeader title="My Activities" />
       <Tabs tabs={["Upcoming", "Past"]} active={tab} onChange={setTab} />
       <section className="joined-list">
         {visibleQuests.map((quest) => (

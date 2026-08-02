@@ -8,6 +8,7 @@ import { currentUser } from "@/server/identity/session";
 export default async function ApplicationLayout({ children }: { children: ReactNode }) {
   const user = await currentUser();
   if (!user) redirect("/login");
+  if (!user.onboardingComplete) redirect("/register/complete");
   return (
     <UserProvider initialUser={user}>
       <AppStateProvider>
