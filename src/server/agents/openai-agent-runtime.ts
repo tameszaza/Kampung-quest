@@ -7,6 +7,7 @@ import {
   type ModelRetrySettings,
 } from "@openai/agents";
 import type { AgentAuditSink, AgentRuntime, MemoryAgentInput } from "@/server/agents/agent-runtime";
+import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
   memoryAgentOutputSchema,
   questProposalSchema,
@@ -46,6 +47,7 @@ export class OpenAIAgentRuntime implements AgentRuntime {
     instructions: [
       "Design one practical, mutually beneficial public quest and select two to five participants.",
       "Use only participant aliases, stated needs, and stated contributions from the input.",
+      "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
       "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
       "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
       "When validation errors are supplied, correct only those errors.",
@@ -120,7 +122,7 @@ export class OpenAIAgentRuntime implements AgentRuntime {
         peerToPeerMoneyAllowed: false,
       },
     }));
-    return this.restoreProposalIds(proposal, reverse);
+    return this.restoreProposalReferences(proposal, reverse, profiles);
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
@@ -169,7 +171,7 @@ export class OpenAIAgentRuntime implements AgentRuntime {
     const startedAt = Date.now();
     const model = typeof agent.model === "string" ? agent.model : "custom-model";
     try {
-      const result = await run(agent, JSON.stringify(input));
+      const result = await run(agent, JSON.stringify(minimizeProviderInput(input)));
       if (!result.finalOutput) throw new Error("Agent returned no structured output");
       await this.audit({
         runId: `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
@@ -212,9 +214,9 @@ export class OpenAIAgentRuntime implements AgentRuntime {
   private safeProfile(profile: CandidateProfile, aliases: Map<string, string>) {
     return {
       candidateId: aliases.get(profile.candidateId),
-      need: profile.need,
-      interests: profile.interests,
-      offers: profile.offers,
+      need: { ref: stableFactRef("need", profile.need), text: profile.need },
+      interests: profile.interests.map((text) => ({ ref: stableFactRef("interest", text), text })),
+      offers: profile.offers.map((text) => ({ ref: stableFactRef("offer", text), text })),
       constraints: profile.constraints,
       previousGroupScore: profile.previousGroupScore,
     };
@@ -234,17 +236,45 @@ export class OpenAIAgentRuntime implements AgentRuntime {
     };
   }
 
-  private restoreProposalIds(proposal: QuestProposal, aliases: Map<string, string>): QuestProposal {
+  private restoreProposalReferences(
+    proposal: QuestProposal,
+    aliases: Map<string, string>,
+    profiles: CandidateProfile[],
+  ): QuestProposal {
     const restore = (alias: string): string => {
       const candidateId = aliases.get(alias);
       if (!candidateId) throw new Error("Agent returned an unknown participant alias");
       return candidateId;
     };
+    const facts = new Map(profiles.map((profile) => [profile.candidateId, {
+      needs: new Map([[stableFactRef("need", profile.need), profile.need]]),
+      offers: new Map(profile.offers.map((text) => [stableFactRef("offer", text), text])),
+    }]));
+    const allNeeds = new Map(profiles.map((profile) => [stableFactRef("need", profile.need), profile.need]));
+    const resolve = (candidateId: string, ref: string, kind: "needs" | "offers"): string => {
+      const text = facts.get(candidateId)?.[kind].get(ref);
+      if (!text) throw new Error(`Agent returned an unknown ${kind === "needs" ? "need" : "offer"} fact reference`);
+      return text;
+    };
     return {
       ...proposal,
+      quest: {
+        ...proposal.quest,
+        needsAddressed: proposal.quest.needsAddressed.map((ref) => {
+          const text = allNeeds.get(ref);
+          if (!text) throw new Error("Agent returned an unknown quest need fact reference");
+          return text;
+        }),
+      },
       proposedParticipants: proposal.proposedParticipants.map((participant) => ({
         ...participant,
         candidateId: restore(participant.candidateId),
+        needsAddressed: participant.needsAddressed.map((ref) =>
+          resolve(restore(participant.candidateId), ref, "needs")
+        ),
+        contributionsUsed: participant.contributionsUsed.map((ref) =>
+          resolve(restore(participant.candidateId), ref, "offers")
+        ),
       })),
       reserveCandidates: proposal.reserveCandidates.map((candidate) => ({
         ...candidate,

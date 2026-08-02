@@ -33,7 +33,13 @@ export interface KampungStore {
     query: number[];
     limit: number;
   }): Promise<Array<{ candidateId: string; similarity: number }>>;
+  createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }>;
   saveQuestRun(run: QuestRun): Promise<QuestRun>;
+  saveQuestRunWithEvent(
+    run: QuestRun,
+    event: CoordinationEventRecord,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun>;
   findQuestRun(runId: string): Promise<QuestRun | null>;
   findQuestByIdempotencyKey(key: string): Promise<QuestRun | null>;
   appendCoordinationEvent(event: CoordinationEventRecord): Promise<void>;
@@ -135,9 +141,34 @@ export class InMemoryKampungStore implements KampungStore {
     return structuredClone(run);
   }
 
+  async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {
+    if (run.idempotencyKey) {
+      const existing = [...this.questRuns.values()].find(
+        (candidate) => candidate.idempotencyKey === run.idempotencyKey,
+      );
+      if (existing) return { run: structuredClone(existing), created: false };
+    }
+    this.questRuns.set(run.runId, structuredClone(run));
+    return { run: structuredClone(run), created: true };
+  }
+
   async findQuestRun(runId: string): Promise<QuestRun | null> {
     const run = this.questRuns.get(runId);
     return run ? structuredClone(run) : null;
+  }
+
+  async saveQuestRunWithEvent(
+    run: QuestRun,
+    event: CoordinationEventRecord,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun> {
+    const current = this.questRuns.get(run.runId);
+    if (!current || current.updatedAt !== expectedUpdatedAt) {
+      throw new Error("Quest state conflict; reload and retry the event");
+    }
+    this.questRuns.set(run.runId, structuredClone(run));
+    this.coordinationEvents.push(structuredClone(event));
+    return structuredClone(run);
   }
 
   async findQuestByIdempotencyKey(key: string): Promise<QuestRun | null> {

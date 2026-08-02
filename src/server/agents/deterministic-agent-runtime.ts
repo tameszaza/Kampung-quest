@@ -9,13 +9,21 @@ export class DeterministicAgentRuntime implements AgentRuntime {
 
   async updateMemory(input: MemoryAgentInput): Promise<MemoryAgentOutput> {
     const { profile, narrative } = input;
-    const interests = profile.interests.length > 0 ? profile.interests : ["Not specified"];
-    const offers = profile.offers.length > 0 ? profile.offers : ["Not specified"];
+    const previous = input.currentMemory?.profile;
+    const need = input.providedSoftFacts?.need === false && previous ? previous.need : profile.need;
+    const mergedInterests = input.providedSoftFacts?.interests === false && previous
+      ? previous.interests
+      : profile.interests;
+    const mergedOffers = input.providedSoftFacts?.offers === false && previous
+      ? previous.offers
+      : profile.offers;
+    const interests = mergedInterests.length > 0 ? mergedInterests : ["Not specified"];
+    const offers = mergedOffers.length > 0 ? mergedOffers : ["Not specified"];
 
     return {
-      need: profile.need,
-      interests: profile.interests,
-      offers: profile.offers,
+      need,
+      interests: mergedInterests,
+      offers: mergedOffers,
       markdown: [
         "---",
         `senior_id: ${profile.candidateId}`,
@@ -24,7 +32,7 @@ export class DeterministicAgentRuntime implements AgentRuntime {
         "",
         "# Current need",
         "",
-        profile.need,
+        need,
         "",
         "# Latest context",
         "",

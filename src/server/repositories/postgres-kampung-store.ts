@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { stableFactRef } from "@/server/agents/provider-privacy";
 import type {
   CandidateEmbedding,
   AgentRunAudit,
@@ -96,6 +97,13 @@ export class PostgresKampungStore implements KampungStore {
       if (!row || row.candidate_id !== input.command.profile.candidateId || row.version !== input.version) {
         throw new Error("Memory update attempt was not found or has changed");
       }
+      const candidate = await client.query<{ active_version: number }>(
+        "SELECT active_version FROM memory.candidates WHERE candidate_id = $1 FOR UPDATE",
+        [row.candidate_id],
+      );
+      if (Number(candidate.rows[0]?.active_version ?? 0) >= row.version) {
+        throw new Error("Memory version conflict: a newer memory is already active");
+      }
 
       await client.query(
         `UPDATE memory.memory_versions
@@ -116,12 +124,12 @@ export class PostgresKampungStore implements KampungStore {
         [row.candidate_id, row.version, JSON.stringify(input.command.profile.constraints)],
       );
       const facts: Array<{ factRef: string; kind: "need" | "interest" | "offer"; factText: string }> = [
-        { factRef: this.factRef("need", input.command.profile.need), kind: "need", factText: input.command.profile.need },
+        { factRef: stableFactRef("need", input.command.profile.need), kind: "need", factText: input.command.profile.need },
         ...input.command.profile.interests.map((fact) => ({
-          factRef: this.factRef("interest", fact), kind: "interest" as const, factText: fact,
+          factRef: stableFactRef("interest", fact), kind: "interest" as const, factText: fact,
         })),
         ...input.command.profile.offers.map((fact) => ({
-          factRef: this.factRef("offer", fact), kind: "offer" as const, factText: fact,
+          factRef: stableFactRef("offer", fact), kind: "offer" as const, factText: fact,
         })),
       ];
       const uniqueFacts = new Map(facts.map((fact) => [fact.factRef, fact] as const));
@@ -284,12 +292,68 @@ export class PostgresKampungStore implements KampungStore {
     return structuredClone(run);
   }
 
+  async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {
+    const inserted = await this.pool.query(
+      `INSERT INTO quest.quest_runs
+         (run_id, initiating_candidate_id, idempotency_key, status, payload, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING run_id`,
+      [
+        run.runId,
+        run.initiatingCandidateId,
+        run.idempotencyKey,
+        run.status,
+        JSON.stringify(run),
+        run.createdAt,
+        run.updatedAt,
+      ],
+    );
+    if (inserted.rowCount === 1) return { run: structuredClone(run), created: true };
+    if (!run.idempotencyKey) throw new Error("Quest run conflict");
+    const existing = await this.findQuestByIdempotencyKey(run.idempotencyKey);
+    if (!existing) throw new Error("Quest idempotency reservation conflict");
+    return { run: existing, created: false };
+  }
+
   async findQuestRun(runId: string): Promise<QuestRun | null> {
     const result = await this.pool.query<{ payload: QuestRun }>(
       "SELECT payload FROM quest.quest_runs WHERE run_id = $1",
       [runId],
     );
     return result.rows[0]?.payload ?? null;
+  }
+
+  async saveQuestRunWithEvent(
+    run: QuestRun,
+    event: CoordinationEventRecord,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query(
+        `UPDATE quest.quest_runs
+         SET status = $2, payload = $3::jsonb, updated_at = $4
+         WHERE run_id = $1 AND updated_at = $5
+         RETURNING run_id`,
+        [run.runId, run.status, JSON.stringify(run), run.updatedAt, expectedUpdatedAt],
+      );
+      if (updated.rowCount !== 1) throw new Error("Quest state conflict; reload and retry the event");
+      await client.query(
+        `INSERT INTO quest.coordination_events
+           (event_id, run_id, event_type, candidate_id, occurred_at, payload)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        [event.eventId, event.runId, event.type, event.candidateId ?? null, event.occurredAt, JSON.stringify(event)],
+      );
+      await client.query("COMMIT");
+      return structuredClone(run);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async findQuestByIdempotencyKey(key: string): Promise<QuestRun | null> {
@@ -370,14 +434,6 @@ export class PostgresKampungStore implements KampungStore {
 
   private vectorLiteral(vector: number[]): string {
     return `[${vector.join(",")}]`;
-  }
-
-  private factRef(kind: "need" | "interest" | "offer", text: string): string {
-    const digest = createHash("sha256")
-      .update(text.trim().toLocaleLowerCase("en"))
-      .digest("hex")
-      .slice(0, 16);
-    return `${kind}_${digest}`;
   }
 
   private parseVector(value: string): number[] {

@@ -16,6 +16,11 @@ export interface MemoryAgentInput {
   profile: CandidateProfile;
   narrative: string;
   currentMemory: MemoryCard | null;
+  providedSoftFacts?: {
+    need: boolean;
+    interests: boolean;
+    offers: boolean;
+  };
 }
 
 export interface AgentRuntime {

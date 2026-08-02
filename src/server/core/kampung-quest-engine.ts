@@ -152,10 +152,6 @@ export class KampungQuestEngine {
 
     const initiator = await this.dependencies.store.findMemory(command.initiatingCandidateId);
     if (!initiator) throw new Error("Initiating candidate was not found");
-    const candidates = await this.retrieveCandidates({
-      initiatingCandidateId: command.initiatingCandidateId,
-      limit: command.candidateLimit,
-    });
     const now = new Date().toISOString();
     const runId = `quest_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     const base: QuestRun = {
@@ -170,9 +166,14 @@ export class KampungQuestEngine {
       createdAt: now,
       updatedAt: now,
     };
-    await this.dependencies.store.saveQuestRun(base);
+    const reservation = await this.dependencies.store.createQuestRun(base);
+    if (!reservation.created) return reservation.run;
 
     try {
+      const candidates = await this.retrieveCandidates({
+        initiatingCandidateId: command.initiatingCandidateId,
+        limit: command.candidateLimit,
+      });
       let proposal = await this.dependencies.agents.synthesizeQuest({
         initiator: initiator.profile,
         candidates,
@@ -180,6 +181,7 @@ export class KampungQuestEngine {
       const cards = await this.dependencies.store.listMemories();
       const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
       let validation = this.validator.validate(proposal, profiles);
+      validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
       if (!validation.valid) {
         proposal = await this.dependencies.agents.synthesizeQuest({
           initiator: initiator.profile,
@@ -187,6 +189,7 @@ export class KampungQuestEngine {
           validationErrors: validation.errors,
         });
         validation = this.validator.validate(proposal, profiles);
+        validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
       }
 
       if (!validation.valid) {
@@ -256,7 +259,14 @@ export class KampungQuestEngine {
         throw new Error("A pending invitation was not found for this participant");
       }
       invitation.status = "accepted";
-      const allAccepted = coordination.invitations.every((candidate) => candidate.status === "accepted");
+      const currentParticipantIds = new Set(
+        run.proposal?.proposedParticipants.map((participant) => participant.candidateId) ?? [],
+      );
+      const currentInvitations = coordination.invitations.filter((candidate) =>
+        currentParticipantIds.has(candidate.candidateId)
+      );
+      const allAccepted = currentInvitations.length === currentParticipantIds.size &&
+        currentInvitations.every((candidate) => candidate.status === "accepted");
       const venue = allAccepted && run.proposal
         ? await this.venues.confirm({ runId: run.runId, proposal: run.proposal })
         : null;
@@ -267,14 +277,12 @@ export class KampungQuestEngine {
         : allAccepted
           ? "A human coordinator must confirm a compatible venue."
           : "Wait for the remaining participants to accept.";
-      const updated = await this.dependencies.store.saveQuestRun({
+      return this.persistCoordinationTransition(run, {
         ...run,
         status: confirmed ? "confirmed" : allAccepted ? "human_review" : "awaiting_acceptance",
         coordination,
-        updatedAt: new Date().toISOString(),
-      });
-      await this.recordCoordinationEvent(command);
-      return updated;
+        updatedAt: this.nextUpdatedAt(run.updatedAt),
+      }, command);
     }
 
     if (command.type === "participant_declined" || command.type === "participant_timed_out") {
@@ -302,14 +310,12 @@ export class KampungQuestEngine {
       if (!reserve || !replacementMemory) {
         coordination.state = "human_review";
         coordination.nextAction = "A human coordinator must find a safe replacement.";
-        const updated = await this.dependencies.store.saveQuestRun({
+        return this.persistCoordinationTransition(run, {
           ...run,
           status: "human_review",
           coordination,
-          updatedAt: new Date().toISOString(),
-        });
-        await this.recordCoordinationEvent(command);
-        return updated;
+          updatedAt: this.nextUpdatedAt(run.updatedAt),
+        }, command);
       }
 
       const proposal = structuredClone(run.proposal);
@@ -330,68 +336,78 @@ export class KampungQuestEngine {
       );
       const cards = await this.dependencies.store.listMemories();
       const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
-      const validation = this.validator.validate(proposal, profiles);
+      const validation = this.requireInitiator(
+        proposal,
+        run.initiatingCandidateId,
+        this.validator.validate(proposal, profiles),
+      );
       const safety = validation.valid
         ? await this.dependencies.agents.reviewSafety({ proposal, profiles })
         : null;
       const approved = validation.valid && safety?.status === "approved";
       if (approved) {
         await this.invitations.send({ runId: run.runId, candidateId: reserve.candidateId });
+        invitation.status = "replaced";
         coordination.invitations.push({ candidateId: reserve.candidateId, status: "pending" });
         coordination.nextAction = "Collect acceptance from the replacement participant.";
       } else {
         coordination.state = "human_review";
         coordination.nextAction = "A human coordinator must review the attempted replacement.";
       }
-      const updated = await this.dependencies.store.saveQuestRun({
+      return this.persistCoordinationTransition(run, {
         ...run,
         status: approved ? "awaiting_acceptance" : "human_review",
         proposal,
         validation,
         safety,
         coordination,
-        updatedAt: new Date().toISOString(),
-      });
-      await this.recordCoordinationEvent(command);
-      return updated;
+        updatedAt: this.nextUpdatedAt(run.updatedAt),
+      }, command);
     }
 
     if (command.type === "quest_cancelled") {
+      if (["completed", "cancelled", "failed"].includes(run.status)) {
+        throw new Error("Quest cancellation is not valid for this quest state");
+      }
       coordination.state = "cancelled";
       coordination.nextAction = "No further action is scheduled.";
-      const updated = await this.dependencies.store.saveQuestRun({
+      return this.persistCoordinationTransition(run, {
         ...run,
         status: "cancelled",
         coordination,
-        updatedAt: new Date().toISOString(),
-      });
-      await this.recordCoordinationEvent(command);
-      return updated;
+        updatedAt: this.nextUpdatedAt(run.updatedAt),
+      }, command);
     }
 
     if (command.type === "quest_completed") {
       if (run.status !== "confirmed") throw new Error("Only a confirmed quest can be completed");
       coordination.state = "completed";
       coordination.nextAction = "Collect feedback and update participant memories.";
-      const updated = await this.dependencies.store.saveQuestRun({
+      return this.persistCoordinationTransition(run, {
         ...run,
         status: "completed",
         coordination,
-        updatedAt: new Date().toISOString(),
-      });
-      await this.recordCoordinationEvent(command);
-      return updated;
+        updatedAt: this.nextUpdatedAt(run.updatedAt),
+      }, command);
     }
 
     throw new Error("This coordination event requires recovery handling");
   }
 
-  private async recordCoordinationEvent(command: CoordinationEventCommand): Promise<void> {
-    await this.dependencies.store.appendCoordinationEvent({
+  private persistCoordinationTransition(
+    previous: QuestRun,
+    updated: QuestRun,
+    command: CoordinationEventCommand,
+  ): Promise<QuestRun> {
+    return this.dependencies.store.saveQuestRunWithEvent(updated, {
       ...command,
       eventId: `event_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
       occurredAt: command.occurredAt ?? new Date().toISOString(),
-    });
+    }, previous.updatedAt);
+  }
+
+  private nextUpdatedAt(previous: string): string {
+    return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
   }
 
   private passesHardFilters(initiator: CandidateProfile, candidate: CandidateProfile): boolean {
@@ -403,6 +419,16 @@ export class KampungQuestEngine {
       candidate.alreadyCommitted ||
       candidate.relationshipBlocked
     ) return false;
+
+    const minimumGroupSize = Math.max(
+      initiator.constraints.minimumGroupSize,
+      candidate.constraints.minimumGroupSize,
+    );
+    const maximumGroupSize = Math.min(
+      initiator.constraints.maximumGroupSize,
+      candidate.constraints.maximumGroupSize,
+    );
+    if (minimumGroupSize > maximumGroupSize) return false;
 
     if (!initiator.constraints.languages.some((language) => candidate.constraints.languages.includes(language))) {
       return false;
@@ -424,5 +450,23 @@ export class KampungQuestEngine {
 
   private round(value: number): number {
     return Math.round(value * 10_000) / 10_000;
+  }
+
+  private requireInitiator(
+    proposal: QuestRun["proposal"] & {},
+    initiatorId: string,
+    validation: NonNullable<QuestRun["validation"]>,
+  ): NonNullable<QuestRun["validation"]> {
+    if (proposal.proposedParticipants.some((participant) => participant.candidateId === initiatorId)) {
+      return validation;
+    }
+    return {
+      valid: false,
+      errors: [...validation.errors, {
+        candidateId: initiatorId,
+        field: "proposedParticipants",
+        message: "The initiating candidate must be included in the proposed group.",
+      }],
+    };
   }
 }

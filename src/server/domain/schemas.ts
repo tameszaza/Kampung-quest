@@ -56,6 +56,11 @@ export interface MemoryCard {
 export interface MemoryUpdateCommand {
   profile: CandidateProfile;
   narrative: string;
+  providedSoftFacts?: {
+    need: boolean;
+    interests: boolean;
+    offers: boolean;
+  };
 }
 
 export interface MemoryAgentOutput {
@@ -264,8 +269,11 @@ export const recoveryActionSchema = z.object({
 });
 
 export const memoryUpdateRequestSchema = candidateProfileSchema
+  .omit({ need: true, interests: true, offers: true })
   .extend({
     need: z.string().min(3).optional(),
+    interests: z.array(z.string()).optional(),
+    offers: z.array(z.string()).optional(),
     narrative: z.string().min(3).optional(),
   })
   .refine((value) => value.need !== undefined || value.narrative !== undefined, {
@@ -276,8 +284,18 @@ export const memoryUpdateRequestSchema = candidateProfileSchema
     const { narrative, ...candidate } = value;
     const need = candidate.need ?? narrative ?? "";
     return {
-      profile: candidateProfileSchema.parse({ ...candidate, need }),
+      profile: candidateProfileSchema.parse({
+        ...candidate,
+        need,
+        interests: candidate.interests ?? [],
+        offers: candidate.offers ?? [],
+      }),
       narrative: narrative ?? need,
+      providedSoftFacts: {
+        need: candidate.need !== undefined,
+        interests: candidate.interests !== undefined,
+        offers: candidate.offers !== undefined,
+      },
     };
   });
 

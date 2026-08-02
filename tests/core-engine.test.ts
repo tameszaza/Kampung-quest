@@ -90,6 +90,24 @@ describe("KampungQuestEngine memory", () => {
     expect((await failingEngine.getMemory("candidate_001"))?.version).toBe(1);
   });
 
+  it("preserves prior soft facts for a narrative-only follow-up", async () => {
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Initial memory" });
+    const updated = await engine.recordMemory({
+      profile: withProfile("candidate_001", { need: "Had a pleasant chat today", interests: [], offers: [] }),
+      narrative: "Had a pleasant chat today",
+      providedSoftFacts: { need: false, interests: false, offers: false },
+    });
+
+    expect(updated.profile.need).toBe(profile("candidate_001").need);
+    expect(updated.profile.interests).toEqual(profile("candidate_001").interests);
+    expect(updated.profile.offers).toEqual(profile("candidate_001").offers);
+  });
+
   it("retrieves complementary offers while excluding ineligible candidates", async () => {
     const engine = new KampungQuestEngine({
       store: new InMemoryKampungStore(),
@@ -124,6 +142,28 @@ describe("KampungQuestEngine memory", () => {
 
     expect(candidates.map((candidate) => candidate.profile.candidateId)).toEqual(["candidate_002"]);
     expect(candidates[0].scores.offerComplementarity).toBeGreaterThan(0);
+  });
+
+  it("filters candidates whose group-size ranges cannot overlap", async () => {
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_001", {
+        constraints: { ...profile("candidate_001").constraints, minimumGroupSize: 4 },
+      }),
+      narrative: "Prefers a group of four",
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_002", {
+        constraints: { ...profile("candidate_002").constraints, maximumGroupSize: 3 },
+      }),
+      narrative: "Prefers at most three people",
+    });
+
+    expect(await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" })).toEqual([]);
   });
 
   it("persists an idempotent, validated and safety-approved quest proposal", async () => {
@@ -162,6 +202,35 @@ describe("KampungQuestEngine memory", () => {
     ]);
     expect(repeated.runId).toBe(first.runId);
     expect((await engine.getQuest(first.runId))?.runId).toBe(first.runId);
+  });
+
+  it("atomically reserves an idempotency key before model work", async () => {
+    class CountingAgentRuntime extends DeterministicAgentRuntime {
+      synthesisCalls = 0;
+
+      override async synthesizeQuest(
+        input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        this.synthesisCalls += 1;
+        return super.synthesizeQuest(input);
+      }
+    }
+    const agents = new CountingAgentRuntime();
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents,
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Host" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Guest" });
+
+    const [first, second] = await Promise.all([
+      engine.proposeQuest({ initiatingCandidateId: "candidate_001", idempotencyKey: "concurrent-key" }),
+      engine.proposeQuest({ initiatingCandidateId: "candidate_001", idempotencyKey: "concurrent-key" }),
+    ]);
+
+    expect(first.runId).toBe(second.runId);
+    expect(agents.synthesisCalls).toBe(1);
   });
 
   it("persists a failed quest run when an agent provider fails", async () => {
@@ -218,6 +287,82 @@ describe("KampungQuestEngine memory", () => {
       field: "contributionsUsed",
     }));
     expect(run.coordination).toBeNull();
+  });
+
+  it("does not invite anyone when safety review rejects a proposal", async () => {
+    class RejectingSafetyRuntime extends DeterministicAgentRuntime {
+      override async reviewSafety(): ReturnType<DeterministicAgentRuntime["reviewSafety"]> {
+        return {
+          status: "rejected",
+          riskLevel: "high",
+          conditions: ["Unsafe assignment"],
+          requiresHumanReview: true,
+        };
+      }
+    }
+    const invitations = new MockInvitationAdapter();
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new RejectingSafetyRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+      invitations,
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Host" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Guest" });
+
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+    expect(run.status).toBe("human_review");
+    expect(run.coordination).toBeNull();
+    expect(invitations.sent).toEqual([]);
+  });
+
+  it("rejects duplicate participants and mismatched group counts", async () => {
+    class DuplicateQuestAgentRuntime extends DeterministicAgentRuntime {
+      override async synthesizeQuest(
+        input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        const proposal = await super.synthesizeQuest(input);
+        proposal.proposedParticipants[1] = structuredClone(proposal.proposedParticipants[0]);
+        proposal.quest.groupSize = 3;
+        return proposal;
+      }
+    }
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DuplicateQuestAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Host" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Guest" });
+
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+    expect(run.status).toBe("human_review");
+    expect(run.validation?.errors.map((error) => error.field)).toEqual(
+      expect.arrayContaining(["proposedParticipants", "groupSize"]),
+    );
+  });
+
+  it("revalidates the initiating participant's current eligibility", async () => {
+    const invitations = new MockInvitationAdapter();
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+      invitations,
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_001", { alreadyCommitted: true }),
+      narrative: "Already committed elsewhere",
+    });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Guest" });
+
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+    expect(run.status).toBe("human_review");
+    expect(run.validation?.errors).toContainEqual(expect.objectContaining({
+      candidateId: "candidate_001",
+      field: "eligibility",
+    }));
+    expect(invitations.sent).toEqual([]);
   });
 
   it("confirms a quest only after every proposed participant accepts", async () => {
@@ -287,5 +432,38 @@ describe("KampungQuestEngine memory", () => {
     expect(recovered.validation?.valid).toBe(true);
     expect(recovered.safety?.status).toBe("approved");
     expect(invitations.sent.at(-1)?.candidateId).toBe(reserve?.candidateId);
+
+    const initiatorAccepted = await engine.applyCoordinationEvent({
+      runId: run.runId,
+      type: "participant_accepted",
+      candidateId: "candidate_001",
+    });
+    expect(initiatorAccepted.status).toBe("awaiting_acceptance");
+    const confirmed = await engine.applyCoordinationEvent({
+      runId: run.runId,
+      type: "participant_accepted",
+      candidateId: reserve?.candidateId,
+    });
+    expect(confirmed.status).toBe("confirmed");
+    expect(confirmed.coordination?.invitations.find(
+      (candidate) => candidate.candidateId === selectedGuest?.candidateId,
+    )?.status).toBe("replaced");
+  });
+
+  it("rejects cancellation from a terminal state", async () => {
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Host" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Guest" });
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+    await engine.applyCoordinationEvent({ runId: run.runId, type: "quest_cancelled" });
+
+    await expect(engine.applyCoordinationEvent({
+      runId: run.runId,
+      type: "quest_cancelled",
+    })).rejects.toThrow("not valid");
   });
 });

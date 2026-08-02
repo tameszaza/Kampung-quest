@@ -33,6 +33,7 @@ describe("version 1 request contracts", () => {
     });
 
     expect(narrative.profile.need).toBe(narrative.narrative);
+    expect(narrative.providedSoftFacts).toEqual({ need: false, interests: false, offers: false });
     expect(legacy.narrative).toBe(legacy.profile.need);
   });
 
