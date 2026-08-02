@@ -23,7 +23,7 @@ next-env.d.ts
 Thumbs.db
 
 # Runtime data and logs
-data/
+/data/
 logs/
 *.log
 npm-debug.log*

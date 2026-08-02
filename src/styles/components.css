@@ -1,0 +1,383 @@
+.tabs {
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.tabs button {
+  position: relative;
+  min-height: 50px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.tabs button::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 3px;
+  border-radius: 99px 99px 0 0;
+  background: transparent;
+}
+
+.tabs button.active {
+  color: var(--green-700);
+}
+
+.tabs button.active::after {
+  background: var(--green-600);
+}
+
+.meta-row {
+  min-width: 0;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.meta-row svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.meta-row span {
+  min-width: 0;
+}
+
+.image-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: var(--warning);
+  color: #6c4200;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.quest-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.quest-card {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.quest-card-link {
+  display: block;
+}
+
+.quest-card-image {
+  position: relative;
+  height: 190px;
+  overflow: hidden;
+  background: #e8efec;
+}
+
+.quest-card-image img {
+  object-fit: cover;
+  transition: transform 180ms ease;
+}
+
+.quest-card:hover .quest-card-image img {
+  transform: scale(1.02);
+}
+
+.quest-card-body {
+  padding: 15px 16px 17px;
+  display: grid;
+  gap: 7px;
+}
+
+.quest-card-body h2 {
+  max-width: calc(100% - 34px);
+  margin: 0 0 3px;
+  font-size: 18px;
+  line-height: 1.28;
+  letter-spacing: -0.018em;
+}
+
+.save-button {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  top: 201px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.09);
+  cursor: pointer;
+}
+
+.save-button.saved {
+  color: var(--green-600);
+}
+
+.save-button.saved svg {
+  fill: currentColor;
+}
+
+.menu-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.menu-row {
+  width: 100%;
+  min-height: 58px;
+  padding: 0 15px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.menu-row:last-child {
+  border-bottom: 0;
+}
+
+.menu-row:hover {
+  background: var(--green-50);
+}
+
+.menu-row.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.avatar-stack {
+  min-width: 66px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.stack-avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  margin-right: -8px;
+  border: 2px solid white;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.stack-avatar img {
+  object-fit: cover;
+}
+
+.empty-state {
+  min-height: 360px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty-state > span {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  place-items: center;
+}
+
+.empty-state h2 {
+  margin: 16px 0 5px;
+  color: var(--ink);
+  font-size: 19px;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  padding-top: 36px;
+  background: rgba(4, 30, 23, 0.42);
+  display: flex;
+  align-items: flex-end;
+}
+
+.create-sheet {
+  position: relative;
+  width: 100%;
+  max-height: calc(100dvh - 36px);
+  padding: 13px 20px calc(24px + env(safe-area-inset-bottom));
+  border-radius: 28px 28px 0 0;
+  background: var(--surface);
+  overflow-y: auto;
+  box-shadow: 0 -18px 48px rgba(4, 30, 23, 0.2);
+}
+
+.sheet-handle {
+  width: 48px;
+  height: 5px;
+  margin: 0 auto 15px;
+  border-radius: 99px;
+  background: #d8e0dd;
+}
+
+.sheet-close {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  background: var(--surface-soft);
+}
+
+.sheet-icon,
+.sheet-success > span {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  place-items: center;
+}
+
+.create-sheet h2 {
+  margin: 14px 0 5px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.create-sheet p {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+
+.create-sheet label {
+  margin: 14px 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.create-sheet input,
+.create-sheet select {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid #bdcbc6;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.create-sheet form > .primary-button,
+.sheet-success .primary-button {
+  width: 100%;
+  margin-top: 7px;
+}
+
+.sheet-success {
+  padding: 28px 0 4px;
+  text-align: center;
+}
+
+.sheet-success > span {
+  margin: 0 auto;
+}
+
+@media (min-width: 640px) {
+  .sheet-backdrop {
+    padding: 40px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-sheet {
+    width: min(520px, 100%);
+    max-height: calc(100dvh - 80px);
+    padding: 18px 28px 28px;
+    border-radius: var(--radius-lg);
+  }
+
+  .sheet-handle {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .quest-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px;
+  }
+
+  .quest-card-image {
+    height: 220px;
+  }
+
+  .save-button {
+    top: 231px;
+  }
+
+  .quest-card-body h2 {
+    font-size: 19px;
+  }
+}
+
+@media (min-width: 1080px) {
+  .quest-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Keep all fill images stable in both Next.js and static QA renders. */
+.quest-card-image > img,
+.desktop-avatar > img,
+.home-avatar > img,
+.invite-image > img,
+.joined-image > img,
+.message-avatar > img,
+.host-avatar > img,
+.profile-photo > img,
+.stack-avatar > img {
+  width: 100%;
+  height: 100%;
+}
