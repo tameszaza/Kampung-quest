@@ -166,6 +166,31 @@ describe("KampungQuestEngine memory", () => {
     expect(await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" })).toEqual([]);
   });
 
+  it("never compares embeddings produced by different models", async () => {
+    const embeddings: EmbeddingProvider = {
+      async embedMemory(input) {
+        const model = input.candidateId === "candidate_001" ? "model-a" : "model-b";
+        return (["need", "interest", "offer"] as const).map((kind) => ({
+          candidateId: input.candidateId,
+          memoryVersion: input.memoryVersion,
+          kind,
+          model,
+          dimensions: 1536,
+          vector: [1, ...Array.from<number>({ length: 1535 }).fill(0)],
+        }));
+      },
+    };
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      embeddings,
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "First model" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Second model" });
+
+    expect(await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" })).toEqual([]);
+  });
+
   it("persists an idempotent, validated and safety-approved quest proposal", async () => {
     const invitations = new MockInvitationAdapter();
     const engine = new KampungQuestEngine({

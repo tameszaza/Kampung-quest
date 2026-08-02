@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   Agent,
-  run,
+  Runner,
   setTracingDisabled,
   type AgentOutputType,
+  type ModelProvider,
   type ModelRetrySettings,
 } from "@openai/agents";
 import type { AgentAuditSink, AgentRuntime, MemoryAgentInput } from "@/server/agents/agent-runtime";
+import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
   memoryAgentOutputSchema,
@@ -24,60 +26,71 @@ const retrySettings: ModelRetrySettings = {
     normalized.isNetworkError || normalized.statusCode === 429 || (normalized.statusCode ?? 0) >= 500,
 };
 
-export class OpenAIAgentRuntime implements AgentRuntime {
-  constructor(private readonly auditSink?: AgentAuditSink) {
+interface HostedAgentRuntimeOptions {
+  provider: Exclude<AgentProviderName, "deterministic">;
+  models: Omit<HostedModelConfiguration, "embedding">;
+  modelProvider: ModelProvider;
+  auditSink?: AgentAuditSink;
+}
+
+export class HostedAgentRuntime implements AgentRuntime {
+  private readonly memoryAgent: Agent<unknown, typeof memoryAgentOutputSchema>;
+  private readonly synthesisAgent: Agent<unknown, typeof questProposalSchema>;
+  private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
+  private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
+  private readonly runner: Runner;
+
+  constructor(private readonly options: HostedAgentRuntimeOptions) {
     setTracingDisabled(true);
+    this.runner = new Runner({ modelProvider: options.modelProvider });
+    const persistenceSetting = options.provider === "openai" ? { store: false as const } : {};
+    this.memoryAgent = new Agent({
+      name: "Kampung personal memory",
+      model: options.models.memory,
+      instructions: [
+        "Update a senior's human-readable memory from the supplied current snapshot and new narrative.",
+        "Treat structured constraints as authoritative and never infer or modify them.",
+        "Return only the requested structured output. Do not add identity or contact details.",
+      ].join(" "),
+      outputType: memoryAgentOutputSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.synthesisAgent = new Agent({
+      name: "Kampung quest synthesis and matchmaking",
+      model: options.models.synthesis,
+      instructions: [
+        "Design one practical, mutually beneficial public quest and select two to five participants.",
+        "Use only participant aliases, stated needs, and stated contributions from the input.",
+        "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
+        "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
+        "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
+        "When validation errors are supplied, correct only those errors.",
+      ].join(" "),
+      outputType: questProposalSchema,
+      modelSettings: { reasoning: { effort: "medium" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.safetyAgent = new Agent({
+      name: "Kampung safety guardian",
+      model: options.models.safety,
+      instructions: [
+        "Review only the supplied validated quest for contextual safety risk.",
+        "Escalate money, private-home visits, coercion, distress, sensitive-data exposure, or unusual assignments.",
+        "Do not redesign the quest. Return an approval, rejection, or human-review decision.",
+      ].join(" "),
+      outputType: safetyReviewSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.recoveryAgent = new Agent({
+      name: "Kampung event recovery",
+      model: options.models.recovery,
+      instructions: [
+        "Choose at most one supplied reserve alias to replace the unavailable participant.",
+        "Return null when no reserve is suitable. Do not change the activity or create new participants.",
+      ].join(" "),
+      outputType: recoveryActionSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
   }
-
-  private readonly memoryAgent = new Agent({
-    name: "Kampung personal memory",
-    model: process.env.OPENAI_MEMORY_MODEL ?? "gpt-5.6-luna",
-    instructions: [
-      "Update a senior's human-readable memory from the supplied current snapshot and new narrative.",
-      "Treat structured constraints as authoritative and never infer or modify them.",
-      "Return only the requested structured output. Do not add identity or contact details.",
-    ].join(" "),
-    outputType: memoryAgentOutputSchema,
-    modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, store: false },
-  });
-
-  private readonly synthesisAgent = new Agent({
-    name: "Kampung quest synthesis and matchmaking",
-    model: process.env.OPENAI_SYNTHESIS_MODEL ?? "gpt-5.6-terra",
-    instructions: [
-      "Design one practical, mutually beneficial public quest and select two to five participants.",
-      "Use only participant aliases, stated needs, and stated contributions from the input.",
-      "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
-      "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
-      "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
-      "When validation errors are supplied, correct only those errors.",
-    ].join(" "),
-    outputType: questProposalSchema,
-    modelSettings: { reasoning: { effort: "medium" }, retry: retrySettings, store: false },
-  });
-
-  private readonly safetyAgent = new Agent({
-    name: "Kampung safety guardian",
-    model: process.env.OPENAI_SAFETY_MODEL ?? "gpt-5.6-terra",
-    instructions: [
-      "Review only the supplied validated quest for contextual safety risk.",
-      "Escalate money, private-home visits, coercion, distress, sensitive-data exposure, or unusual assignments.",
-      "Do not redesign the quest. Return an approval, rejection, or human-review decision.",
-    ].join(" "),
-    outputType: safetyReviewSchema,
-    modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, store: false },
-  });
-
-  private readonly recoveryAgent = new Agent({
-    name: "Kampung event recovery",
-    model: process.env.OPENAI_RECOVERY_MODEL ?? "gpt-5.6-terra",
-    instructions: [
-      "Choose at most one supplied reserve alias to replace the unavailable participant.",
-      "Return null when no reserve is suitable. Do not change the activity or create new participants.",
-    ].join(" "),
-    outputType: recoveryActionSchema,
-    modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, store: false },
-  });
 
   async updateMemory(input: MemoryAgentInput) {
     const alias = "p_1";
@@ -178,7 +191,7 @@ export class OpenAIAgentRuntime implements AgentRuntime {
     const startedAt = Date.now();
     const model = typeof agent.model === "string" ? agent.model : "custom-model";
     try {
-      const result = await run(agent, JSON.stringify(minimizeProviderInput(input)));
+      const result = await this.runner.run(agent, JSON.stringify(minimizeProviderInput(input)));
       if (!result.finalOutput) throw new Error("Agent returned no structured output");
       await this.audit({
         runId: `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
@@ -189,7 +202,7 @@ export class OpenAIAgentRuntime implements AgentRuntime {
         latencyMs: Date.now() - startedAt,
         inputTokens: result.state.usage.inputTokens,
         outputTokens: result.state.usage.outputTokens,
-        metadata: {},
+        metadata: { provider: this.options.provider },
       });
       return result.finalOutput;
     } catch (error) {
@@ -202,16 +215,16 @@ export class OpenAIAgentRuntime implements AgentRuntime {
         latencyMs: Date.now() - startedAt,
         inputTokens: null,
         outputTokens: null,
-        metadata: {},
+        metadata: { provider: this.options.provider },
       });
-      const message = error instanceof Error ? error.message : "Unknown OpenAI error";
-      throw new Error(`OpenAI provider unavailable: ${message}`, { cause: error });
+      const message = error instanceof Error ? error.message : "Unknown hosted model error";
+      throw new Error(`${this.options.provider} provider unavailable: ${message}`, { cause: error });
     }
   }
 
   private async audit(record: Parameters<AgentAuditSink>[0]): Promise<void> {
-    if (!this.auditSink) return;
-    await this.auditSink(record).catch(() => undefined);
+    if (!this.options.auditSink) return;
+    await this.options.auditSink(record).catch(() => undefined);
   }
 
   private aliases(profiles: CandidateProfile[]): Map<string, string> {

@@ -31,6 +31,8 @@ export interface KampungStore {
   searchEmbeddings(input: {
     kind: CandidateEmbedding["kind"];
     query: number[];
+    model: string;
+    dimensions: number;
     limit: number;
   }): Promise<Array<{ candidateId: string; similarity: number }>>;
   createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }>;
@@ -107,12 +109,18 @@ export class InMemoryKampungStore implements KampungStore {
   async searchEmbeddings(input: {
     kind: CandidateEmbedding["kind"];
     query: number[];
+    model: string;
+    dimensions: number;
     limit: number;
   }): Promise<Array<{ candidateId: string; similarity: number }>> {
     return [...this.embeddings.entries()]
       .flatMap(([candidateId, embeddings]) =>
         embeddings
-          .filter((embedding) => embedding.kind === input.kind)
+          .filter((embedding) =>
+            embedding.kind === input.kind
+            && embedding.model === input.model
+            && embedding.dimensions === input.dimensions,
+          )
           .map((embedding) => ({
             candidateId,
             similarity: this.cosine(input.query, embedding.vector),

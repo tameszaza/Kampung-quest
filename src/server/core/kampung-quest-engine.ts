@@ -90,9 +90,27 @@ export class KampungQuestEngine {
 
     const rawLimit = 10;
     const [needMatches, offerMatches, interestMatches, cards] = await Promise.all([
-      this.dependencies.store.searchEmbeddings({ kind: "need", query: need.vector, limit: rawLimit }),
-      this.dependencies.store.searchEmbeddings({ kind: "offer", query: need.vector, limit: rawLimit }),
-      this.dependencies.store.searchEmbeddings({ kind: "interest", query: interest.vector, limit: rawLimit }),
+      this.dependencies.store.searchEmbeddings({
+        kind: "need",
+        query: need.vector,
+        model: need.model,
+        dimensions: need.dimensions,
+        limit: rawLimit,
+      }),
+      this.dependencies.store.searchEmbeddings({
+        kind: "offer",
+        query: need.vector,
+        model: need.model,
+        dimensions: need.dimensions,
+        limit: rawLimit,
+      }),
+      this.dependencies.store.searchEmbeddings({
+        kind: "interest",
+        query: interest.vector,
+        model: interest.model,
+        dimensions: interest.dimensions,
+        limit: rawLimit,
+      }),
       this.dependencies.store.listMemories(),
     ]);
     const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));

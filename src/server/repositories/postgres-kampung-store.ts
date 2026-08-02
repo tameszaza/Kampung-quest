@@ -256,15 +256,17 @@ export class PostgresKampungStore implements KampungStore {
   async searchEmbeddings(input: {
     kind: CandidateEmbedding["kind"];
     query: number[];
+    model: string;
+    dimensions: number;
     limit: number;
   }): Promise<Array<{ candidateId: string; similarity: number }>> {
     const result = await this.pool.query<{ candidate_id: string; similarity: string | number }>(
       `SELECT candidate_id, 1 - (embedding <=> $1::vector) AS similarity
        FROM retrieval.candidate_embeddings
-       WHERE kind = $2 AND active = true
+       WHERE kind = $2 AND model = $3 AND dimensions = $4 AND active = true
        ORDER BY embedding <=> $1::vector
-       LIMIT $3`,
-      [this.vectorLiteral(input.query), input.kind, input.limit],
+       LIMIT $5`,
+      [this.vectorLiteral(input.query), input.kind, input.model, input.dimensions, input.limit],
     );
     return result.rows.map((row) => ({
       candidateId: row.candidate_id,

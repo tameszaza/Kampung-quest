@@ -41,37 +41,65 @@ export class DeterministicEmbeddingProvider implements EmbeddingProvider {
   }
 }
 
-export class OpenAIEmbeddingProvider implements EmbeddingProvider {
-  private readonly model = process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small";
-  private readonly client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    maxRetries: 2,
-    timeout: 45_000,
-  });
+export interface HostedEmbeddingProviderOptions {
+  provider: "openai" | "gemini";
+  apiKey: string;
+  baseURL?: string;
+  model: string;
+  dimensions: 1536;
+  fetch?: typeof fetch;
+}
+
+export class HostedEmbeddingProvider implements EmbeddingProvider {
+  private readonly client: OpenAI;
+  private readonly embeddingSpaceId: string;
+
+  constructor(private readonly options: HostedEmbeddingProviderOptions) {
+    const endpoint = options.baseURL
+      ?? (options.provider === "openai"
+        ? "https://api.openai.com/v1"
+        : "https://generativelanguage.googleapis.com/v1beta/openai/");
+    this.embeddingSpaceId = `${options.provider}:${endpoint}:${options.model}`;
+    this.client = new OpenAI({
+      apiKey: options.apiKey,
+      baseURL: options.baseURL,
+      fetch: options.fetch,
+      maxRetries: 2,
+      timeout: 45_000,
+    });
+  }
 
   async embedMemory(input: EmbedMemoryInput): Promise<CandidateEmbedding[]> {
     try {
       const response = await this.client.embeddings.create({
-        model: this.model,
+        model: this.options.model,
         input: [input.memory.need, input.memory.interests.join(" "), input.memory.offers.join(" ")],
+        dimensions: this.options.dimensions,
         encoding_format: "float",
       });
       const kinds: CandidateEmbedding["kind"][] = ["need", "interest", "offer"];
       return kinds.map((kind, index) => {
         const vector = response.data[index]?.embedding;
         if (!vector) throw new Error(`Embedding response is missing ${kind}`);
+        if (vector.length !== this.options.dimensions) {
+          throw new Error(
+            `Embedding response for ${kind} has ${vector.length} dimensions; expected ${this.options.dimensions}`,
+          );
+        }
         return {
           candidateId: input.candidateId,
           memoryVersion: input.memoryVersion,
           kind,
-          model: this.model,
+          model: this.embeddingSpaceId,
           dimensions: vector.length,
           vector,
         };
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown OpenAI error";
-      throw new Error(`OpenAI embedding provider unavailable: ${message}`, { cause: error });
+      const message = error instanceof Error ? error.message : "Unknown hosted embedding error";
+      throw new Error(`${this.options.provider} embedding provider unavailable: ${message}`, {
+        cause: error,
+      });
     }
   }
 }

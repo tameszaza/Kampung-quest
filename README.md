@@ -113,7 +113,7 @@ Markdown is stored as versioned database text and can be exported as a `.md` fil
 
 ## Agent provider
 
-The default Docker configuration uses deterministic agents so the complete demo runs without credentials. To enable hosted model calls:
+The default Docker configuration uses deterministic agents so the complete demo runs without credentials. To enable OpenAI-hosted model calls:
 
 ```bash
 AGENT_PROVIDER=openai
@@ -121,6 +121,26 @@ OPENAI_API_KEY=your-server-side-key
 ```
 
 Recommended defaults are `gpt-5.6-luna` for memory, `gpt-5.6-terra` for synthesis, safety and recovery, and `text-embedding-3-small` for 1536-dimensional vectors. All model names are configurable through environment variables. Model inputs use run-local participant aliases and omit names, contact details and precise addresses. Provider tracing is disabled; de-identified run metadata and token usage are stored locally.
+
+Gemini is also supported through Google's OpenAI-compatible Chat Completions endpoint:
+
+```bash
+AGENT_PROVIDER=gemini
+GEMINI_API_KEY=your-server-side-key
+```
+
+The defaults use `gemini-2.5-flash-lite` for memory, safety and recovery,
+`gemini-2.5-flash` for quest synthesis, and `gemini-embedding-001` for retrieval.
+The application explicitly requests 1536-dimensional Gemini embeddings to match the
+PostgreSQL `vector(1536)` column. `GEMINI_BASE_URL` and every Gemini model name can be
+overridden through the environment variables shown in `.env.example`. Keep all provider
+keys server-side; do not expose them through `NEXT_PUBLIC_` variables.
+
+Embeddings from different providers, endpoints or models are not comparable, even when they
+have the same number of dimensions. Retrieval therefore records an embedding-space identifier
+and only compares candidates in the initiating user's provider/endpoint/model space. After
+changing embedding providers, update every user's memory again (or rebuild all derived
+embeddings from the stored memory records) before expecting the full pool to match.
 
 Agent roles do not hand control to one another. Application code invokes them in sequence, validates structured output with Zod, allows one synthesis correction, and remains the only code allowed to change participants, invitations or quest state.
 
