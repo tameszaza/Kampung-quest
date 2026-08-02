@@ -33,6 +33,25 @@ interface HostedAgentRuntimeOptions {
   auditSink?: AgentAuditSink;
 }
 
+export function normalizeGeminiVenueRequirements(requirements: string[]): string[] {
+  const canonical = new Set(requirements);
+  const normalized = requirements.map((requirement) =>
+    requirement.toLowerCase().replaceAll("_", " ").replaceAll("-", " ")
+  );
+  if (normalized.some((requirement) =>
+    requirement === "approved public location"
+    || (/\bpublic\b/.test(requirement)
+      && /\b(location|venue|community center|community centre|lounge|room)\b/.test(requirement))
+  )) canonical.add("approved_public_location");
+  if (normalized.some((requirement) => /\bindoor\b/.test(requirement))) {
+    canonical.add("indoor");
+  }
+  if (normalized.some((requirement) =>
+    /\b(no stairs|stair free|step free|no steps|without stairs)\b/.test(requirement)
+  )) canonical.add("no_stairs");
+  return [...canonical];
+}
+
 export class HostedAgentRuntime implements AgentRuntime {
   private readonly memoryAgent: Agent<unknown, typeof memoryAgentOutputSchema>;
   private readonly synthesisAgent: Agent<unknown, typeof questProposalSchema>;
@@ -63,6 +82,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         "Use only participant aliases, stated needs, and stated contributions from the input.",
         "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
         "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
+        "In venueRequirements, always use the exact token approved_public_location; also use indoor or no_stairs exactly when participant constraints require them.",
         "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
         "When validation errors are supplied, correct only those errors.",
       ].join(" "),
@@ -142,7 +162,13 @@ export class HostedAgentRuntime implements AgentRuntime {
         peerToPeerMoneyAllowed: false,
       },
     }));
-    return this.restoreProposalReferences(proposal, reverse, profiles);
+    return this.restoreProposalReferences({
+      ...proposal,
+      quest: {
+        ...proposal.quest,
+        venueRequirements: normalizeGeminiVenueRequirements(proposal.quest.venueRequirements),
+      },
+    }, reverse, profiles);
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
