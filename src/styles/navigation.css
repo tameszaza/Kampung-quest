@@ -1,5 +1,10 @@
 .desktop-nav {
+  position: relative;
   display: none;
+}
+
+.desktop-avatar {
+  position: relative;
 }
 
 .bottom-nav {

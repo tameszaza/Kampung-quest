@@ -4,22 +4,24 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
-import { getMariaMemory } from "@/features/assistant/client";
+import { useUser } from "@/components/user-context";
+import { getUserMemory } from "@/features/assistant/client";
 import type { MemoryCard } from "@/server/domain/schemas";
 
-export function MariaMemoryView() {
+export function UserMemoryView() {
+  const { user } = useUser();
   const [memory, setMemory] = useState<MemoryCard | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    void getMariaMemory().then((value) => {
+    void getUserMemory(user.id).then((value) => {
       if (active) setMemory(value);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "Could not load your memory");
     });
     return () => { active = false; };
-  }, []);
+  }, [user.id]);
 
   return (
     <div className="page-container narrow-page">

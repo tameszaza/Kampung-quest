@@ -1,9 +1,14 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { LatestEngineQuest } from "@/components/engine-quest-views";
 import { Icon } from "@/components/icons";
+import { useUser } from "@/components/user-context";
 
 export default function HomePage() {
+  const { user } = useUser();
+  const firstName = user.fullName.split(/\s+/)[0] || user.fullName;
   return (
     <div className="page-container home-page">
       <header className="home-header">
@@ -12,10 +17,10 @@ export default function HomePage() {
         </Link>
         <div className="home-greeting">
           <p>Good morning,</p>
-          <h1>Maria! <span aria-hidden="true">👋</span></h1>
+          <h1>{firstName}! <span aria-hidden="true">👋</span></h1>
         </div>
         <Link className="home-avatar" href="/profile" aria-label="Open profile">
-          <Image src="/assets/profile-maria.jpg" alt="Maria Santos" fill sizes="58px" />
+          <Image src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="58px" />
         </Link>
       </header>
 

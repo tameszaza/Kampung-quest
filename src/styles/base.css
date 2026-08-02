@@ -19,6 +19,19 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html[data-text-size="extra-large"] body {
+  font-size: 18px;
+}
+
+html[data-contrast="high"] {
+  --ink: #001b14;
+  --ink-soft: #183d34;
+  --muted: #38564f;
+  --line: #8aa39a;
+  --green-600: #007a50;
+  --green-700: #005f3e;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

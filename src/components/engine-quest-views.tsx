@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EngineQuestCard, questDate, questImage } from "@/components/engine-quest-card";
 import { Icon } from "@/components/icons";
-import { getQuestRun, listMariaQuests } from "@/features/assistant/client";
+import { getQuestRun, listUserQuests } from "@/features/assistant/client";
 import type { QuestRun } from "@/server/domain/schemas";
+import { useUser } from "@/components/user-context";
 
 type LoadState<T> =
   | { status: "loading"; value: T }
@@ -14,17 +15,18 @@ type LoadState<T> =
   | { status: "error"; value: T; message: string };
 
 export function EngineQuestList() {
+  const { user } = useUser();
   const [state, setState] = useState<LoadState<QuestRun[]>>({ status: "loading", value: [] });
 
   useEffect(() => {
     let active = true;
-    void listMariaQuests().then((runs) => {
+    void listUserQuests(user.id).then((runs) => {
       if (active) setState({ status: "ready", value: runs });
     }).catch((error) => {
       if (active) setState({ status: "error", value: [], message: error instanceof Error ? error.message : "Could not load quests" });
     });
     return () => { active = false; };
-  }, []);
+  }, [user.id]);
 
   if (state.status === "loading") return <ConnectedLoading label="Loading your recommendations…" />;
   if (state.status === "error") return <ConnectedError message={state.message} />;
@@ -34,25 +36,27 @@ export function EngineQuestList() {
 }
 
 export function LatestEngineQuest() {
+  const { user } = useUser();
   const [state, setState] = useState<LoadState<QuestRun | null>>({ status: "loading", value: null });
   useEffect(() => {
     let active = true;
-    void listMariaQuests(10).then((runs) => {
+    void listUserQuests(user.id, 10).then((runs) => {
       if (active) setState({ status: "ready", value: runs.find((run) => run.proposal !== null) ?? null });
     }).catch((error) => {
       if (active) setState({ status: "error", value: null, message: error instanceof Error ? error.message : "Could not load a recommendation" });
     });
     return () => { active = false; };
-  }, []);
+  }, [user.id]);
 
   if (state.status === "loading") return <ConnectedLoading label="Checking for a recommendation…" />;
   if (state.status === "error" || !state.value) {
-    return <div className="home-assistant-empty"><span aria-hidden="true">♥</span><div><strong>Ready when you are, Maria</strong><p>Tell Senior Quest what would feel helpful or enjoyable today.</p></div><Link className="primary-button" href="/assistant">Start a conversation</Link></div>;
+    return <div className="home-assistant-empty"><span aria-hidden="true">♥</span><div><strong>Ready when you are, {user.fullName.split(/\s+/)[0]}</strong><p>Tell Senior Quest what would feel helpful or enjoyable today.</p></div><Link className="primary-button" href="/assistant">Start a conversation</Link></div>;
   }
   return <EngineQuestCard run={state.value} compact />;
 }
 
 export function EngineQuestDetail({ runId }: { runId: string }) {
+  const { user } = useUser();
   const [state, setState] = useState<LoadState<QuestRun | null>>({ status: "loading", value: null });
   useEffect(() => {
     let active = true;
@@ -91,7 +95,7 @@ export function EngineQuestDetail({ runId }: { runId: string }) {
             <div className="detail-fact"><Icon name="pin" /><span><small>Venue requirements</small><strong>{venueRequirements}</strong></span></div>
             <div className="detail-fact"><Icon name="people" /><span><small>Group size</small><strong>{proposal.quest.groupSize} people</strong></span></div>
           </div>
-          <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => <div key={participant.candidateId}><span>{participant.candidateId === "maria" ? "You" : participant.candidateId.replace("demo_", "").replace(/^./, (letter) => letter.toUpperCase())}</span><strong>{participant.proposedRole.replaceAll("_", " ")}</strong></div>)}</section>
+          <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => <div key={participant.candidateId}><span>{participant.candidateId === user.id ? "You" : participant.candidateId.replace("demo_", "").replace(/^./, (letter) => letter.toUpperCase())}</span><strong>{participant.proposedRole.replaceAll("_", " ")}</strong></div>)}</section>
           <section className="engine-assurance">
             <h2>Checks and coordination</h2>
             <div><strong>Constraints</strong><span>{run.validation?.valid ? "All participant constraints validated" : "Coordinator review required"}</span></div>

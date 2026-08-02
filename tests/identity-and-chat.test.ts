@@ -1,0 +1,102 @@
+import { describe, expect, it } from "vitest";
+import { InMemoryIdentityStore } from "@/server/identity/identity-store";
+import { hashPassword, verifyPassword } from "@/server/identity/password";
+import { createConversationSchema, registerSchema } from "@/server/identity/schemas";
+import { hashSessionToken } from "@/server/identity/session";
+import { defaultPreferences } from "@/server/identity/types";
+
+function member(email: string, passwordHash = "scrypt$stored-only-for-test") {
+  return {
+    fullName: "Maria Santos",
+    email,
+    phone: null,
+    passwordHash,
+    dateOfBirth: "1948-05-12",
+    gender: "Female",
+    preferredLanguage: "English",
+    area: "Tampines",
+    photoUrl: null,
+    preferences: structuredClone(defaultPreferences),
+  };
+}
+
+describe("member identity security", () => {
+  it("stores a salted scrypt hash and verifies without retaining the password", async () => {
+    const password = "Friendly123";
+    const first = await hashPassword(password);
+    const second = await hashPassword(password);
+
+    expect(first).toMatch(/^scrypt\$16384\$8\$1\$/);
+    expect(first).not.toContain(password);
+    expect(first).not.toBe(second);
+    await expect(verifyPassword(password, first)).resolves.toBe(true);
+    await expect(verifyPassword("Wrong123", first)).resolves.toBe(false);
+  });
+
+  it("validates account and conversation contracts", () => {
+    const input = registerSchema.parse({
+      fullName: "Maria Santos",
+      email: "maria@example.com",
+      password: "Friendly123",
+      preferredLanguage: "English",
+    });
+    expect(input.groupSize).toBe("small");
+    expect(() => registerSchema.parse({ fullName: "Maria", password: "Friendly123" })).toThrow();
+    expect(() => createConversationSchema.parse({ type: "direct", participantIds: ["a", "b"] })).toThrow();
+  });
+
+  it("hashes session tokens before persistence", () => {
+    const token = "a-private-random-cookie-token";
+    expect(hashSessionToken(token)).not.toContain(token);
+    expect(hashSessionToken(token)).toBe(hashSessionToken(token));
+  });
+});
+
+describe("member preferences and chat", () => {
+  it("creates per-user preferences and rejects duplicate identities", async () => {
+    const store = new InMemoryIdentityStore();
+    const user = await store.createUser(member("maria@example.com"));
+    expect(user.preferences.textSize).toBe("large");
+    await expect(store.createUser(member("MARIA@example.com"))).rejects.toThrow("already exists");
+
+    const updated = await store.updatePreferences(user.id, {
+      textSize: "extra-large",
+      highContrast: true,
+      interests: ["Cooking"],
+    });
+    expect(updated.preferences).toMatchObject({ textSize: "extra-large", highContrast: true, interests: ["Cooking"] });
+  });
+
+  it("supports welcome chats, direct-message reuse, groups, and stored messages", async () => {
+    const store = new InMemoryIdentityStore();
+    const maria = await store.createUser(member("maria@example.com"));
+    const lee = await store.createUser({ ...member("lee@example.com"), fullName: "Lee Ming" });
+    const welcomeChats = await store.listConversations(maria.id);
+    expect(welcomeChats.some((chat) => chat.type === "direct")).toBe(true);
+    expect(welcomeChats.some((chat) => chat.title === "Cooking Buddies")).toBe(true);
+
+    const direct = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    const duplicate = await store.createConversation(lee.id, { type: "direct", participantIds: [maria.id] });
+    expect(duplicate.id).toBe(direct.id);
+
+    const group = await store.createConversation(maria.id, {
+      type: "group",
+      participantIds: [lee.id, "community_anne"],
+      title: "Garden Friends",
+    });
+    expect(group.memberCount).toBe(3);
+    await store.sendMessage(maria.id, group.id, "Shall we meet on Friday?");
+    const history = await store.listMessages(lee.id, group.id);
+    expect(history.at(-1)).toMatchObject({ body: "Shall we meet on Friday?", mine: false });
+  });
+
+  it("does not expose conversations to non-members", async () => {
+    const store = new InMemoryIdentityStore();
+    const maria = await store.createUser(member("maria@example.com"));
+    const lee = await store.createUser({ ...member("lee@example.com"), fullName: "Lee Ming" });
+    const outsider = await store.createUser({ ...member("outsider@example.com"), fullName: "Other Person" });
+    const direct = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    await expect(store.listMessages(outsider.id, direct.id)).rejects.toThrow("not found");
+    await expect(store.sendMessage(outsider.id, direct.id, "Hello")).rejects.toThrow("not found");
+  });
+});

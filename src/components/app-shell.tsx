@@ -3,9 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useAppState } from "@/components/app-state";
 import { Icon, type IconName } from "@/components/icons";
+import { useUser } from "@/components/user-context";
 
 const navItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
   { href: "/home", label: "Home", icon: "home", match: ["/home"] },
@@ -22,6 +23,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useAppState();
+  const { user } = useUser();
+
+  useEffect(() => {
+    document.documentElement.dataset.textSize = user.preferences.textSize;
+    document.documentElement.dataset.contrast = user.preferences.highContrast ? "high" : "standard";
+    return () => {
+      delete document.documentElement.dataset.textSize;
+      delete document.documentElement.dataset.contrast;
+    };
+  }, [user.preferences.highContrast, user.preferences.textSize]);
 
   return (
     <div className="app-shell">
@@ -48,7 +59,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             Talk to Senior Quest
           </button>
           <Link className="desktop-avatar" href="/profile" aria-label="Open profile">
-            <Image src="/assets/profile-maria.jpg" alt="Maria Santos" fill sizes="44px" />
+            <Image src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="44px" />
           </Link>
         </div>
       </header>

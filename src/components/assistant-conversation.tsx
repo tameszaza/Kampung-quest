@@ -19,6 +19,7 @@ import {
   type AssistantStep,
 } from "@/features/assistant/conversation";
 import type { QuestRun } from "@/server/domain/schemas";
+import { useUser } from "@/components/user-context";
 
 const DRAFT_KEY = "senior-quest-assistant-draft";
 
@@ -92,7 +93,7 @@ function displayDate(start?: string, end?: string) {
   })}, ${startDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}–${endDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 }
 
-function candidateName(candidateId: string) {
+function candidateName(candidateId: string, ownCandidateId: string) {
   const names: Record<string, string> = {
     maria: "You",
     demo_anne: "Anne",
@@ -100,7 +101,7 @@ function candidateName(candidateId: string) {
     demo_john: "John",
     demo_mei: "Mei",
   };
-  return names[candidateId] ?? "A neighbour";
+  return candidateId === ownCandidateId ? "You" : names[candidateId] ?? "A neighbour";
 }
 
 function friendlyRole(role: string) {
@@ -109,6 +110,7 @@ function friendlyRole(role: string) {
 }
 
 export function AssistantConversation() {
+  const { user } = useUser();
   const [state, dispatch] = useReducer(
     assistantConversationReducer,
     createAssistantConversation("conversation_pending"),
@@ -216,7 +218,7 @@ export function AssistantConversation() {
     try {
       dispatch({ type: "submission_started" });
       setProgress(0);
-      const result = await requestRecommendation(toRecommendationRequest(state));
+      const result = await requestRecommendation(toRecommendationRequest(state, user.id));
       setQuest(result.quest);
       dispatch({ type: "submission_succeeded", questRunId: result.quest.runId });
     } catch (error) {
@@ -368,7 +370,7 @@ export function AssistantConversation() {
           </section>
         ) : null}
 
-        {state.step === "complete" && quest ? <QuestResult quest={quest} onStartAgain={startAgain} /> : null}
+        {state.step === "complete" && quest ? <QuestResult quest={quest} ownCandidateId={user.id} onStartAgain={startAgain} /> : null}
       </main>
     </div>
   );
@@ -378,7 +380,7 @@ function ChoiceButtons({ choices }: { choices: Array<[string, () => void]> }) {
   return <div className="assistant-choices">{choices.map(([label, action]) => <button type="button" onClick={action} key={label}>{label}<Icon name="chevron" size={18} /></button>)}</div>;
 }
 
-function QuestResult({ quest, onStartAgain }: { quest: QuestRun; onStartAgain: () => void }) {
+function QuestResult({ quest, ownCandidateId, onStartAgain }: { quest: QuestRun; ownCandidateId: string; onStartAgain: () => void }) {
   const proposal = quest.proposal;
   if (quest.status === "failed" || !proposal) {
     return (
@@ -414,7 +416,7 @@ function QuestResult({ quest, onStartAgain }: { quest: QuestRun; onStartAgain: (
       <div className="result-people">
         <h3>Everyone has a role</h3>
         {proposal.proposedParticipants.map((participant) => (
-          <div key={participant.candidateId}><span>{candidateName(participant.candidateId).slice(0, 1)}</span><p><strong>{candidateName(participant.candidateId)}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>
+          <div key={participant.candidateId}><span>{candidateName(participant.candidateId, ownCandidateId).slice(0, 1)}</span><p><strong>{candidateName(participant.candidateId, ownCandidateId)}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>
         ))}
       </div>
       <div className="assistant-result-actions">
