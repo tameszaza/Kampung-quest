@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "db:migrate": "node scripts/migrate.mjs",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node .next/standalone/server.js",
     "lint": "eslint .",
@@ -17,13 +18,17 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@openai/agents": "^0.14.2",
     "next": "16.2.12",
+    "openai": "^7.3.0",
+    "pg": "^8.22.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
+    "@types/pg": "^8.20.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.0",

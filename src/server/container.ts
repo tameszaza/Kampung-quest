@@ -1,30 +1,43 @@
-import { CandidateRetrievalService } from "@/server/features/retrieval-service";
-import { EventCoordinationService } from "@/server/features/coordination-service";
-import { MemoryService } from "@/server/features/memory-service";
-import { QuestPipeline } from "@/server/features/quest-pipeline";
-import { SafetyGuardianService } from "@/server/features/safety-service";
-import { QuestSynthesisService } from "@/server/features/synthesis-service";
-import { ConstraintValidator } from "@/server/features/validation-service";
-import { InMemoryMemoryRepository } from "@/server/repositories/memory-repository";
+import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
+import {
+  DeterministicEmbeddingProvider,
+  OpenAIEmbeddingProvider,
+} from "@/server/agents/embedding-provider";
+import { OpenAIAgentRuntime } from "@/server/agents/openai-agent-runtime";
+import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
+import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
+import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
+import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
 
-const globalServices = globalThis as typeof globalThis & {
-  kampungRepository?: InMemoryMemoryRepository;
+const globals = globalThis as typeof globalThis & {
+  kampungStore?: KampungStore;
 };
 
-export const memoryRepository =
-  globalServices.kampungRepository ?? new InMemoryMemoryRepository();
-
-if (process.env.NODE_ENV !== "production") {
-  globalServices.kampungRepository = memoryRepository;
+function createStore(): KampungStore {
+  if (process.env.DATABASE_URL) return new PostgresKampungStore(process.env.DATABASE_URL);
+  return new InMemoryKampungStore();
 }
 
-export const memoryService = new MemoryService(memoryRepository);
-export const retrievalService = new CandidateRetrievalService(memoryRepository);
-export const questPipeline = new QuestPipeline(
-  memoryRepository,
-  retrievalService,
-  new QuestSynthesisService(),
-  new ConstraintValidator(),
-  new SafetyGuardianService(),
-  new EventCoordinationService(),
-);
+export const kampungStore = globals.kampungStore ?? createStore();
+if (process.env.NODE_ENV !== "production") globals.kampungStore = kampungStore;
+
+const useOpenAI = process.env.AGENT_PROVIDER === "openai";
+if (useOpenAI && !process.env.OPENAI_API_KEY) {
+  throw new Error("OPENAI_API_KEY is required when AGENT_PROVIDER=openai");
+}
+
+export const kampungQuestEngine = new KampungQuestEngine({
+  store: kampungStore,
+  agents: useOpenAI
+    ? new OpenAIAgentRuntime((record) => kampungStore.recordAgentRun(record))
+    : new DeterministicAgentRuntime(),
+  embeddings: useOpenAI ? new OpenAIEmbeddingProvider() : new DeterministicEmbeddingProvider(),
+  invitations: new MockInvitationAdapter(),
+  venues: new MockVenueAdapter(),
+});
+
+export const runtimeConfiguration = {
+  store: process.env.DATABASE_URL ? "postgresql" : "in-memory",
+  agentProvider: useOpenAI ? "openai" : "deterministic",
+  agentProviderReady: !useOpenAI || Boolean(process.env.OPENAI_API_KEY),
+};

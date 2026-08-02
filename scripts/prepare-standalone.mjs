@@ -12,3 +12,6 @@ cpSync(join(process.cwd(), ".next", "static"), join(outputDirectory, ".next", "s
   recursive: true,
 });
 cpSync(join(process.cwd(), "public"), join(outputDirectory, "public"), { recursive: true });
+mkdirSync(join(outputDirectory, "scripts"), { recursive: true });
+cpSync(join(process.cwd(), "scripts", "migrate.mjs"), join(outputDirectory, "scripts", "migrate.mjs"));
+cpSync(join(process.cwd(), "db"), join(outputDirectory, "db"), { recursive: true });

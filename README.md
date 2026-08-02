@@ -18,7 +18,7 @@ Stop it with `docker compose down`.
 
 ## Run locally
 
-Node.js 20.9 or newer is required.
+Node.js 22 or newer is required. The OpenAI Agents SDK used by the model-backed adapter requires Node 22.
 
 ```bash
 npm install
@@ -39,12 +39,14 @@ npm run build
 1. Create at least two memory profiles with `POST /api/v1/memories`.
 2. Inspect eligible matches with `GET /api/v1/candidates/{candidateId}/retrieve`.
 3. Run synthesis, validation, safety review and coordination with `POST /api/v1/quests/propose/{candidateId}`.
+4. Read durable quest state with `GET /api/v1/quests/{questId}` and submit demo coordination events to `POST /api/v1/quests/{questId}/events`.
 
 Example profile:
 
 ```json
 {
   "candidateId": "candidate_001",
+  "narrative": "I would enjoy meeting neighbours over a healthy lunch and can teach a low-sodium recipe.",
   "need": "Wants companionship during a healthy lunch",
   "interests": ["cooking", "healthy eating"],
   "offers": ["can teach a low-sodium recipe"],
@@ -93,7 +95,47 @@ Dockerfile                          Multi-stage, non-root production image
 compose.yaml                        Local container deployment
 ```
 
-Each business capability is isolated behind a TypeScript service class. The initial repository and synthesis implementation are deliberately local and deterministic, making the project runnable without database or model credentials. In-memory data is process-local and is lost on restart. For production, replace `InMemoryMemoryRepository` with a persistent database/vector-store adapter and replace `QuestSynthesisService` with an LLM-backed implementation while retaining the deterministic validator and safety boundaries.
+Route handlers call one `KampungQuestEngine` interface. The engine owns ordered orchestration while injected adapters provide PostgreSQL, embeddings and AI-agent runs. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
+
+## Core engine storage
+
+One PostgreSQL instance contains three logical schemas:
+
+| Schema | Responsibility |
+| --- | --- |
+| `memory` | Authoritative conversation events, exact constraints, versioned Markdown, normalized facts and agent audit records |
+| `retrieval` | Rebuildable need, interest and offer embeddings tied to an exact active memory version |
+| `quest` | Quest runs, proposals, safety/validation results and immutable coordination events |
+
+The Personal Memory Micro-Agent is invoked only when new information arrives. It receives the active Markdown snapshot, current soft facts, authoritative constraints and the new narrative. A new snapshot becomes active only after all three embeddings are stored. Failed model or embedding work remains recorded while the previous active memory stays usable.
+
+Markdown is stored as versioned database text and can be exported as a `.md` file; container-local files are not authoritative. Structured constraints remain code-owned, and the vector index can be rebuilt from memory records.
+
+## Agent provider
+
+The default Docker configuration uses deterministic agents so the complete demo runs without credentials. To enable hosted model calls:
+
+```bash
+AGENT_PROVIDER=openai
+OPENAI_API_KEY=your-server-side-key
+```
+
+Recommended defaults are `gpt-5.6-luna` for memory, `gpt-5.6-terra` for synthesis, safety and recovery, and `text-embedding-3-small` for 1536-dimensional vectors. All model names are configurable through environment variables. Model inputs use run-local participant aliases and omit names, contact details and precise addresses. Provider tracing is disabled; de-identified run metadata and token usage are stored locally.
+
+Agent roles do not hand control to one another. Application code invokes them in sequence, validates structured output with Zod, allows one synthesis correction, and remains the only code allowed to change participants, invitations or quest state.
+
+## Coordination events
+
+The demo event endpoint accepts:
+
+```json
+{
+  "type": "participant_accepted",
+  "candidateId": "candidate_001"
+}
+```
+
+Supported event types are `participant_accepted`, `participant_declined`, `participant_timed_out`, `quest_completed` and `quest_cancelled`. Declines and timeouts can select one reserve, but the replacement is deterministically revalidated and safety-reviewed before invitation.
 
 ## Product and agent architecture
 

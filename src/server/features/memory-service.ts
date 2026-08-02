@@ -9,6 +9,9 @@ export class MemoryService {
       profile,
       markdown: this.toMarkdown(profile),
       updatedAt: new Date().toISOString(),
+      version: 1,
+      retrievalReady: false,
+      narrative: profile.need,
     });
   }
 

@@ -29,6 +29,27 @@ export class ConstraintValidator {
           message: "Participant is not verified or has not consented to invitations.",
         });
       }
+      for (const need of participant.needsAddressed) {
+        if (need !== profile.need) {
+          errors.push({
+            candidateId: profile.candidateId,
+            field: "needsAddressed",
+            message: "The proposal referenced a need that is not in the participant's active memory.",
+          });
+        }
+      }
+      const knownContributions = profile.offers.length > 0
+        ? profile.offers
+        : ["participate and support the group"];
+      for (const contribution of participant.contributionsUsed) {
+        if (!knownContributions.includes(contribution)) {
+          errors.push({
+            candidateId: profile.candidateId,
+            field: "contributionsUsed",
+            message: "The proposal referenced a contribution that is not in the participant's active memory.",
+          });
+        }
+      }
       if (quest.groupSize < constraints.minimumGroupSize || quest.groupSize > constraints.maximumGroupSize) {
         errors.push({
           candidateId: profile.candidateId,
