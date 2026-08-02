@@ -12,12 +12,24 @@ describe("provider privacy boundary", () => {
 
   it("redacts contact details, addresses, and internal participant IDs recursively", () => {
     const minimized = minimizeProviderInput({
-      narrative: "My name is Alice Tan. Call +65 9123 4567 or me@example.com near 12 Example Road for candidate_123.",
+      narrative: "Please call Mary Tan at +65 9123 4567 or me@example.com. Meet at Blk 123 Tampines St 45 #01-02, Singapore 529286 for candidate_123.",
+      constraints: {
+        availableWindows: [{
+          start: "2026-08-03T03:00:00.000Z",
+          end: "2026-08-03T06:00:00.000Z",
+        }],
+      },
     });
-    expect(minimized.narrative).not.toContain("Alice Tan");
+    expect(minimized.narrative).not.toContain("Mary Tan");
     expect(minimized.narrative).not.toContain("9123");
     expect(minimized.narrative).not.toContain("me@example.com");
-    expect(minimized.narrative).not.toContain("12 Example Road");
+    expect(minimized.narrative).not.toContain("Blk 123 Tampines St 45");
+    expect(minimized.narrative).not.toContain("#01-02");
+    expect(minimized.narrative).not.toContain("529286");
     expect(minimized.narrative).not.toContain("candidate_123");
+    expect(minimized.constraints.availableWindows[0]).toEqual({
+      start: "2026-08-03T03:00:00.000Z",
+      end: "2026-08-03T06:00:00.000Z",
+    });
   });
 });

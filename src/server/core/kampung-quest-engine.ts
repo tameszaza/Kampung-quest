@@ -187,6 +187,7 @@ export class KampungQuestEngine {
           initiator: initiator.profile,
           candidates,
           validationErrors: validation.errors,
+          proposalToCorrect: proposal,
         });
         validation = this.validator.validate(proposal, profiles);
         validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);

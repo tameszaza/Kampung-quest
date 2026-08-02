@@ -262,18 +262,22 @@ describe("KampungQuestEngine memory", () => {
 
   it("rejects contributions invented by a quest agent", async () => {
     class InventingQuestAgentRuntime extends DeterministicAgentRuntime {
+      readonly inputs: Array<Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0]> = [];
+
       override async synthesizeQuest(
         input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
       ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        this.inputs.push(structuredClone(input));
         const proposal = await super.synthesizeQuest(input);
         proposal.proposedParticipants[0].contributionsUsed = ["can provide medical advice"];
         return proposal;
       }
     }
 
+    const agents = new InventingQuestAgentRuntime();
     const engine = new KampungQuestEngine({
       store: new InMemoryKampungStore(),
-      agents: new InventingQuestAgentRuntime(),
+      agents,
       embeddings: new DeterministicEmbeddingProvider(),
     });
     await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Lunch company" });
@@ -287,6 +291,9 @@ describe("KampungQuestEngine memory", () => {
       field: "contributionsUsed",
     }));
     expect(run.coordination).toBeNull();
+    expect(agents.inputs).toHaveLength(2);
+    expect(agents.inputs[1].proposalToCorrect).toBeDefined();
+    expect(agents.inputs[1].validationErrors?.length).toBeGreaterThan(0);
   });
 
   it("does not invite anyone when safety review rejects a proposal", async () => {

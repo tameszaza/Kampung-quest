@@ -29,6 +29,7 @@ export interface AgentRuntime {
     initiator: CandidateProfile;
     candidates: RetrievedCandidate[];
     validationErrors?: ValidationErrorItem[];
+    proposalToCorrect?: QuestProposal;
   }): Promise<QuestProposal>;
   reviewSafety(input: {
     proposal: QuestProposal;

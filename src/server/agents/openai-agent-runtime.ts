@@ -82,15 +82,19 @@ export class OpenAIAgentRuntime implements AgentRuntime {
   async updateMemory(input: MemoryAgentInput) {
     const alias = "p_1";
     const currentMarkdown = input.currentMemory?.markdown.replaceAll(input.profile.candidateId, alias) ?? null;
+    const previous = input.currentMemory?.profile;
+    const currentSoftFacts = {
+      need: input.providedSoftFacts?.need === false && previous ? previous.need : input.profile.need,
+      interests: input.providedSoftFacts?.interests === false && previous
+        ? previous.interests
+        : input.profile.interests,
+      offers: input.providedSoftFacts?.offers === false && previous ? previous.offers : input.profile.offers,
+    };
     const output = memoryAgentOutputSchema.parse(await this.runStructured(this.memoryAgent, {
       participant: alias,
       currentMarkdown,
       newNarrative: input.narrative,
-      currentSoftFacts: {
-        need: input.profile.need,
-        interests: input.profile.interests,
-        offers: input.profile.offers,
-      },
+      currentSoftFacts,
       authoritativeConstraints: input.profile.constraints,
     }));
     return {
@@ -113,6 +117,9 @@ export class OpenAIAgentRuntime implements AgentRuntime {
         ...error,
         candidateId: error.candidateId ? aliases.get(error.candidateId) : undefined,
       })) ?? [],
+      proposalToCorrect: input.proposalToCorrect
+        ? this.aliasProposalForSynthesis(input.proposalToCorrect, aliases)
+        : null,
       rules: {
         minimumGroupSize: 2,
         maximumGroupSize: 5,
@@ -232,6 +239,25 @@ export class OpenAIAgentRuntime implements AgentRuntime {
       reserveCandidates: proposal.reserveCandidates.map((candidate) => ({
         ...candidate,
         candidateId: aliases.get(candidate.candidateId) ?? "unknown",
+      })),
+    };
+  }
+
+  private aliasProposalForSynthesis(
+    proposal: QuestProposal,
+    aliases: Map<string, string>,
+  ): QuestProposal {
+    const aliased = this.aliasProposalIds(proposal, aliases);
+    return {
+      ...aliased,
+      quest: {
+        ...aliased.quest,
+        needsAddressed: aliased.quest.needsAddressed.map((text) => stableFactRef("need", text)),
+      },
+      proposedParticipants: aliased.proposedParticipants.map((participant) => ({
+        ...participant,
+        needsAddressed: participant.needsAddressed.map((text) => stableFactRef("need", text)),
+        contributionsUsed: participant.contributionsUsed.map((text) => stableFactRef("offer", text)),
       })),
     };
   }
