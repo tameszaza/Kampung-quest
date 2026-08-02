@@ -19,12 +19,54 @@ import {
   type QuestProposal,
 } from "@/server/domain/schemas";
 
-const retrySettings: ModelRetrySettings = {
-  maxRetries: 2,
-  backoff: { initialDelayMs: 250, maxDelayMs: 1_000, multiplier: 2, jitter: true },
-  policy: ({ normalized }) =>
-    normalized.isNetworkError || normalized.statusCode === 429 || (normalized.statusCode ?? 0) >= 500,
-};
+export function hostedRetrySettings(
+  provider: Exclude<AgentProviderName, "deterministic">,
+): ModelRetrySettings {
+  return {
+    maxRetries: provider === "gemini" ? 1 : 2,
+    backoff: { initialDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2, jitter: true },
+    policy: ({ normalized, providerAdvice }) => {
+      if (provider === "gemini" && normalized.statusCode === 429) {
+        const retryAfterMs = normalized.retryAfterMs ?? providerAdvice?.retryAfterMs;
+        if (retryAfterMs === undefined || retryAfterMs > 60_000) return false;
+        return {
+          retry: true,
+          delayMs: retryAfterMs + 250,
+          reason: "Gemini requested a quota backoff",
+        };
+      }
+      return normalized.isNetworkError
+        || normalized.statusCode === 429
+        || (normalized.statusCode ?? 0) >= 500;
+    },
+  };
+}
+
+export function hostedProviderErrorMessage(
+  provider: Exclude<AgentProviderName, "deterministic">,
+  error: unknown,
+): string {
+  if (provider === "gemini" && error && typeof error === "object" && "status" in error) {
+    const status = error.status;
+    if (status === 429) {
+      const headers = "headers" in error ? error.headers : null;
+      const getHeader = headers && typeof headers === "object" && "get" in headers
+        && typeof headers.get === "function"
+        ? (name: string) => (headers as { get(headerName: string): string | null }).get(name)
+        : () => null;
+      if (getHeader("x-gemini-quota-period") === "day") {
+        return "Gemini's daily request quota for this model is exhausted. It resets at midnight Pacific time.";
+      }
+      const retryAfter = getHeader("retry-after");
+      const retrySeconds = retryAfter ? Number.parseInt(String(retryAfter), 10) : Number.NaN;
+      return Number.isFinite(retrySeconds)
+        ? `Gemini request quota is temporarily exhausted. Please try again in about ${retrySeconds} seconds.`
+        : "Gemini request quota is temporarily exhausted. Please try again later.";
+    }
+  }
+  const message = error instanceof Error ? error.message : "Unknown hosted model error";
+  return `${provider} provider unavailable: ${message}`;
+}
 
 interface HostedAgentRuntimeOptions {
   provider: Exclude<AgentProviderName, "deterministic">;
@@ -63,6 +105,7 @@ export class HostedAgentRuntime implements AgentRuntime {
     setTracingDisabled(true);
     this.runner = new Runner({ modelProvider: options.modelProvider });
     const persistenceSetting = options.provider === "openai" ? { store: false as const } : {};
+    const retrySettings = hostedRetrySettings(options.provider);
     this.memoryAgent = new Agent({
       name: "Kampung personal memory",
       model: options.models.memory,
@@ -243,8 +286,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         outputTokens: null,
         metadata: { provider: this.options.provider },
       });
-      const message = error instanceof Error ? error.message : "Unknown hosted model error";
-      throw new Error(`${this.options.provider} provider unavailable: ${message}`, { cause: error });
+      throw new Error(hostedProviderErrorMessage(this.options.provider, error), { cause: error });
     }
   }
 

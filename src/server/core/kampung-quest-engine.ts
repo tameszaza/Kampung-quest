@@ -10,6 +10,7 @@ import {
 import type {
   CandidateProfile,
   CoordinationEventCommand,
+  MemoryAgentOutput,
   MemoryCard,
   MemoryUpdateCommand,
   ProposeQuestCommand,
@@ -39,12 +40,28 @@ export class KampungQuestEngine {
   }
 
   async recordMemory(command: MemoryUpdateCommand): Promise<MemoryCard> {
+    return this.recordMemoryOutput(command, (currentMemory) =>
+      this.dependencies.agents.updateMemory({
+        ...command,
+        currentMemory,
+      })
+    );
+  }
+
+  async recordPreparedMemory(
+    command: MemoryUpdateCommand,
+    memory: MemoryAgentOutput,
+  ): Promise<MemoryCard> {
+    return this.recordMemoryOutput(command, async () => memory);
+  }
+
+  private async recordMemoryOutput(
+    command: MemoryUpdateCommand,
+    createMemory: (currentMemory: MemoryCard | null) => Promise<MemoryAgentOutput>,
+  ): Promise<MemoryCard> {
     const attempt = await this.dependencies.store.beginMemoryUpdate(command);
     try {
-      const memory = await this.dependencies.agents.updateMemory({
-        ...command,
-        currentMemory: attempt.currentMemory,
-      });
+      const memory = await createMemory(attempt.currentMemory);
       const embeddings = await this.dependencies.embeddings.embedMemory({
         candidateId: command.profile.candidateId,
         memoryVersion: attempt.version,

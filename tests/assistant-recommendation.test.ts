@@ -130,6 +130,33 @@ describe("Senior Quest assistant recommendations", () => {
     expect(result.quest.proposal?.proposedParticipants.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("does not spend agent memory requests on fixed demo neighbours", async () => {
+    class CountingMemoryRuntime extends DeterministicAgentRuntime {
+      memoryUpdates = 0;
+
+      override async updateMemory(
+        input: Parameters<DeterministicAgentRuntime["updateMemory"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["updateMemory"]> {
+        this.memoryUpdates += 1;
+        return super.updateMemory(input);
+      }
+    }
+
+    const agents = new CountingMemoryRuntime();
+    const { assistant } = setupWithAgents(agents);
+
+    await assistant.recommend(command());
+    const later = command();
+    later.conversationId = "conversation_002";
+    later.constraints.availableWindows = [{
+      start: "2026-08-10T06:00:00.000Z",
+      end: "2026-08-10T09:00:00.000Z",
+    }];
+    await assistant.recommend(later);
+
+    expect(agents.memoryUpdates).toBe(2);
+  });
+
   it("retries a failed provider attempt without creating another memory version", async () => {
     class FailingOnceRuntime extends DeterministicAgentRuntime {
       private attempts = 0;

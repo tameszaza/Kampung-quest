@@ -1,9 +1,11 @@
 import { OpenAIProvider } from "@openai/agents";
+import OpenAI from "openai";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import {
   DeterministicEmbeddingProvider,
   HostedEmbeddingProvider,
 } from "@/server/agents/embedding-provider";
+import { createGeminiCompatibleFetch } from "@/server/agents/gemini-provider-fetch";
 import { HostedAgentRuntime } from "@/server/agents/openai-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
@@ -15,6 +17,9 @@ import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-sto
 const globals = globalThis as typeof globalThis & {
   kampungStore?: KampungStore;
 };
+type AgentOpenAIClient = NonNullable<
+  NonNullable<ConstructorParameters<typeof OpenAIProvider>[0]>["openAIClient"]
+>;
 
 function createStore(): KampungStore {
   if (process.env.DATABASE_URL) return new PostgresKampungStore(process.env.DATABASE_URL);
@@ -41,12 +46,27 @@ function createAgentDependencies() {
   }
   const apiKey = providerConfiguration.apiKey;
   if (!apiKey) throw new Error(`Missing API key for ${providerConfiguration.provider}`);
-  const modelProvider = new OpenAIProvider({
-    apiKey,
-    baseURL: providerConfiguration.baseURL,
-    useResponses: providerConfiguration.useResponses,
-    strictFeatureValidation: false,
-  });
+  const geminiFetch = providerConfiguration.provider === "gemini"
+    ? createGeminiCompatibleFetch()
+    : undefined;
+  const modelProvider = providerConfiguration.provider === "gemini"
+    ? new OpenAIProvider({
+        openAIClient: new OpenAI({
+          apiKey,
+          baseURL: providerConfiguration.baseURL,
+          fetch: geminiFetch,
+          maxRetries: 0,
+          timeout: 90_000,
+        }) as unknown as AgentOpenAIClient,
+        useResponses: providerConfiguration.useResponses,
+        strictFeatureValidation: false,
+      })
+    : new OpenAIProvider({
+        apiKey,
+        baseURL: providerConfiguration.baseURL,
+        useResponses: providerConfiguration.useResponses,
+        strictFeatureValidation: false,
+      });
   return {
     agents: new HostedAgentRuntime({
       provider: providerConfiguration.provider,
@@ -60,6 +80,7 @@ function createAgentDependencies() {
       baseURL: providerConfiguration.baseURL,
       model: providerConfiguration.models.embedding,
       dimensions: providerConfiguration.embeddingDimensions,
+      fetch: geminiFetch,
     }),
   };
 }
