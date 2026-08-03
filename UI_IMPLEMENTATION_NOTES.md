@@ -54,6 +54,9 @@ Unfinished assistant answers are stored in `localStorage`, while confirmed memor
 - Automated horizontal overflow checks on home, activities, activity details, my activities, invites, needs, messages, profile, and settings at all three widths.
 - Visual review of onboarding, home, needs, recommendations, detail, invites, joined quests, messages, profile, and settings.
 - Route and component structure audited to confirm the frontend is no longer a single-page state machine.
+- Senior Quest's embedded conversation now reuses the shared message bubble/composer primitives used by direct and group chats. Guided quick replies sit above the shared composer, while Enter submits text answers (Shift+Enter keeps a newline). Verified at 390 px, 768 px, and 1440 px with direct-chat Enter-to-send and delivered-receipt checks.
+- Activity visibility now uses explicit ISO start times: accepted suggested or invited activities move into My Activities, past suggestions are hidden, and pending past invitations stay visible as Expired.
+- My Activities filters both demo and persisted quests by their real start time (including the Upcoming tab), and shows a clear empty state instead of placing future events in Past. Guided quick replies now share the assistant thread surface and the shared textarea composer vertically centers its placeholder.
 
 Normal verification commands:
 

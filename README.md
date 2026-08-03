@@ -2,6 +2,30 @@
 
 Kampung Quest is a modular Next.js web server for turning seniors' needs, interests, offers and constraints into safe, mutually beneficial group activities. The implementation follows the pipeline described below and exposes it through versioned App Router API endpoints.
 
+## Competition context
+
+Kampung Quest was built for the **AI Agent / Skills Track** of the WorkBuddy hackathon, whose
+challenge is **"Age Well"**. The project uses an AI-assisted, safety-aware workflow to help older
+adults turn everyday needs and interests into meaningful activities with neighbours. In short,
+the goal is to reduce isolation while preserving dignity, consent, accessibility and human choice.
+
+The competition development deadline is **9 August 2026, 11:59 PM SGT**. The submission is expected
+to include an online demo link or Skill ZIP, a skill demo video, and a project introduction deck
+(PPT). The submission form, process and exact submission timing are to be announced by the
+organisers.
+
+Judging is weighted as follows:
+
+- **30 points — Impact & Relevance:** how directly the project addresses the Age Well challenge.
+- **40 points — Effective use of AI tools:** including autonomous planning, workflows and tool invocation.
+- **30 points — Project Quality:** creativity, completeness, technical execution and polish.
+- **5-point bonus:** share the project on Rednote, YouTube or X with
+  `#CodeBuddy #WorkBuddy #Miora #TencentCloudHackathon`.
+
+This repository is therefore both the Kampung Quest product codebase and the working source for
+the competition demo, video and deck. The AI roles, deterministic safeguards and end-to-end
+workflow described below are the main evidence for the AI-tool and project-quality criteria.
+
 ## Run with Docker
 
 ```bash

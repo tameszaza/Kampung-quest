@@ -11,6 +11,8 @@ import { getQuestRun, listUserQuests } from "@/features/assistant/client";
 import { quests } from "@/data/mock-data";
 import type { QuestRun } from "@/server/domain/schemas";
 import { useUser } from "@/components/user-context";
+import { useAppState } from "@/components/app-state";
+import { isQuestPast, isQuestRunPast } from "@/lib/activity-time";
 
 type LoadState<T> =
   | { status: "loading"; value: T }
@@ -19,6 +21,7 @@ type LoadState<T> =
 
 export function EngineQuestList() {
   const { user } = useUser();
+  const { activityDecisions } = useAppState();
   const [state, setState] = useState<LoadState<QuestRun[]>>({ status: "loading", value: [] });
 
   useEffect(() => {
@@ -33,8 +36,13 @@ export function EngineQuestList() {
 
   if (state.status === "loading") return <ConnectedLoading label="Loading your recommendations…" />;
   if (state.status === "error") return <ConnectedError message={state.message} />;
-  const visibleRuns = state.value.filter((run) => run.proposal !== null);
-  if (visibleRuns.length === 0) return <section className="quest-grid" aria-label="Featured activities">{quests.map((quest) => <QuestCard key={quest.slug} quest={quest} />)}</section>;
+  const visibleRuns = state.value.filter((run) => run.proposal !== null && !isQuestRunPast(run) && activityDecisions[run.runId] !== "accepted");
+  const visibleMockQuests = quests.filter((quest) => !isQuestPast(quest) && activityDecisions[quest.slug] !== "accepted");
+  if (visibleRuns.length === 0) {
+    return visibleMockQuests.length > 0
+      ? <section className="quest-grid" aria-label="Featured activities">{visibleMockQuests.map((quest) => <QuestCard key={quest.slug} quest={quest} />)}</section>
+      : <div className="empty-state"><span aria-hidden="true">✓</span><h2>All caught up</h2><p>New activity suggestions will appear here when they are ready.</p></div>;
+  }
   return <section className="quest-grid" aria-label="Your recommended quests">{visibleRuns.map((run) => <EngineQuestCard key={run.runId} run={run} />)}</section>;
 }
 

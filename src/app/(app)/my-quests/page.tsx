@@ -2,23 +2,57 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AvatarStack } from "@/components/avatar-stack";
+import { EngineJoinedQuestCard } from "@/components/engine-quest-card";
 import { Icon } from "@/components/icons";
 import { MetaRow } from "@/components/meta-row";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
-import { quests } from "@/data/mock-data";
+import { useAppState } from "@/components/app-state";
+import { invites, quests } from "@/data/mock-data";
+import { listUserQuests } from "@/features/assistant/client";
+import { isQuestPast, isQuestRunPast } from "@/lib/activity-time";
+import { useUser } from "@/components/user-context";
+import type { QuestRun } from "@/server/domain/schemas";
 
 export default function MyQuestsPage() {
   const [tab, setTab] = useState("Upcoming");
-  const visibleQuests = tab === "Upcoming" ? [quests[0], quests[2]] : [quests[1]];
+  const { activityDecisions, inviteDecisions } = useAppState();
+  const { user } = useUser();
+  const [engineRuns, setEngineRuns] = useState<QuestRun[]>([]);
+  useEffect(() => {
+    let active = true;
+    void listUserQuests(user.id).then((runs) => {
+      if (active) setEngineRuns(runs);
+    }).catch(() => {
+      // Demo activities remain available if the recommendation service is unavailable.
+    });
+    return () => { active = false; };
+  }, [user.id]);
+  const acceptedSlugs = new Set([
+    ...Object.entries(activityDecisions).filter(([, decision]) => decision === "accepted").map(([slug]) => slug),
+    ...invites.filter((invite) => inviteDecisions[invite.id] === "accepted").map((invite) => invite.questSlug),
+  ]);
+  const acceptedQuests = quests.filter((quest) => acceptedSlugs.has(quest.slug));
+  const demoUpcoming = [quests[0], quests[2]].filter((quest) => !isQuestPast(quest));
+  // Keep the demo history honest: an activity is only past after its actual
+  // start time, rather than because it happens to be the third fixture.
+  const demoPast = [quests[1]].filter((quest) => isQuestPast(quest));
+  const visibleQuests = tab === "Upcoming"
+    ? uniqueQuests([...demoUpcoming, ...acceptedQuests.filter((quest) => !isQuestPast(quest))])
+    : uniqueQuests([...demoPast, ...acceptedQuests.filter((quest) => isQuestPast(quest))]);
+  const acceptedRuns = engineRuns.filter((run) => run.proposal && activityDecisions[run.runId] === "accepted");
+  const visibleRuns = tab === "Upcoming"
+    ? acceptedRuns.filter((run) => !isQuestRunPast(run))
+    : acceptedRuns.filter((run) => isQuestRunPast(run));
 
   return (
     <div className="page-container narrow-page">
       <PageHeader title="My Activities" />
       <Tabs tabs={["Upcoming", "Past"]} active={tab} onChange={setTab} />
       <section className="joined-list">
+        {visibleRuns.map((run) => <EngineJoinedQuestCard key={run.runId} run={run} />)}
         {visibleQuests.map((quest) => (
           <Link className="joined-card" href={`/quests/${quest.slug}?from=my-activities`} key={quest.slug}>
             <div className="joined-image">
@@ -37,7 +71,20 @@ export default function MyQuestsPage() {
             </div>
           </Link>
         ))}
+        {!visibleRuns.length && !visibleQuests.length ? (
+          <div className="joined-empty">
+            <span aria-hidden="true">✓</span>
+            <div>
+              <h2>{tab === "Upcoming" ? "No upcoming activities" : "No past activities yet"}</h2>
+              <p>{tab === "Upcoming" ? "Accepted activities will appear here." : "Completed activities will appear here after their start time."}</p>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );
+}
+
+function uniqueQuests(items: typeof quests) {
+  return [...new Map(items.map((quest) => [quest.slug, quest])).values()];
 }

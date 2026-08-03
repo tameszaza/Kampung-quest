@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { ActivityActions } from "@/components/activity-actions";
+import { isQuestRunPast } from "@/lib/activity-time";
 import type { QuestRun } from "@/server/domain/schemas";
 
 export function questImage(run: QuestRun) {
@@ -45,5 +46,28 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
       </Link>
       <ActivityActions activityId={run.runId} />
     </article>
+  );
+}
+
+/** Joined-activity presentation for accepted Senior Quest recommendations. */
+export function EngineJoinedQuestCard({ run }: { run: QuestRun }) {
+  const quest = run.proposal?.quest;
+  if (!quest) return null;
+  const start = new Date(quest.proposedTimeWindow.start);
+  const date = start.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  const time = start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return (
+    <Link className="joined-card" href={`/quests/${run.runId}?from=my-activities`}>
+      <div className="joined-image">
+        <Image src={questImage(run)} alt="" fill sizes="(max-width: 767px) 100vw, 460px" />
+        <span className="image-badge">{isQuestRunPast(run) ? "COMPLETED" : "UPCOMING"}</span>
+      </div>
+      <div className="joined-body">
+        <h2>{quest.title}</h2>
+        <div className="meta-row"><Icon name="calendar" size={19} /><span>{date}, {time}</span></div>
+        <div className="meta-row"><Icon name="people" size={19} /><span>{quest.groupSize} people</span></div>
+        <div className="joined-footer"><span>Senior Quest match</span><Icon name="chevron" size={19} /></div>
+      </div>
+    </Link>
   );
 }

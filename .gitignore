@@ -34,3 +34,4 @@ pnpm-debug.log*
 AGENTS.md
 .agents
 prompt.txt
+.playwright-mcp/*

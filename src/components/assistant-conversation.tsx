@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
+import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { useUser } from "@/components/user-context";
 import {
@@ -240,7 +240,9 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
           </div>
         ))}
 
-        {thinking ? (
+        {thinking ? embedded ? (
+          <ChatMessageBubble body="Senior Quest is thinking…" />
+        ) : (
           <div className="assistant-row assistant-thinking" role="status">
             <span className="assistant-avatar" aria-hidden="true">♥</span>
             <p className="assistant-bubble"><span className="thinking-dots"><i /><i /><i /></span><small>Senior Quest is thinking</small></p>
@@ -249,6 +251,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
 
         {conversation.status === "collecting" || editingField ? (
           <AnswerControl
+            embedded={embedded}
             field={activeField}
             text={text}
             setText={setText}
@@ -294,7 +297,8 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
   );
 }
 
-function AnswerControl({ field, text, setText, disabled, suggestedReplies, onText, onAnswer }: {
+function AnswerControl({ embedded, field, text, setText, disabled, suggestedReplies, onText, onAnswer }: {
+  embedded: boolean;
   field: AssistantBriefField | null;
   text: string;
   setText: (value: string) => void;
@@ -305,10 +309,36 @@ function AnswerControl({ field, text, setText, disabled, suggestedReplies, onTex
 }) {
   if (!field) return null;
   if (field === "goal" || field === "interests" || field === "offers") {
+    if (embedded) {
+      const canSkip = field === "interests" || field === "offers";
+      return <div className="assistant-embedded-controls">
+        {(suggestedReplies.length || canSkip) ? <div className="assistant-suggestion-list assistant-embedded-quick-replies" aria-label="Quick replies">
+          {suggestedReplies.map((reply) => <button type="button" key={reply} disabled={disabled} onClick={() => onAnswer({ field, value: reply })}>{reply}</button>)}
+          {canSkip ? <button type="button" disabled={disabled} onClick={() => onAnswer({ field, value: null })}>Nothing specific</button> : null}
+        </div> : null}
+        <ChatComposer
+          multiline
+          id="assistant-answer"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+          onSubmit={onText}
+          maxLength={2000}
+          autoFocus
+          disabled={disabled}
+          placeholder="Type a message…"
+        />
+      </div>;
+    }
     return <form className="assistant-composer" onSubmit={onText}>
       <label className="sr-only" htmlFor="assistant-answer">Your answer</label>
       <textarea id="assistant-answer" value={text} onChange={(event) => setText(event.target.value)} rows={3} autoFocus disabled={disabled} placeholder="Type naturally…" />
-      {suggestedReplies.length ? <div className="assistant-suggestions">{suggestedReplies.map((reply) => <button type="button" key={reply} disabled={disabled} onClick={() => onAnswer({ field, value: reply })}>{reply}</button>)}</div> : null}
+      {suggestedReplies.length ? <div className="assistant-suggestion-list assistant-suggestions">{suggestedReplies.map((reply) => <button type="button" key={reply} disabled={disabled} onClick={() => onAnswer({ field, value: reply })}>{reply}</button>)}</div> : null}
       <div className="assistant-composer-actions">
         {field === "interests" || field === "offers" ? <button className="text-button" type="button" disabled={disabled} onClick={() => onAnswer({ field, value: null })}>Nothing specific</button> : <span />}
         <button className="primary-button" type="submit" disabled={disabled || !text.trim()}>Send</button>

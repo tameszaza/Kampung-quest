@@ -274,6 +274,43 @@
   gap: 14px;
 }
 
+.joined-empty {
+  min-height: 160px;
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: left;
+}
+
+.joined-empty > span {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.joined-empty h2 {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.joined-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
 .need-card {
   min-height: 132px;
   padding: 18px 16px;
@@ -473,6 +510,11 @@
   margin: 7px 2px 0;
 }
 
+.invite-image .image-badge.expired {
+  background: #eef1f0;
+  color: var(--muted);
+}
+
 .split-actions {
   margin-top: 15px;
   display: grid;
@@ -505,6 +547,11 @@
 .decision-message.declined {
   background: #f1f4f3;
   color: var(--muted);
+}
+
+.decision-message.expired {
+  background: #fff7df;
+  color: #73520b;
 }
 
 /* My quests */
@@ -1849,14 +1896,31 @@
   gap: 9px;
 }
 
-.message-composer input {
+.message-composer input,
+.message-composer textarea {
   width: 100%;
   min-height: 50px;
   padding: 0 16px;
   border: 1.5px solid #cbd8d3;
   border-radius: 999px;
   background: #fbfcfb;
+  color: var(--ink);
+  font: inherit;
   font-size: 16px;
+}
+
+.message-composer textarea {
+  height: 50px;
+  max-height: 130px;
+  padding: 11px 16px;
+  line-height: 24px;
+  resize: none;
+}
+
+.message-composer input:focus,
+.message-composer textarea:focus {
+  border-color: var(--green-600);
+  outline: 3px solid rgba(16, 157, 112, 0.14);
 }
 
 .message-composer > button {
@@ -1877,7 +1941,8 @@
   cursor: not-allowed;
 }
 
-.message-composer input:disabled {
+.message-composer input:disabled,
+.message-composer textarea:disabled {
   color: var(--muted);
   background: #f0f3f2;
   cursor: not-allowed;
@@ -2708,51 +2773,52 @@
   flex-direction: column;
 }
 
-.assistant-embedded .assistant-composer {
+.assistant-embedded-controls {
   width: calc(100% + 28px);
   margin: auto -14px -32px;
-  padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-  background: white;
-  box-shadow: none;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-}
-
-.assistant-embedded .assistant-composer textarea {
-  grid-column: 1;
-  width: 100%;
-  height: 50px;
-  min-height: 50px;
-  max-height: 130px;
-  padding: 12px 16px;
-  border-radius: 999px;
-  resize: vertical;
-}
-
-.assistant-embedded .assistant-composer-actions {
-  grid-column: 2;
-  margin-top: 0;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
 }
 
-.assistant-embedded .assistant-composer-actions .primary-button {
-  width: 50px;
-  min-height: 50px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 0;
+.assistant-suggestion-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
-.assistant-embedded .assistant-composer-actions .primary-button::after {
-  content: "➤";
-  font-size: 20px;
+.assistant-suggestion-list button {
+  padding: 8px 11px;
+  border: 1px solid #bfe4d6;
+  border-radius: 999px;
+  background: var(--green-50);
+  color: var(--green-900);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assistant-suggestion-list button:hover,
+.assistant-suggestion-list button:focus-visible {
+  border-color: var(--green-600);
+  background: var(--green-100);
+}
+
+.assistant-suggestion-list button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.assistant-embedded-quick-replies {
+  padding: 0 12px 8px;
+  /* Quick replies belong to the conversation surface, not a second panel. */
+  background: inherit;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.assistant-embedded-quick-replies button {
+  min-height: 36px;
+  padding: 7px 12px;
 }
 
 .assistant-embedded .assistant-choice-panel,
@@ -2954,20 +3020,6 @@
 
 .assistant-suggestions {
   margin: 10px 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.assistant-suggestions button {
-  padding: 8px 11px;
-  border: 1px solid #bfe4d6;
-  border-radius: 999px;
-  background: var(--green-50);
-  color: var(--green-900);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .assistant-composer-actions,
