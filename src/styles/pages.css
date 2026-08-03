@@ -3330,6 +3330,48 @@
     min-height: 150px;
   }
 
+  .invite-card {
+    min-height: 238px;
+    padding: 12px;
+    display: grid;
+    grid-template-columns: minmax(250px, 0.78fr) minmax(0, 1.22fr);
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 24px;
+    align-items: start;
+  }
+
+  .invite-card .invite-image {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    height: 100%;
+    min-height: 212px;
+    border-radius: 13px;
+  }
+
+  .invite-card h2 {
+    grid-column: 2;
+    margin: 8px 2px 9px;
+  }
+
+  .invite-card .meta-row {
+    grid-column: 2;
+  }
+
+  .invite-card .split-actions,
+  .invite-card .decision-message {
+    grid-column: 2;
+    align-self: end;
+    width: 100%;
+  }
+
+  .invite-card .split-actions {
+    margin-top: 18px;
+  }
+
+  .invite-card .decision-message {
+    margin-top: 18px;
+  }
+
   .joined-card {
     display: grid;
     grid-template-columns: 250px minmax(0, 1fr);
