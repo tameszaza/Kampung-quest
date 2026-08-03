@@ -38,6 +38,8 @@ export type ConversationSummary = {
   lastMessageAt: string;
   unreadCount: number;
   memberCount: number;
+  /** The other participant for a direct message; null for groups. */
+  otherUserId?: string | null;
 };
 
 export type ChatMessage = {

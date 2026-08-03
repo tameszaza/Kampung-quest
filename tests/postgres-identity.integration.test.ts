@@ -66,5 +66,15 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
       title: "Integration Friends",
     });
     expect(group).toMatchObject({ type: "group", memberCount: 3, title: "Integration Friends" });
+
+    const safetyDirect = await store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    await store!.blockUser(maria.id, lee.id);
+    expect((await store!.listContacts(maria.id, `lee.${suffix}`)).some((contact) => contact.id === lee.id)).toBe(false);
+    expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === safetyDirect.id)).toBe(false);
+    await expect(store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] })).rejects.toThrow("blocked");
+    await store!.unblockUser(maria.id, lee.id);
+    expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === safetyDirect.id)).toBe(true);
+    await store!.leaveConversation(maria.id, group.id);
+    expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === group.id)).toBe(false);
   });
 });

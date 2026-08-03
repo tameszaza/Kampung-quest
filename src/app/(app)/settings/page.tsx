@@ -7,7 +7,7 @@ import { MenuRow } from "@/components/menu-row";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/components/user-context";
 import { authClient } from "@/lib/auth-client";
-import type { UserPreferences, UserProfile } from "@/server/identity/types";
+import type { ChatContact, UserPreferences, UserProfile } from "@/server/identity/types";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -17,6 +17,9 @@ export default function SettingsPage() {
   const [language, setLanguage] = useState(user.preferredLanguage);
   const [area, setArea] = useState(user.area ?? "");
   const [saving, setSaving] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<ChatContact[]>([]);
+  const [showBlockedUsers, setShowBlockedUsers] = useState(false);
+  const [blockedLoading, setBlockedLoading] = useState(false);
 
   function update<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) {
     setPreferences((current) => ({ ...current, [key]: value }));
@@ -47,6 +50,39 @@ export default function SettingsPage() {
     router.refresh();
   }
 
+  async function toggleBlockedUsers() {
+    const next = !showBlockedUsers;
+    setShowBlockedUsers(next);
+    if (!next || blockedUsers.length) return;
+    setBlockedLoading(true);
+    try {
+      const response = await fetch("/api/chat/blocks", { cache: "no-store" });
+      const result = await response.json() as { users?: ChatContact[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not load blocked users");
+      setBlockedUsers(result.users ?? []);
+    } catch (reason) {
+      showToast(reason instanceof Error ? reason.message : "Could not load blocked users");
+    } finally {
+      setBlockedLoading(false);
+    }
+  }
+
+  async function unblock(user: ChatContact) {
+    try {
+      const response = await fetch("/api/chat/blocks", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not unblock this person");
+      setBlockedUsers((items) => items.filter((item) => item.id !== user.id));
+      showToast(`${user.fullName} can message you again`);
+    } catch (reason) {
+      showToast(reason instanceof Error ? reason.message : "Could not unblock this person");
+    }
+  }
+
   return (
     <div className="page-container narrow-page settings-page">
       <PageHeader title="Settings & Safety" back />
@@ -70,7 +106,8 @@ export default function SettingsPage() {
 
       <h2 className="settings-group-title">Safety</h2>
       <section className="menu-card">
-        <MenuRow icon="blocked" label="Blocked Users" onClick={() => showToast("You have not blocked anyone")} />
+        <MenuRow icon="blocked" label="Blocked Users" onClick={() => void toggleBlockedUsers()} />
+        {showBlockedUsers ? <div className="blocked-users-panel">{blockedLoading ? <p>Loading blocked users…</p> : blockedUsers.length === 0 ? <p>You have not blocked anyone.</p> : blockedUsers.map((blocked) => <div className="blocked-user-row" key={blocked.id}><span><strong>{blocked.fullName}</strong>{blocked.username ? <small>@{blocked.username}</small> : null}</span><button type="button" onClick={() => void unblock(blocked)}>Unblock</button></div>)}</div> : null}
         <MenuRow icon="help" label="Help & Support" onClick={() => showToast("Support: 1800 555 010")} />
         <MenuRow icon="shield" label="Emergency Contact" danger onClick={() => showToast("Call local emergency services if anyone is in immediate danger")} />
       </section>

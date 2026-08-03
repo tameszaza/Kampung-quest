@@ -69,3 +69,7 @@ export const createConversationSchema = z.object({
 export const sendMessageSchema = z.object({
   body: z.string().trim().min(1, "Write a message first").max(2000, "Keep messages under 2,000 characters"),
 });
+
+export const chatUserSchema = z.object({
+  userId: z.string().trim().min(1, "Choose a user"),
+});

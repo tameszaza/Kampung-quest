@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { QuestCard } from "@/components/quest-card";
 import { useUser } from "@/components/user-context";
 import { quests } from "@/data/mock-data";
+import { SafeImage } from "@/components/safe-image";
 
 export default function HomePage() {
   const { user } = useUser();
@@ -21,7 +21,7 @@ export default function HomePage() {
           <h1>{firstName}! <span aria-hidden="true">👋</span></h1>
         </div>
         <Link className="home-avatar" href="/profile" aria-label="Open profile">
-          <Image src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="58px" />
+          <SafeImage src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="58px" />
         </Link>
       </header>
 

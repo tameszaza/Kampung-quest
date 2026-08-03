@@ -44,8 +44,12 @@ export interface IdentityStore {
   findUserById(userId: string): Promise<StoredUser | null>;
   updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile>;
   listContacts(userId: string, query?: string): Promise<ChatContact[]>;
+  listBlockedUsers(userId: string): Promise<ChatContact[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
   createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary>;
+  leaveConversation(userId: string, conversationId: string): Promise<void>;
+  blockUser(userId: string, blockedUserId: string): Promise<void>;
+  unblockUser(userId: string, blockedUserId: string): Promise<void>;
   listMessages(userId: string, conversationId: string): Promise<ChatMessage[]>;
   sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage>;
 }
@@ -97,6 +101,7 @@ export class InMemoryIdentityStore implements IdentityStore {
   private readonly users = new Map<string, StoredUser>(communityMembers.map((user) => [user.id, user]));
   private readonly conversations = new Map<string, MemoryConversation>();
   private readonly messages = new Map<string, MemoryMessage[]>();
+  private readonly blockedPairs = new Set<string>();
 
   async createUser(input: NewUser): Promise<UserProfile> {
     const email = input.email?.toLowerCase() ?? null;
@@ -213,15 +218,26 @@ export class InMemoryIdentityStore implements IdentityStore {
     const usernameQuery = normalizeUsername(query);
     return [...this.users.values()]
       .filter((user) => user.id !== userId && user.onboardingComplete)
+      .filter((user) => !this.isBlockedEitherWay(userId, user.id))
       .filter((user) => !normalizedQuery || user.fullName.toLowerCase().includes(normalizedQuery) || user.username?.includes(usernameQuery))
       .map((user) => ({ id: user.id, fullName: user.fullName, username: user.username, photoUrl: user.photoUrl }))
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
+  }
+
+  async listBlockedUsers(userId: string): Promise<ChatContact[]> {
+    this.requireUser(userId);
+    return [...this.blockedPairs]
+      .filter((key) => key.startsWith(`${userId}:`))
+      .map((key) => this.users.get(key.slice(userId.length + 1)))
+      .filter((user): user is StoredUser => Boolean(user))
+      .map((user) => ({ id: user.id, fullName: user.fullName, username: user.username, photoUrl: user.photoUrl }));
   }
 
   async listConversations(userId: string): Promise<ConversationSummary[]> {
     this.requireUser(userId);
     return [...this.conversations.values()]
       .filter((conversation) => conversation.memberIds.includes(userId))
+      .filter((conversation) => this.canSeeConversation(userId, conversation))
       .map((conversation) => this.toSummary(userId, conversation))
       .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
   }
@@ -230,6 +246,9 @@ export class InMemoryIdentityStore implements IdentityStore {
     this.requireUser(userId);
     const participantIds = [...new Set(input.participantIds.filter((id) => id !== userId))];
     participantIds.forEach((id) => this.requireUser(id));
+    if (participantIds.some((id) => this.isBlockedEitherWay(userId, id))) {
+      throw new Error("You cannot start a chat with a blocked contact");
+    }
     const memberIds = [userId, ...participantIds];
     const directKey = input.type === "direct" ? [...memberIds].sort().join(":") : null;
     const existing = directKey
@@ -251,13 +270,42 @@ export class InMemoryIdentityStore implements IdentityStore {
     return this.toSummary(userId, conversation);
   }
 
+  async leaveConversation(userId: string, conversationId: string): Promise<void> {
+    const conversation = this.requireConversationMember(userId, conversationId);
+    if (conversation.type !== "group") throw new Error("Direct messages cannot be left");
+    conversation.memberIds = conversation.memberIds.filter((id) => id !== userId);
+    if (conversation.memberIds.length === 0) {
+      this.conversations.delete(conversationId);
+      this.messages.delete(conversationId);
+    } else {
+      conversation.updatedAt = new Date().toISOString();
+    }
+  }
+
+  async blockUser(userId: string, blockedUserId: string): Promise<void> {
+    this.requireUser(userId);
+    this.requireUser(blockedUserId);
+    if (userId === blockedUserId) throw new Error("You cannot block yourself");
+    this.blockedPairs.add(blockKey(userId, blockedUserId));
+  }
+
+  async unblockUser(userId: string, blockedUserId: string): Promise<void> {
+    this.requireUser(userId);
+    this.blockedPairs.delete(blockKey(userId, blockedUserId));
+  }
+
   async listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
     const conversation = this.requireConversationMember(userId, conversationId);
-    return (this.messages.get(conversation.id) ?? []).map((message) => this.toMessage(userId, message));
+    return (this.messages.get(conversation.id) ?? [])
+      .filter((message) => !message.senderId || !this.isBlockedEitherWay(userId, message.senderId))
+      .map((message) => this.toMessage(userId, message));
   }
 
   async sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage> {
     const conversation = this.requireConversationMember(userId, conversationId);
+    if (conversation.type === "direct" && conversation.memberIds.some((id) => id !== userId && this.isBlockedEitherWay(userId, id))) {
+      throw new Error("This conversation is unavailable because one participant is blocked");
+    }
     const message: MemoryMessage = {
       id: randomUUID(),
       conversationId,
@@ -309,6 +357,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       lastMessageAt: last?.createdAt ?? conversation.updatedAt,
       unreadCount: last?.senderId && last.senderId !== userId ? 1 : 0,
       memberCount: conversation.memberIds.length,
+      otherUserId: conversation.type === "direct" ? other?.id ?? null : null,
     };
   }
 
@@ -337,6 +386,19 @@ export class InMemoryIdentityStore implements IdentityStore {
     if (!conversation || !conversation.memberIds.includes(userId)) throw new Error("Conversation not found");
     return conversation;
   }
+
+  private canSeeConversation(userId: string, conversation: MemoryConversation) {
+    return conversation.type === "group"
+      || !conversation.memberIds.some((id) => id !== userId && this.isBlockedEitherWay(userId, id));
+  }
+
+  private isBlockedEitherWay(userId: string, otherUserId: string) {
+    return this.blockedPairs.has(blockKey(userId, otherUserId)) || this.blockedPairs.has(blockKey(otherUserId, userId));
+  }
+}
+
+function blockKey(blockerId: string, blockedId: string) {
+  return `${blockerId}:${blockedId}`;
 }
 
 export function normalizePhone(phone: string | null | undefined): string | null {

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
@@ -8,6 +7,7 @@ import { useAppState } from "@/components/app-state";
 import { Icon, type IconName } from "@/components/icons";
 import { useUser } from "@/components/user-context";
 import { authClient } from "@/lib/auth-client";
+import { SafeImage } from "@/components/safe-image";
 
 const navItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
   { href: "/home", label: "Home", icon: "home", match: ["/home"] },
@@ -75,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             Talk to Senior Quest
           </button>
           <Link className="desktop-avatar" href="/profile" aria-label="Open profile">
-            <Image src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="44px" />
+            <SafeImage src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="44px" />
           </Link>
           <div className="desktop-user-copy"><strong>{user.fullName}</strong><small>{user.username ? `@${user.username}` : "Senior member"}</small></div>
           <button className="desktop-logout" type="button" onClick={logOut}>Log Out</button>

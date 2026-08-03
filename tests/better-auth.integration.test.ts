@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { auth, betterAuthPool } from "@/lib/auth";
+import { isAuthUsernameAvailable } from "@/server/identity/auth-username";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const createdIds: string[] = [];
@@ -28,6 +29,8 @@ describe.skipIf(!enabled)("Better Auth credentials", () => {
 
     const signedIn = await auth.api.signInUsername({ body: { username, password } });
     expect(signedIn.user.id).toBe(result.user.id);
+    expect(await isAuthUsernameAvailable(username)).toBe(false);
+    expect(await isAuthUsernameAvailable(username, result.user.id)).toBe(true);
 
     await expect(auth.api.signUpEmail({ body: {
       name: "Duplicate Name", email: `duplicate.${suffix}@example.com`, password,

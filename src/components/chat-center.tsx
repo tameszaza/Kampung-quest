@@ -3,9 +3,11 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Icon } from "@/components/icons";
+import { useAppState } from "@/components/app-state";
 import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
 
 export function ChatCenter() {
+  const { showToast } = useAppState();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -14,6 +16,8 @@ export function ChatCenter() {
   const [messageLoading, setMessageLoading] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"leave" | "block" | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
@@ -101,6 +105,34 @@ export function ChatCenter() {
     }
   }
 
+  async function completeChatAction() {
+    if (!selected || actionBusy) return;
+    setActionBusy(true);
+    try {
+      const response = selected.type === "group"
+        ? await fetch(`/api/chat/conversations/${selected.id}`, { method: "DELETE" })
+        : selected.otherUserId
+          ? await fetch("/api/chat/blocks", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ userId: selected.otherUserId }),
+          })
+          : null;
+      if (!response) throw new Error("This conversation is missing its contact details");
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "That action could not be completed");
+      setConversations((items) => items.filter((item) => item.id !== selected.id));
+      setSelectedId(null);
+      setMessages([]);
+      setConfirmAction(null);
+      showToast(selected.type === "group" ? "You left the group" : "User blocked");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "That action could not be completed");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   return (
     <div className={`chat-center${selectedId ? " conversation-open" : ""}`}>
       <section className="conversation-panel" aria-label="Conversations">
@@ -128,12 +160,30 @@ export function ChatCenter() {
       <section className="chat-panel" aria-label={selected ? `Conversation with ${selected.title}` : "Selected conversation"}>
         {selected ? (
           <>
-            <header className="chat-header">
-              <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
-              <Avatar src={selected.imageUrl} name={selected.title} size={48} group={selected.type === "group"} />
-              <span><h2>{selected.title}</h2><p>{selected.type === "group" ? `${selected.memberCount} members` : "Community member"}</p></span>
-              <span className="online-label"><i /> Safe chat</span>
-            </header>
+            <div className="chat-header-stack">
+              <header className="chat-header">
+                <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
+                <Avatar src={selected.imageUrl} name={selected.title} size={48} group={selected.type === "group"} />
+                <span><h2>{selected.title}</h2><p>{selected.type === "group" ? `${selected.memberCount} members` : "Community member"}</p></span>
+                <div className="chat-header-actions">
+                  <button
+                    className="chat-action-button"
+                    type="button"
+                    onClick={() => setConfirmAction(selected.type === "group" ? "leave" : "block")}
+                    aria-label={selected.type === "group" ? "Leave group" : `Block ${selected.title}`}
+                  >
+                    <Icon name={selected.type === "group" ? "close" : "blocked"} size={19} />
+                    <span>{selected.type === "group" ? "Leave" : "Block"}</span>
+                  </button>
+                </div>
+              </header>
+              {confirmAction ? (
+                <div className="chat-action-confirm" role="alertdialog" aria-label={confirmAction === "leave" ? "Leave group confirmation" : "Block user confirmation"}>
+                  <div><strong>{confirmAction === "leave" ? `Leave ${selected.title}?` : `Block ${selected.title}?`}</strong><p>{confirmAction === "leave" ? "You will no longer receive messages from this group." : "You will no longer receive direct messages from this person."}</p></div>
+                  <div className="chat-action-confirm-buttons"><button type="button" className="quiet-button" onClick={() => setConfirmAction(null)} disabled={actionBusy}>Keep chat</button><button type="button" className="danger-button" onClick={() => void completeChatAction()} disabled={actionBusy}>{actionBusy ? "Please wait…" : confirmAction === "leave" ? "Leave group" : "Block user"}</button></div>
+                </div>
+              ) : null}
+            </div>
             <div className="message-history" aria-live="polite" aria-busy={messageLoading}>
               <div className="chat-day-label">Today</div>
               {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}
@@ -237,7 +287,9 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
 }
 
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {
-  return <span className="chat-avatar" style={{ width: size, height: size }}>{src ? <Image src={src} alt="" fill sizes={`${size}px`} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
+  const [failed, setFailed] = useState(false);
+  const showImage = Boolean(src) && !failed;
+  return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <Image src={src!} alt="" fill sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
 }
 
 function formatThreadTime(value: string) {

@@ -256,9 +256,26 @@ export class PostgresIdentityStore implements IdentityStore {
     const result = await this.pool.query<{ user_id: string; full_name: string; username: string | null; photo_url: string | null }>(
       `SELECT user_id, full_name, username, photo_url FROM identity.users
        WHERE user_id <> $1 AND onboarding_complete = true
+         AND NOT EXISTS (
+           SELECT 1 FROM chat.user_blocks block
+           WHERE (block.blocker_id = $1 AND block.blocked_id = identity.users.user_id)
+              OR (block.blocker_id = identity.users.user_id AND block.blocked_id = $1)
+         )
          AND ($2 = '' OR lower(full_name) LIKE '%' || $2 || '%' OR lower(COALESCE(username, '')) LIKE '%' || $3 || '%')
        ORDER BY CASE WHEN account_type = 'community' THEN 0 ELSE 1 END, full_name`,
       [userId, normalizedQuery, usernameQuery],
+    );
+    return result.rows.map((row) => ({ id: row.user_id, fullName: row.full_name, username: row.username, photoUrl: row.photo_url }));
+  }
+
+  async listBlockedUsers(userId: string): Promise<ChatContact[]> {
+    const result = await this.pool.query<{ user_id: string; full_name: string; username: string | null; photo_url: string | null }>(
+      `SELECT blocked.user_id, blocked.full_name, blocked.username, blocked.photo_url
+       FROM chat.user_blocks block
+       JOIN identity.users blocked ON blocked.user_id = block.blocked_id
+       WHERE block.blocker_id = $1
+       ORDER BY blocked.full_name`,
+      [userId],
     );
     return result.rows.map((row) => ({ id: row.user_id, fullName: row.full_name, username: row.username, photoUrl: row.photo_url }));
   }
@@ -267,11 +284,12 @@ export class PostgresIdentityStore implements IdentityStore {
     const result = await this.pool.query<{
       conversation_id: string; conversation_type: "direct" | "group"; display_title: string;
       display_image: string | null; preview: string | null; last_message_at: Date | string;
-      unread_count: string | number; member_count: string | number;
+      unread_count: string | number; member_count: string | number; other_user_id: string | null;
     }>(
       `SELECT c.conversation_id, c.conversation_type,
               COALESCE(c.title, other.full_name, 'Conversation') AS display_title,
               COALESCE(c.image_url, other.photo_url) AS display_image,
+              other.user_id AS other_user_id,
               latest.body AS preview,
               COALESCE(latest.created_at, c.updated_at) AS last_message_at,
               (SELECT count(*) FROM chat.messages unread
@@ -284,7 +302,7 @@ export class PostgresIdentityStore implements IdentityStore {
        JOIN chat.conversation_members self
          ON self.conversation_id = c.conversation_id AND self.user_id = $1
        LEFT JOIN LATERAL (
-         SELECT u.full_name, u.photo_url
+         SELECT u.user_id, u.full_name, u.photo_url
          FROM chat.conversation_members member
          JOIN identity.users u ON u.user_id = member.user_id
          WHERE member.conversation_id = c.conversation_id AND member.user_id <> $1
@@ -295,6 +313,14 @@ export class PostgresIdentityStore implements IdentityStore {
          WHERE message.conversation_id = c.conversation_id
          ORDER BY created_at DESC LIMIT 1
        ) latest ON true
+       WHERE c.conversation_type = 'group' OR NOT EXISTS (
+         SELECT 1
+         FROM chat.conversation_members blocked_member
+         JOIN chat.user_blocks block
+           ON (block.blocker_id = $1 AND block.blocked_id = blocked_member.user_id)
+           OR (block.blocker_id = blocked_member.user_id AND block.blocked_id = $1)
+         WHERE blocked_member.conversation_id = c.conversation_id AND blocked_member.user_id <> $1
+       )
        ORDER BY last_message_at DESC`,
       [userId],
     );
@@ -307,6 +333,7 @@ export class PostgresIdentityStore implements IdentityStore {
       lastMessageAt: asIso(row.last_message_at),
       unreadCount: Number(row.unread_count),
       memberCount: Number(row.member_count),
+      otherUserId: row.conversation_type === "direct" ? row.other_user_id : null,
     }));
   }
 
@@ -321,6 +348,14 @@ export class PostgresIdentityStore implements IdentityStore {
       );
       if (users.rows.length !== participantIds.length) throw new Error("One or more users were not found");
       const memberIds = [userId, ...participantIds];
+      const blocked = await client.query(
+        `SELECT 1 FROM chat.user_blocks
+         WHERE (blocker_id = $1 AND blocked_id = ANY($2::text[]))
+            OR (blocked_id = $1 AND blocker_id = ANY($2::text[]))
+         LIMIT 1`,
+        [userId, participantIds],
+      );
+      if (blocked.rowCount) throw new Error("You cannot start a chat with a blocked contact");
       let conversationId: string;
       if (input.type === "direct") {
         const directKey = [...memberIds].sort().join(":");
@@ -361,6 +396,63 @@ export class PostgresIdentityStore implements IdentityStore {
     }
   }
 
+  async leaveConversation(userId: string, conversationId: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const conversation = await client.query<{ conversation_type: "direct" | "group" }>(
+        `SELECT c.conversation_type
+         FROM chat.conversations c
+         JOIN chat.conversation_members m ON m.conversation_id = c.conversation_id
+         WHERE c.conversation_id = $1 AND m.user_id = $2
+         FOR UPDATE OF c`,
+        [conversationId, userId],
+      );
+      if (!conversation.rows[0]) throw new Error("Conversation not found");
+      if (conversation.rows[0].conversation_type !== "group") throw new Error("Direct messages cannot be left");
+      await client.query(
+        "DELETE FROM chat.conversation_members WHERE conversation_id = $1 AND user_id = $2",
+        [conversationId, userId],
+      );
+      await client.query(
+        `DELETE FROM chat.conversations conversation
+         WHERE conversation.conversation_id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM chat.conversation_members member
+             WHERE member.conversation_id = conversation.conversation_id
+           )`,
+        [conversationId],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async blockUser(userId: string, blockedUserId: string): Promise<void> {
+    if (userId === blockedUserId) throw new Error("You cannot block yourself");
+    const users = await this.pool.query(
+      "SELECT count(*) AS count FROM identity.users WHERE user_id = ANY($1::text[])",
+      [[userId, blockedUserId]],
+    );
+    if (Number(users.rows[0]?.count ?? 0) !== 2) throw new Error("User not found");
+    await this.pool.query(
+      `INSERT INTO chat.user_blocks (blocker_id, blocked_id)
+       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [userId, blockedUserId],
+    );
+  }
+
+  async unblockUser(userId: string, blockedUserId: string): Promise<void> {
+    await this.pool.query(
+      "DELETE FROM chat.user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+      [userId, blockedUserId],
+    );
+  }
+
   async listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
     await this.requireMember(userId, conversationId);
     const result = await this.pool.query<{
@@ -372,9 +464,13 @@ export class PostgresIdentityStore implements IdentityStore {
        FROM chat.messages message
        LEFT JOIN identity.users sender ON sender.user_id = message.sender_id
        WHERE message.conversation_id = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM chat.user_blocks block
+           WHERE block.blocker_id = $2 AND block.blocked_id = message.sender_id
+         )
        ORDER BY message.created_at ASC
        LIMIT 300`,
-      [conversationId],
+      [conversationId, userId],
     );
     await this.pool.query(
       `UPDATE chat.conversation_members SET last_read_at = now()
@@ -395,6 +491,18 @@ export class PostgresIdentityStore implements IdentityStore {
 
   async sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage> {
     await this.requireMember(userId, conversationId);
+    const blocked = await this.pool.query(
+      `SELECT 1
+       FROM chat.conversations c
+       JOIN chat.conversation_members member ON member.conversation_id = c.conversation_id
+       JOIN chat.user_blocks block
+         ON (block.blocker_id = $1 AND block.blocked_id = member.user_id)
+         OR (block.blocker_id = member.user_id AND block.blocked_id = $1)
+       WHERE c.conversation_id = $2 AND c.conversation_type = 'direct' AND member.user_id <> $1
+       LIMIT 1`,
+      [userId, conversationId],
+    );
+    if (blocked.rowCount) throw new Error("This conversation is unavailable because one participant is blocked");
     const id = randomUUID();
     const result = await this.pool.query<{ created_at: Date | string }>(
       `WITH inserted AS (

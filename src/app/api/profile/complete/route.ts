@@ -1,9 +1,9 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { isAuthUsernameAvailable } from "@/server/identity/auth-username";
 import { identityStore } from "@/server/identity/container";
 import { profileCompletionSchema } from "@/server/identity/schemas";
 import { requireUser } from "@/server/identity/session";
-import { normalizeUsername } from "@/server/identity/username";
 import { importProviderAvatar } from "@/server/profile/avatar-storage";
 import { errorResponse } from "@/server/http/responses";
 
@@ -17,19 +17,15 @@ export async function POST(request: Request) {
     const session = await auth.api.getSession({ headers: requestHeaders });
     if (!session) throw new Error("Authentication required");
     const authUser = session.user as AuthUser;
-    const normalized = normalizeUsername(input.username);
-    const authOwnsUsername = authUser.username === normalized;
     const [authAvailability, appAvailable] = await Promise.all([
-      authOwnsUsername
-        ? Promise.resolve({ available: true })
-        : auth.api.isUsernameAvailable({ body: { username: input.username } }),
+      isAuthUsernameAvailable(input.username, authUser.id),
       identityStore.isUsernameAvailable(input.username, profile.id),
     ]);
-    if (!authAvailability.available || !appAvailable) throw new Error("That display name is already taken");
+    if (!authAvailability || !appAvailable) throw new Error("That display name is already taken");
 
     let photoUrl = profile.photoUrl;
     if (!photoUrl?.startsWith("/api/profile/avatar/") && input.useProviderPhoto && authUser.image) {
-      photoUrl = await importProviderAvatar(profile.id, authUser.image);
+      photoUrl = await importProviderAvatar(profile.id, authUser.image) ?? photoUrl;
     }
     if (!input.useProviderPhoto && !photoUrl?.startsWith("/api/profile/avatar/")) photoUrl = null;
 
