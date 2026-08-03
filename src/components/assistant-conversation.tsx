@@ -19,7 +19,6 @@ import {
   type AssistantStep,
 } from "@/features/assistant/conversation";
 import type { QuestRun } from "@/server/domain/schemas";
-import { useUser } from "@/components/user-context";
 
 const DRAFT_KEY = "senior-quest-assistant-draft";
 
@@ -93,7 +92,7 @@ function displayDate(start?: string, end?: string) {
   })}, ${startDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}–${endDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 }
 
-function candidateName(candidateId: string, ownCandidateId: string) {
+function candidateName(candidateId: string) {
   const names: Record<string, string> = {
     maria: "You",
     demo_anne: "Anne",
@@ -101,7 +100,7 @@ function candidateName(candidateId: string, ownCandidateId: string) {
     demo_john: "John",
     demo_mei: "Mei",
   };
-  return candidateId === ownCandidateId ? "You" : names[candidateId] ?? "A neighbour";
+  return names[candidateId] ?? "A neighbour";
 }
 
 function friendlyRole(role: string) {
@@ -109,8 +108,7 @@ function friendlyRole(role: string) {
   return role.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
-export function AssistantConversation({ embedded = false }: { embedded?: boolean } = {}) {
-  const { user } = useUser();
+export function AssistantConversation() {
   const [state, dispatch] = useReducer(
     assistantConversationReducer,
     createAssistantConversation("conversation_pending"),
@@ -218,7 +216,7 @@ export function AssistantConversation({ embedded = false }: { embedded?: boolean
     try {
       dispatch({ type: "submission_started" });
       setProgress(0);
-      const result = await requestRecommendation(toRecommendationRequest(state, user.id));
+      const result = await requestRecommendation(toRecommendationRequest(state));
       setQuest(result.quest);
       dispatch({ type: "submission_succeeded", questRunId: result.quest.runId });
     } catch (error) {
@@ -247,28 +245,22 @@ export function AssistantConversation({ embedded = false }: { embedded?: boolean
     ? prompts[state.step]
     : null;
 
-  const firstName = user.fullName.split(/\s+/)[0] || user.fullName;
-
   return (
-    <div className={`assistant-page${embedded ? " assistant-embedded" : ""}`}>
-      {!embedded ? <header className="assistant-header">
+    <div className="assistant-page">
+      <header className="assistant-header">
         <Link className="icon-button" href="/home" aria-label="Back to home"><Icon name="back" /></Link>
         <div className="assistant-identity">
           <span className="assistant-mark" aria-hidden="true">♥</span>
           <span><strong>Senior Quest</strong><small>Your friendly community helper</small></span>
         </div>
         <button className="assistant-reset" type="button" onClick={startAgain}>Start over</button>
-      </header> : null}
+      </header>
 
       <main className="assistant-thread" aria-live="polite">
-        {embedded ? <div className="assistant-inline-tools">
-          <span>Tell me what would feel helpful or enjoyable today.</span>
-          <button className="assistant-reset" type="button" onClick={startAgain}>Start over</button>
-        </div> : null}
         <div className="assistant-welcome">
           <span className="assistant-avatar" aria-hidden="true">♥</span>
           <div className="assistant-bubble">
-            <strong>Hello {firstName}, I&apos;m here to help.</strong>
+            <strong>Hello Maria, I&apos;m here to help.</strong>
             <p>Tell me what would feel helpful or enjoyable, and I&apos;ll look for a safe activity with nearby neighbours.</p>
           </div>
         </div>
@@ -376,7 +368,7 @@ export function AssistantConversation({ embedded = false }: { embedded?: boolean
           </section>
         ) : null}
 
-        {state.step === "complete" && quest ? <QuestResult quest={quest} ownCandidateId={user.id} onStartAgain={startAgain} /> : null}
+        {state.step === "complete" && quest ? <QuestResult quest={quest} onStartAgain={startAgain} /> : null}
       </main>
     </div>
   );
@@ -386,7 +378,7 @@ function ChoiceButtons({ choices }: { choices: Array<[string, () => void]> }) {
   return <div className="assistant-choices">{choices.map(([label, action]) => <button type="button" onClick={action} key={label}>{label}<Icon name="chevron" size={18} /></button>)}</div>;
 }
 
-function QuestResult({ quest, ownCandidateId, onStartAgain }: { quest: QuestRun; ownCandidateId: string; onStartAgain: () => void }) {
+function QuestResult({ quest, onStartAgain }: { quest: QuestRun; onStartAgain: () => void }) {
   const proposal = quest.proposal;
   if (quest.status === "failed" || !proposal) {
     return (
@@ -422,7 +414,7 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: { quest: QuestRun;
       <div className="result-people">
         <h3>Everyone has a role</h3>
         {proposal.proposedParticipants.map((participant) => (
-          <div key={participant.candidateId}><span>{candidateName(participant.candidateId, ownCandidateId).slice(0, 1)}</span><p><strong>{candidateName(participant.candidateId, ownCandidateId)}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>
+          <div key={participant.candidateId}><span>{candidateName(participant.candidateId).slice(0, 1)}</span><p><strong>{candidateName(participant.candidateId)}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>
         ))}
       </div>
       <div className="assistant-result-actions">

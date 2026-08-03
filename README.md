@@ -12,9 +12,6 @@ docker compose up --build
 The service will be available at:
 
 - Landing page: `http://localhost:3000`
-- Registration: `http://localhost:3000/register`
-- Login: `http://localhost:3000/login`
-- Direct and group messages: `http://localhost:3000/messages`
 - Health check: `http://localhost:3000/health`
 
 Stop it with `docker compose down`.
@@ -38,11 +35,6 @@ npm run build
 ```
 
 ## API workflow
-
-Member-facing APIs require the signed, HttpOnly session cookie managed by Better Auth under
-`/api/auth/*`. Candidate IDs for memories, recommendations and quests are bound to the
-authenticated member on the server; a browser cannot read or mutate another member's data by
-changing a URL or request body.
 
 The Senior Quest frontend exposes this workflow as one guided conversation at `/assistant`.
 Maria can describe a need naturally, confirm hard constraints with large quick replies, and
@@ -89,9 +81,6 @@ Example profile:
 src/
 ├── app/
 │   ├── api/v1/                    Next.js API route handlers
-│   ├── api/auth/                  Better Auth email/password and Google OAuth handlers
-│   ├── api/profile/               Onboarding, unique names, and optimized avatar storage
-│   ├── api/chat/                  Direct/group conversations and stored messages
 │   ├── health/route.ts            Container health endpoint
 │   ├── layout.tsx                 Root application layout
 │   └── page.tsx                   Service landing page
@@ -111,38 +100,6 @@ tests/                              Service and pipeline tests
 Dockerfile                          Multi-stage, non-root production image
 compose.yaml                        Local container deployment
 ```
-
-## Member accounts and chat
-
-Migrations `003_identity_and_chat.sql` and `004_better_auth_and_profiles.sql` add isolated
-`auth`, `identity`, and `chat` schemas. Every member
-has a database profile plus a dedicated preference row for language, interests, activity level,
-group size, accessibility, text size, contrast and notifications. Better Auth owns credential
-hashing, OAuth account linking, session expiry, cookie protection, and rate limiting; plaintext
-passwords are never written to the database or application logs. Display names normalize to a
-unique searchable username, so members can find one another when starting direct or group chat.
-
-Profile photos are optional. Uploaded JPG, PNG, and WebP files are orientation-corrected, cropped
-to a maximum 512×512 avatar, stripped of metadata, and stored as compressed WebP. The Docker
-volume `kampung-uploads` keeps those optimized avatars across restarts.
-
-Chat supports direct-message deduplication, named groups, membership authorization, persisted
-history, unread state, search, and periodic refresh for new messages. Development without
-`DATABASE_URL` uses the same store contract in memory; Docker and production use PostgreSQL.
-
-### Google sign-in
-
-Set `BETTER_AUTH_SECRET` to a random value of at least 32 characters, set `BETTER_AUTH_URL` to the
-public origin, and configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. In Google Cloud, add
-this authorized redirect URI for local development:
-
-```text
-http://localhost:3000/api/auth/callback/google
-```
-
-Add the equivalent HTTPS URI for production. A first Google sign-in opens the profile completion
-screen with Google name, email, and photo prefilled. The name and photo remain editable; the
-verified Google email is locked. Returning members go straight back into their existing account.
 
 Route handlers call one `KampungQuestEngine` interface. The engine owns ordered orchestration while injected adapters provide PostgreSQL, embeddings and AI-agent runs. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
 

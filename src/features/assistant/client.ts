@@ -22,15 +22,15 @@ export async function requestRecommendation(
   return responseJson<AssistantRecommendationResult>(response);
 }
 
-export async function getUserMemory(candidateId: string): Promise<MemoryCard | null> {
-  const response = await fetch(`/api/v1/memories/${encodeURIComponent(candidateId)}`, { cache: "no-store" });
+export async function getMariaMemory(): Promise<MemoryCard | null> {
+  const response = await fetch("/api/v1/memories/maria", { cache: "no-store" });
   if (response.status === 404) return null;
   return responseJson<MemoryCard>(response);
 }
 
-export async function listUserQuests(candidateId: string, limit = 20): Promise<QuestRun[]> {
+export async function listMariaQuests(limit = 20): Promise<QuestRun[]> {
   const response = await fetch(
-    `/api/v1/quests?candidateId=${encodeURIComponent(candidateId)}&limit=${encodeURIComponent(limit)}`,
+    `/api/v1/quests?candidateId=maria&limit=${encodeURIComponent(limit)}`,
     { cache: "no-store" },
   );
   return responseJson<QuestRun[]>(response);

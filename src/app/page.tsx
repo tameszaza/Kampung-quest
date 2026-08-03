@@ -30,8 +30,8 @@ export default function WelcomePage() {
           </div>
 
           <div className="welcome-actions">
-              <Link className="primary-button" href="/register">Get Started</Link>
-              <Link className="secondary-button" href="/login">I Have an Account</Link>
+            <Link className="primary-button" href="/home">Get Started</Link>
+            <Link className="secondary-button" href="/home">I Have an Account</Link>
           </div>
 
           <div className="pager-dots" aria-label="Onboarding page 1 of 3">

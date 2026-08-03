@@ -9,19 +9,15 @@ export function errorResponse(error: unknown): NextResponse {
     );
   }
   const message = error instanceof Error ? error.message : "Unexpected server error";
-  const status = message.includes("Authentication required")
-    ? 401
-    : message.includes("request quota") && message.includes("exhausted")
-      ? 429
-      : message.includes("not found")
-        ? 404
-        : message.includes("already exists")
+  const status = message.includes("request quota") && message.includes("exhausted")
+    ? 429
+    : message.includes("not found")
+      ? 404
+      : message.includes("provider unavailable")
+        ? 503
+        : message.includes("conflict") || message.includes("not valid")
           ? 409
-          : message.includes("provider unavailable")
-            ? 503
-            : message.includes("conflict") || message.includes("not valid")
-              ? 409
-              : 422;
+          : 422;
   return NextResponse.json({ error: message }, { status });
 }
 

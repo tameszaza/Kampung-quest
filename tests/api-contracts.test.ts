@@ -42,7 +42,7 @@ describe("version 1 request contracts", () => {
     expect(() => coordinationEventRequestSchema.parse({ type: "force_confirmed" })).toThrow();
   });
 
-  it("accepts a complete assistant conversation for a member identity", () => {
+  it("accepts a complete Maria assistant conversation and rejects another identity", () => {
     const request = {
       conversationId: "conversation_001",
       candidateId: "maria",
@@ -53,6 +53,9 @@ describe("version 1 request contracts", () => {
     };
 
     expect(assistantRecommendationRequestSchema.parse(request).candidateId).toBe("maria");
-    expect(assistantRecommendationRequestSchema.parse({ ...request, candidateId: "another-user" }).candidateId).toBe("another-user");
+    expect(() => assistantRecommendationRequestSchema.parse({
+      ...request,
+      candidateId: "another-user",
+    })).toThrow();
   });
 });

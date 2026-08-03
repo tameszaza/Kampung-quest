@@ -10,7 +10,6 @@
     "dev": "next dev",
     "build": "next build",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:reset-users": "node scripts/reset-users.mjs",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node .next/standalone/server.js",
     "lint": "eslint .",
@@ -20,13 +19,11 @@
   },
   "dependencies": {
     "@openai/agents": "^0.14.2",
-    "better-auth": "^1.6.25",
     "next": "16.2.12",
     "openai": "^7.3.0",
     "pg": "^8.22.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": "0.35.3",
     "zod": "4.4.3"
   },
   "devDependencies": {

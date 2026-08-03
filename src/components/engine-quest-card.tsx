@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
-import { ActivityActions } from "@/components/activity-actions";
 import type { QuestRun } from "@/server/domain/schemas";
 
 export function questImage(run: QuestRun) {
@@ -43,7 +42,6 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
           <div className="meta-row"><Icon name="shield" size={19} /><span>{run.safety?.status === "approved" ? "Safety checked" : "Human review required"}</span></div>
         </div>
       </Link>
-      <ActivityActions activityId={run.runId} />
     </article>
   );
 }

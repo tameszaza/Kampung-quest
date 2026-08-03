@@ -1,5 +1,5 @@
-import { UserMemoryView } from "@/components/user-memory-view";
+import { MariaMemoryView } from "@/components/maria-memory-view";
 
 export default function NeedsPage() {
-  return <UserMemoryView />;
+  return <MariaMemoryView />;
 }
