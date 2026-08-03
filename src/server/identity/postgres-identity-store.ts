@@ -519,15 +519,25 @@ export class PostgresIdentityStore implements IdentityStore {
     const result = await this.pool.query<{
       message_id: string; conversation_id: string; sender_id: string | null; body: string;
       created_at: Date | string; full_name: string | null; photo_url: string | null;
+      receipt: "delivered" | "read" | null;
     }>(
       `SELECT message.message_id, message.conversation_id, message.sender_id, message.body,
-              message.created_at, sender.full_name, sender.photo_url
+              message.created_at, sender.full_name, sender.photo_url,
+              CASE WHEN message.sender_id = $2 THEN
+                CASE WHEN NOT EXISTS (
+                  SELECT 1
+                  FROM chat.conversation_members recipient
+                  WHERE recipient.conversation_id = message.conversation_id
+                    AND recipient.user_id <> $2
+                    AND recipient.last_read_at < message.created_at
+                ) THEN 'read' ELSE 'delivered' END
+              ELSE NULL END AS receipt
        FROM chat.messages message
        LEFT JOIN identity.users sender ON sender.user_id = message.sender_id
        WHERE message.conversation_id = $1
        ORDER BY message.created_at ASC
        LIMIT 300`,
-      [conversationId],
+      [conversationId, userId],
     );
     await this.pool.query(
       `UPDATE chat.conversation_members SET last_read_at = now()
@@ -543,6 +553,7 @@ export class PostgresIdentityStore implements IdentityStore {
       body: row.body,
       createdAt: asIso(row.created_at),
       mine: row.sender_id === userId,
+      receipt: row.sender_id === userId ? (row.receipt ?? "delivered") : undefined,
     }));
   }
 
@@ -574,6 +585,7 @@ export class PostgresIdentityStore implements IdentityStore {
     return {
       id, conversationId, senderId: userId, senderName: user?.fullName ?? "You",
       senderImageUrl: user?.photoUrl ?? null, body, createdAt: asIso(result.rows[0].created_at), mine: true,
+      receipt: "delivered",
     };
   }
 

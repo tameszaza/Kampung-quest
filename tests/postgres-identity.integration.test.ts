@@ -57,8 +57,10 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
     const direct = await store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
     const reused = await store!.createConversation(lee.id, { type: "direct", participantIds: [maria.id] });
     expect(reused.id).toBe(direct.id);
-    await store!.sendMessage(maria.id, direct.id, "Hello from PostgreSQL");
+    const sent = await store!.sendMessage(maria.id, direct.id, "Hello from PostgreSQL");
+    expect(sent.receipt).toBe("delivered");
     expect((await store!.listMessages(lee.id, direct.id)).at(-1)?.body).toBe("Hello from PostgreSQL");
+    expect((await store!.listMessages(maria.id, direct.id)).at(-1)?.receipt).toBe("read");
 
     const group = await store!.createConversation(maria.id, {
       type: "group",

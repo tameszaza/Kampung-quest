@@ -77,9 +77,12 @@ describe("member preferences and chat", () => {
       title: "Garden Friends",
     });
     expect(group.memberCount).toBe(3);
-    await store.sendMessage(maria.id, group.id, "Shall we meet on Friday?");
+    const sent = await store.sendMessage(maria.id, group.id, "Shall we meet on Friday?");
+    expect(sent.receipt).toBe("delivered");
     const history = await store.listMessages(lee.id, group.id);
     expect(history.at(-1)).toMatchObject({ body: "Shall we meet on Friday?", mine: false });
+    await store.listMessages("community_anne", group.id);
+    expect((await store.listMessages(maria.id, group.id)).at(-1)?.receipt).toBe("read");
   });
 
   it("honors privacy choices when discovering people and starting chats", async () => {

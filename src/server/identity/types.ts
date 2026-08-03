@@ -55,6 +55,8 @@ export type ChatMessage = {
   body: string;
   createdAt: string;
   mine: boolean;
+  /** Delivery state for messages sent by the current user. Incoming messages omit this value. */
+  receipt?: "delivered" | "read";
 };
 
 export type ChatContact = {

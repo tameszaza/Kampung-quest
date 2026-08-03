@@ -102,6 +102,8 @@ export class InMemoryIdentityStore implements IdentityStore {
   private readonly users = new Map<string, StoredUser>(communityMembers.map((user) => [user.id, user]));
   private readonly conversations = new Map<string, MemoryConversation>();
   private readonly messages = new Map<string, MemoryMessage[]>();
+  /** Last time each member opened a conversation, used to derive read receipts. */
+  private readonly lastReadAt = new Map<string, string>();
   private readonly blockedPairs = new Set<string>();
   private readonly deletedConversations = new Set<string>();
 
@@ -310,6 +312,7 @@ export class InMemoryIdentityStore implements IdentityStore {
 
   async listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
     this.requireConversationMember(userId, conversationId);
+    this.lastReadAt.set(readKey(conversationId, userId), new Date().toISOString());
     return (this.messages.get(conversationId) ?? []).map((message) => this.toMessage(userId, message));
   }
 
@@ -385,7 +388,19 @@ export class InMemoryIdentityStore implements IdentityStore {
       body: message.body,
       createdAt: message.createdAt,
       mine: message.senderId === userId,
+      receipt: message.senderId === userId ? this.receiptFor(userId, message) : undefined,
     };
+  }
+
+  private receiptFor(userId: string, message: MemoryMessage): "delivered" | "read" {
+    const conversation = this.conversations.get(message.conversationId);
+    if (!conversation) return "delivered";
+    const recipients = conversation.memberIds.filter((memberId) => memberId !== userId);
+    const allRecipientsRead = recipients.length > 0 && recipients.every((memberId) => {
+      const lastRead = this.lastReadAt.get(readKey(conversation.id, memberId));
+      return Boolean(lastRead && Date.parse(lastRead) >= Date.parse(message.createdAt));
+    });
+    return allRecipientsRead ? "read" : "delivered";
   }
 
   private requireUser(userId: string) {
@@ -421,6 +436,10 @@ export class InMemoryIdentityStore implements IdentityStore {
   private hasConnection(userId: string, otherUserId: string) {
     return [...this.conversations.values()].some((conversation) => conversation.memberIds.includes(userId) && conversation.memberIds.includes(otherUserId));
   }
+}
+
+function readKey(conversationId: string, userId: string) {
+  return `${conversationId}:${userId}`;
 }
 
 function blockKey(blockerId: string, blockedId: string) {

@@ -1780,6 +1780,21 @@
   text-align: right;
 }
 
+.message-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: normal;
+}
+
+.message-receipt.read {
+  color: var(--green-700);
+}
+
 .message-bubble-editable {
   width: fit-content;
   color: var(--ink);
