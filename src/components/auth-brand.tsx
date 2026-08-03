@@ -51,7 +51,6 @@ export function LoginBrand() {
           <li><span><Icon name="shield" size={24} /></span><div><strong>Safe &amp; Trusted Community</strong><small>A secure environment<br />where everyone belongs.</small></div></li>
         </ul>
       </div>
-      <div className="login-desktop-art"><Image src="/assets/onboarding-seniors.png" alt="" fill sizes="420px" /></div>
     </section>
   );
 }

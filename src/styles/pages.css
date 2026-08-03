@@ -4139,8 +4139,7 @@
   object-fit: contain;
 }
 
-.login-desktop-copy,
-.login-desktop-art {
+.login-desktop-copy {
   display: none;
 }
 
@@ -4301,11 +4300,9 @@
     right: 0;
     bottom: 0;
     left: 0;
-    background:
-      radial-gradient(ellipse at 18% 92%, rgba(255, 244, 190, .72) 0, transparent 38%),
-      radial-gradient(ellipse at 93% 12%, rgba(190, 231, 242, .7) 0, transparent 43%),
-      radial-gradient(ellipse at 52% 77%, rgba(183, 222, 180, .56) 0, transparent 39%),
-      linear-gradient(135deg, #fafdff 0%, #eef9f3 100%);
+    background-image: url("/assets/login-bg.png");
+    background-position: center;
+    background-size: cover;
     content: "";
   }
 
@@ -4445,22 +4442,6 @@
     line-height: 1.4;
   }
 
-  .login-desktop-art {
-    position: absolute;
-    z-index: 1;
-    right: -15px;
-    bottom: -12px;
-    width: min(48%, 430px);
-    height: 285px;
-    display: block;
-    opacity: .9;
-  }
-
-  .login-desktop-art img {
-    object-fit: contain;
-    object-position: right bottom;
-  }
-
   .login-layout > .auth-card {
     grid-column: 2;
     grid-row: 2;
@@ -4533,9 +4514,6 @@
     gap: 11px;
   }
 
-  .login-desktop-art {
-    height: 220px;
-  }
 }
 
 /* The login page is a full-bleed experience, rather than a framed device
