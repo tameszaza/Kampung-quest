@@ -30,6 +30,7 @@ export const constraintsSchema = z
 
 export const candidateProfileSchema = z.object({
   candidateId: z.string().min(1),
+  source: z.enum(["real", "demo", "test"]).optional(),
   need: z.string().min(3),
   interests: z.array(z.string()).default([]),
   offers: z.array(z.string()).default([]),
@@ -46,6 +47,7 @@ export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 
 export const assistantRecommendationRequestSchema = z.object({
   conversationId: z.string().min(1),
+  requestKey: z.string().min(1).optional(),
   candidateId: z.literal("maria"),
   narrative: z.string().min(3),
   interests: z.array(z.string().min(1)).default([]),
@@ -54,6 +56,140 @@ export const assistantRecommendationRequestSchema = z.object({
 });
 
 export type AssistantRecommendationCommand = z.infer<typeof assistantRecommendationRequestSchema>;
+
+export const assistantBriefFieldSchema = z.enum([
+  "goal",
+  "interests",
+  "offers",
+  "availability",
+  "group_size",
+  "indoor",
+  "stairs",
+  "distance",
+  "language",
+  "consent",
+]);
+
+export type AssistantBriefField = z.infer<typeof assistantBriefFieldSchema>;
+
+export const questBriefDraftSchema = z.object({
+  currentGoal: z.string().min(3).optional(),
+  interests: z.array(z.string().min(1)).optional(),
+  offers: z.array(z.string().min(1)).optional(),
+  availableWindows: z.array(availabilityWindowSchema).min(1).optional(),
+  minimumGroupSize: z.number().int().min(2).optional(),
+  maximumGroupSize: z.number().int().min(2).max(5).optional(),
+  indoorRequired: z.boolean().optional(),
+  stairsAllowed: z.boolean().optional(),
+  maximumDistanceM: z.number().int().positive().optional(),
+  language: z.string().min(1).optional(),
+  invitationConsent: z.boolean().optional(),
+});
+
+export type QuestBriefDraft = z.infer<typeof questBriefDraftSchema>;
+
+export const confirmedQuestBriefSchema = questBriefDraftSchema.required({
+  currentGoal: true,
+  availableWindows: true,
+  minimumGroupSize: true,
+  maximumGroupSize: true,
+  indoorRequired: true,
+  stairsAllowed: true,
+  maximumDistanceM: true,
+  language: true,
+  invitationConsent: true,
+}).extend({
+  interests: z.array(z.string().min(1)).default([]),
+  offers: z.array(z.string().min(1)).default([]),
+}).refine((brief) => brief.minimumGroupSize <= brief.maximumGroupSize, {
+  message: "Minimum group size cannot exceed maximum group size",
+  path: ["minimumGroupSize"],
+});
+
+export type ConfirmedQuestBrief = z.infer<typeof confirmedQuestBriefSchema>;
+
+export const assistantTurnAgentOutputSchema = z.object({
+  reply: z.string().min(1),
+  briefPatch: questBriefDraftSchema,
+  requestedField: assistantBriefFieldSchema.nullable(),
+  suggestedReplies: z.array(z.string().min(1)).max(4),
+  status: z.enum(["collecting", "ready_for_review"]),
+});
+
+export type AssistantTurnAgentOutput = z.infer<typeof assistantTurnAgentOutputSchema>;
+
+export const assistantAnswerSchema = z.discriminatedUnion("field", [
+  z.object({ field: z.literal("goal"), value: z.string().min(3) }),
+  z.object({ field: z.literal("interests"), value: z.string().min(1).nullable() }),
+  z.object({ field: z.literal("offers"), value: z.string().min(1).nullable() }),
+  z.object({ field: z.literal("availability"), value: availabilityWindowSchema }),
+  z.object({ field: z.literal("group_size"), value: z.object({
+    minimum: z.number().int().min(2),
+    maximum: z.number().int().min(2).max(5),
+  }).refine((group) => group.minimum <= group.maximum) }),
+  z.object({ field: z.literal("indoor"), value: z.boolean() }),
+  z.object({ field: z.literal("stairs"), value: z.boolean() }),
+  z.object({ field: z.literal("distance"), value: z.number().int().positive() }),
+  z.object({ field: z.literal("language"), value: z.string().min(1) }),
+  z.object({ field: z.literal("consent"), value: z.boolean() }),
+]);
+
+export type AssistantAnswer = z.infer<typeof assistantAnswerSchema>;
+
+export const assistantConversationCreateRequestSchema = z.object({
+  candidateId: z.literal("maria").default("maria"),
+});
+
+export const assistantTurnRequestSchema = z.object({
+  clientTurnId: z.string().min(1),
+  revision: z.number().int().positive(),
+  answer: assistantAnswerSchema,
+});
+
+export const assistantConfirmRequestSchema = z.object({
+  revision: z.number().int().positive(),
+});
+
+export interface AssistantConversationMessage {
+  messageId: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export type AssistantConversationStatus =
+  | "collecting"
+  | "ready_for_review"
+  | "confirmed"
+  | "processing"
+  | "complete"
+  | "no_match"
+  | "failed";
+
+export interface AssistantWorkflowEvent {
+  sequence: number;
+  stage: "brief" | "memory" | "retrieval" | "synthesis" | "validation" | "safety";
+  status: "started" | "completed" | "failed";
+  message: string;
+  kind: "agent" | "system";
+  createdAt: string;
+}
+
+export interface AssistantConversationSnapshot {
+  conversationId: string;
+  candidateId: "maria";
+  status: AssistantConversationStatus;
+  revision: number;
+  messages: AssistantConversationMessage[];
+  brief: QuestBriefDraft;
+  nextField: AssistantBriefField | null;
+  suggestedReplies: string[];
+  questRunId: string | null;
+  events: AssistantWorkflowEvent[];
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface MemoryCard {
   profile: CandidateProfile;
@@ -72,6 +208,7 @@ export interface MemoryUpdateCommand {
     interests: boolean;
     offers: boolean;
   };
+  auditContext?: Record<string, string>;
 }
 
 export interface MemoryAgentOutput {
@@ -189,6 +326,7 @@ export interface CoordinationEventRecord extends CoordinationEventCommand {
 
 export type QuestStatus =
   | "processing"
+  | "no_match"
   | "awaiting_acceptance"
   | "confirmed"
   | "human_review"
@@ -200,6 +338,7 @@ export interface ProposeQuestCommand {
   initiatingCandidateId: string;
   candidateLimit?: number;
   idempotencyKey?: string;
+  conversationId?: string;
 }
 
 export interface QuestRun {
@@ -211,6 +350,10 @@ export interface QuestRun {
   validation: ValidationResult | null;
   safety: SafetyReview | null;
   coordination: CoordinationPlan | null;
+  noMatch?: {
+    reason: string;
+    missingCapabilities: string[];
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -267,6 +410,18 @@ export const questProposalSchema = z.object({
   mutualBenefitExplanation: z.array(z.string()),
   confidence: z.number().min(0).max(1),
 }) satisfies z.ZodType<QuestProposal>;
+
+export const questSynthesisOutputSchema = z.object({
+  outcome: z.enum(["proposal", "no_match"]),
+  proposal: questProposalSchema.nullable(),
+  primaryIntentRef: z.string().nullable(),
+  reason: z.string().nullable(),
+  missingCapabilities: z.array(z.string().min(1)),
+});
+
+export type QuestSynthesisOutput =
+  | { outcome: "proposal"; proposal: QuestProposal; primaryIntentRef: string }
+  | { outcome: "no_match"; reason: string; missingCapabilities: string[] };
 
 export const safetyReviewSchema = z.object({
   status: z.enum(["approved", "rejected", "human_review"]),

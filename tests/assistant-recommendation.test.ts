@@ -130,6 +130,22 @@ describe("Senior Quest assistant recommendations", () => {
     expect(result.quest.proposal?.proposedParticipants.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("makes the newest confirmed request the active need instead of blending old goals", async () => {
+    const { assistant } = setup();
+    await assistant.recommend(command());
+
+    const latest = command();
+    latest.conversationId = "conversation_salmon";
+    latest.narrative = "I would like to make a salad bowl with raw salmon.";
+    latest.interests = ["salad preparation"];
+    latest.offers = ["I can bring salad ingredients"];
+    const result = await assistant.recommend(latest);
+
+    expect(result.memory.profile.need).toBe(latest.narrative);
+    expect(result.quest.proposal?.quest.needsAddressed).toContain(latest.narrative);
+    expect(result.quest.proposal?.quest.needsAddressed.join(" ")).not.toContain("healthy lunch");
+  });
+
   it("does not spend agent memory requests on fixed demo neighbours", async () => {
     class CountingMemoryRuntime extends DeterministicAgentRuntime {
       memoryUpdates = 0;

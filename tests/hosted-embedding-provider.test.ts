@@ -76,4 +76,26 @@ describe("HostedEmbeddingProvider", () => {
       },
     })).rejects.toThrow("has 768 dimensions; expected 1536");
   });
+
+  it("never sends empty embedding parts when interests or offers are optional", async () => {
+    let inputs: string[] = [];
+    const provider = new HostedEmbeddingProvider({
+      provider: "gemini",
+      apiKey: "test-key",
+      model: "gemini-embedding-001",
+      dimensions: 1536,
+      fetch: async (_input, init) => {
+        inputs = (JSON.parse(String(init?.body)) as { input: string[] }).input;
+        return responseWithDimensions(1536);
+      },
+    });
+
+    await provider.embedMemory({
+      candidateId: "candidate_001",
+      memoryVersion: 1,
+      memory: { markdown: "# Memory", need: "prepare salmon salad", interests: [], offers: [] },
+    });
+
+    expect(inputs).toEqual(["prepare salmon salad", "No interests specified", "No offers specified"]);
+  });
 });

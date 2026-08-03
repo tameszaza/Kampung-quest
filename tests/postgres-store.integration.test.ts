@@ -5,6 +5,7 @@ import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-r
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
+import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
 
 const databaseUrl = process.env.DATABASE_URL;
 const store = databaseUrl ? new PostgresKampungStore(databaseUrl) : null;
@@ -12,6 +13,7 @@ const store = databaseUrl ? new PostgresKampungStore(databaseUrl) : null;
 function profile(candidateId: string): CandidateProfile {
   return {
     candidateId,
+    source: "real",
     need: "Wants companionship during lunch",
     interests: ["cooking"],
     offers: ["prepare ingredients"],
@@ -115,5 +117,28 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     })).rejects.toThrow("Memory version conflict");
 
     expect((await store!.findMemory(candidateId))?.version).toBe(newer.version);
+  });
+
+  it("persists AI conversation messages and workflow-ready state across store instances", async () => {
+    const service = new AssistantConversationService({
+      store: store!,
+      agents: new DeterministicAgentRuntime(),
+    });
+    const opened = await service.create({ candidateId: "maria" });
+    const answered = await service.addTurn(opened.conversationId, {
+      clientTurnId: `integration_turn_${randomUUID()}`,
+      revision: opened.revision,
+      answer: { field: "goal", value: "I want to grow herbs with neighbours" },
+    });
+
+    const restartedStore = new PostgresKampungStore(databaseUrl!);
+    try {
+      const restored = await restartedStore.findAssistantConversation(opened.conversationId);
+      expect(restored?.revision).toBe(answered.revision);
+      expect(restored?.brief.currentGoal).toBe("I want to grow herbs with neighbours");
+      expect(restored?.messages).toHaveLength(3);
+    } finally {
+      await restartedStore.pool.end();
+    }
   });
 });

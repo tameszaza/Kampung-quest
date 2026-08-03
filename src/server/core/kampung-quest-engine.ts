@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "@/server/agents/agent-runtime";
+import { stableFactRef } from "@/server/agents/provider-privacy";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
 import {
   MockInvitationAdapter,
@@ -28,6 +29,15 @@ interface KampungQuestEngineDependencies {
   invitations?: InvitationAdapter;
   venues?: VenueAdapter;
 }
+
+export interface QuestPipelineEvent {
+  stage: "retrieval" | "synthesis" | "validation" | "safety";
+  status: "started" | "completed" | "failed";
+  message: string;
+  kind: "agent" | "system";
+}
+
+export type QuestPipelineObserver = (event: QuestPipelineEvent) => Promise<void> | void;
 
 export class KampungQuestEngine {
   private readonly validator = new ConstraintValidator();
@@ -61,7 +71,13 @@ export class KampungQuestEngine {
   ): Promise<MemoryCard> {
     const attempt = await this.dependencies.store.beginMemoryUpdate(command);
     try {
-      const memory = await createMemory(attempt.currentMemory);
+      const generated = await createMemory(attempt.currentMemory);
+      const memory: MemoryAgentOutput = {
+        ...generated,
+        need: command.providedSoftFacts?.need ? command.profile.need : generated.need,
+        interests: command.providedSoftFacts?.interests ? command.profile.interests : generated.interests,
+        offers: command.providedSoftFacts?.offers ? command.profile.offers : generated.offers,
+      };
       const embeddings = await this.dependencies.embeddings.embedMemory({
         candidateId: command.profile.candidateId,
         memoryVersion: attempt.version,
@@ -179,7 +195,7 @@ export class KampungQuestEngine {
       .slice(0, Math.min(20, Math.max(1, command.limit ?? 15)));
   }
 
-  async proposeQuest(command: ProposeQuestCommand): Promise<QuestRun> {
+  async proposeQuest(command: ProposeQuestCommand, observe?: QuestPipelineObserver): Promise<QuestRun> {
     if (command.idempotencyKey) {
       const existing = await this.dependencies.store.findQuestByIdempotencyKey(command.idempotencyKey);
       if (existing) return existing;
@@ -205,30 +221,72 @@ export class KampungQuestEngine {
     if (!reservation.created) return reservation.run;
 
     try {
+      await observe?.({ stage: "retrieval", status: "started", message: "Searching eligible neighbours", kind: "system" });
       const candidates = await this.retrieveCandidates({
         initiatingCandidateId: command.initiatingCandidateId,
         limit: command.candidateLimit,
       });
-      let proposal = await this.dependencies.agents.synthesizeQuest({
+      await observe?.({ stage: "retrieval", status: "completed", message: `Found ${candidates.length} eligible neighbours`, kind: "system" });
+      await observe?.({ stage: "synthesis", status: "started", message: "Matchmaker is designing a relevant quest", kind: "agent" });
+      let synthesis = await this.dependencies.agents.synthesizeQuest({
         initiator: initiator.profile,
         candidates,
+        auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
       });
+      if (synthesis.outcome === "no_match") {
+        await observe?.({ stage: "synthesis", status: "completed", message: "No strong match is available yet", kind: "agent" });
+        return this.dependencies.store.saveQuestRun({
+          ...base,
+          status: "no_match",
+          noMatch: { reason: synthesis.reason, missingCapabilities: synthesis.missingCapabilities },
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      if (synthesis.primaryIntentRef !== stableFactRef("need", initiator.profile.need)) {
+        await observe?.({ stage: "synthesis", status: "completed", message: "The proposal did not preserve the current request", kind: "agent" });
+        return this.dependencies.store.saveQuestRun({
+          ...base,
+          status: "no_match",
+          noMatch: {
+            reason: "The available proposal did not directly address the current request.",
+            missingCapabilities: initiator.profile.interests,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      let proposal = synthesis.proposal;
+      await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker proposed a quest", kind: "agent" });
       const cards = await this.dependencies.store.listMemories();
       const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+      await observe?.({ stage: "validation", status: "started", message: "Checking constraints and factual references", kind: "system" });
       let validation = this.validator.validate(proposal, profiles);
       validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
       if (!validation.valid) {
-        proposal = await this.dependencies.agents.synthesizeQuest({
+        await observe?.({ stage: "synthesis", status: "started", message: "Matchmaker is correcting the proposal", kind: "agent" });
+        synthesis = await this.dependencies.agents.synthesizeQuest({
           initiator: initiator.profile,
           candidates,
           validationErrors: validation.errors,
           proposalToCorrect: proposal,
+          auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
         });
+        if (synthesis.outcome === "no_match") {
+          await observe?.({ stage: "synthesis", status: "completed", message: "No valid strong match is available yet", kind: "agent" });
+          return this.dependencies.store.saveQuestRun({
+            ...base,
+            status: "no_match",
+            noMatch: { reason: synthesis.reason, missingCapabilities: synthesis.missingCapabilities },
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        proposal = synthesis.proposal;
+        await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker corrected the proposal", kind: "agent" });
         validation = this.validator.validate(proposal, profiles);
         validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
       }
 
       if (!validation.valid) {
+        await observe?.({ stage: "validation", status: "failed", message: "The proposal needs human review", kind: "system" });
         return this.dependencies.store.saveQuestRun({
           ...base,
           status: "human_review",
@@ -238,7 +296,14 @@ export class KampungQuestEngine {
         });
       }
 
-      const safety = await this.dependencies.agents.reviewSafety({ proposal, profiles });
+      await observe?.({ stage: "validation", status: "completed", message: "All quest rules passed", kind: "system" });
+      await observe?.({ stage: "safety", status: "started", message: "Safety Guardian is reviewing the quest", kind: "agent" });
+      const safety = await this.dependencies.agents.reviewSafety({
+        proposal,
+        profiles,
+        auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
+      });
+      await observe?.({ stage: "safety", status: "completed", message: safety.status === "approved" ? "Safety review approved" : "Safety review requires attention", kind: "agent" });
       const approved = safety.status === "approved";
       if (approved) {
         await Promise.all(proposal.proposedParticipants.map((participant) =>
@@ -265,6 +330,7 @@ export class KampungQuestEngine {
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
+      await observe?.({ stage: "synthesis", status: "failed", message: "Quest preparation could not finish", kind: "agent" });
       await this.dependencies.store.saveQuestRun({
         ...base,
         status: "failed",
@@ -449,6 +515,7 @@ export class KampungQuestEngine {
   private passesHardFilters(initiator: CandidateProfile, candidate: CandidateProfile): boolean {
     if (
       candidate.candidateId === initiator.candidateId ||
+      candidate.source === "test" ||
       candidate.memoryStatus !== "active" ||
       !candidate.constraints.verified ||
       !candidate.constraints.invitationConsent ||

@@ -293,9 +293,11 @@ describe("KampungQuestEngine memory", () => {
         input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
       ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
         this.inputs.push(structuredClone(input));
-        const proposal = await super.synthesizeQuest(input);
-        proposal.proposedParticipants[0].contributionsUsed = ["can provide medical advice"];
-        return proposal;
+        const output = await super.synthesizeQuest(input);
+        if (output.outcome === "proposal") {
+          output.proposal.proposedParticipants[0].contributionsUsed = ["can provide medical advice"];
+        }
+        return output;
       }
     }
 
@@ -353,10 +355,12 @@ describe("KampungQuestEngine memory", () => {
       override async synthesizeQuest(
         input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
       ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
-        const proposal = await super.synthesizeQuest(input);
-        proposal.proposedParticipants[1] = structuredClone(proposal.proposedParticipants[0]);
-        proposal.quest.groupSize = 3;
-        return proposal;
+        const output = await super.synthesizeQuest(input);
+        if (output.outcome === "proposal") {
+          output.proposal.proposedParticipants[1] = structuredClone(output.proposal.proposedParticipants[0]);
+          output.proposal.quest.groupSize = 3;
+        }
+        return output;
       }
     }
     const engine = new KampungQuestEngine({

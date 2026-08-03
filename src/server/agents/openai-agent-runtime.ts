@@ -11,8 +11,9 @@ import type { AgentAuditSink, AgentRuntime, MemoryAgentInput } from "@/server/ag
 import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
+  assistantTurnAgentOutputSchema,
   memoryAgentOutputSchema,
-  questProposalSchema,
+  questSynthesisOutputSchema,
   recoveryActionSchema,
   safetyReviewSchema,
   type CandidateProfile,
@@ -95,8 +96,9 @@ export function normalizeGeminiVenueRequirements(requirements: string[]): string
 }
 
 export class HostedAgentRuntime implements AgentRuntime {
+  private readonly conversationAgent: Agent<unknown, typeof assistantTurnAgentOutputSchema>;
   private readonly memoryAgent: Agent<unknown, typeof memoryAgentOutputSchema>;
-  private readonly synthesisAgent: Agent<unknown, typeof questProposalSchema>;
+  private readonly synthesisAgent: Agent<unknown, typeof questSynthesisOutputSchema>;
   private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
   private readonly runner: Runner;
@@ -106,11 +108,27 @@ export class HostedAgentRuntime implements AgentRuntime {
     this.runner = new Runner({ modelProvider: options.modelProvider });
     const persistenceSetting = options.provider === "openai" ? { store: false as const } : {};
     const retrySettings = hostedRetrySettings(options.provider);
+    this.conversationAgent = new Agent({
+      name: "Senior Quest conversation guide",
+      model: options.models.memory,
+      instructions: [
+        "You are Senior Quest, a warm and concise guide helping an older adult describe one current community activity request.",
+        "Ask exactly one useful question per turn and adapt its wording to the conversation; do not follow a scripted questionnaire.",
+        "Extract only facts the participant explicitly stated. Never infer consent, availability, access needs, identity, contact details, or addresses.",
+        "The newest current goal is authoritative. Do not blend previous or unrelated goals into it.",
+        "Use requestedField only from the supplied missingFields. Return a briefPatch only for facts present in the latest user message.",
+        "When no missing fields remain, set requestedField to null and give a short invitation to review the brief.",
+        "Return only the requested structured output.",
+      ].join(" "),
+      outputType: assistantTurnAgentOutputSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
     this.memoryAgent = new Agent({
       name: "Kampung personal memory",
       model: options.models.memory,
       instructions: [
-        "Update a senior's human-readable memory from the supplied current snapshot and new narrative.",
+        "Update a senior's human-readable memory from the supplied current snapshot and newly confirmed active quest request.",
+        "The supplied currentSoftFacts.need is authoritative: replace the prior active need and never blend old active goals into it.",
         "Treat structured constraints as authoritative and never infer or modify them.",
         "Return only the requested structured output. Do not add identity or contact details.",
       ].join(" "),
@@ -122,6 +140,9 @@ export class HostedAgentRuntime implements AgentRuntime {
       model: options.models.synthesis,
       instructions: [
         "Design one practical, mutually beneficial public quest and select two to five participants.",
+        "Treat the initiating user's current need as the primary objective. Historical interests are secondary and must never displace it.",
+        "If candidates cannot directly support the primary objective, return the no_match outcome instead of inventing an unrelated activity.",
+        "Always fill every output field: for proposal use proposal and primaryIntentRef with null reason and an empty missingCapabilities list; for no_match use a null proposal and primaryIntentRef with a clear reason and missingCapabilities.",
         "Use only participant aliases, stated needs, and stated contributions from the input.",
         "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
         "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
@@ -129,7 +150,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
         "When validation errors are supplied, correct only those errors.",
       ].join(" "),
-      outputType: questProposalSchema,
+      outputType: questSynthesisOutputSchema,
       modelSettings: { reasoning: { effort: "medium" }, retry: retrySettings, ...persistenceSetting },
     });
     this.safetyAgent = new Agent({
@@ -155,6 +176,19 @@ export class HostedAgentRuntime implements AgentRuntime {
     });
   }
 
+  async conductConversation(input: Parameters<AgentRuntime["conductConversation"]>[0]) {
+    return assistantTurnAgentOutputSchema.parse(await this.runStructured(this.conversationAgent, {
+      transcript: input.messages.map(({ role, content }) => ({ role, content })),
+      currentBrief: input.brief,
+      missingFields: input.missingFields,
+      rules: {
+        oneQuestionPerTurn: true,
+        explicitConsentRequired: true,
+        preciseLocationForbidden: true,
+      },
+    }, { conversationId: input.conversationId }));
+  }
+
   async updateMemory(input: MemoryAgentInput) {
     const alias = "p_1";
     const currentMarkdown = input.currentMemory?.markdown.replaceAll(input.profile.candidateId, alias) ?? null;
@@ -172,7 +206,7 @@ export class HostedAgentRuntime implements AgentRuntime {
       newNarrative: input.narrative,
       currentSoftFacts,
       authoritativeConstraints: input.profile.constraints,
-    }));
+    }, input.auditContext));
     return {
       ...output,
       markdown: output.markdown.replaceAll(alias, input.profile.candidateId),
@@ -183,7 +217,7 @@ export class HostedAgentRuntime implements AgentRuntime {
     const profiles = [input.initiator, ...input.candidates.map((candidate) => candidate.profile)];
     const aliases = this.aliases(profiles);
     const reverse = new Map([...aliases.entries()].map(([candidateId, alias]) => [alias, candidateId]));
-    const proposal = questProposalSchema.parse(await this.runStructured(this.synthesisAgent, {
+    const output = questSynthesisOutputSchema.parse(await this.runStructured(this.synthesisAgent, {
       initiatingUser: this.safeProfile(input.initiator, aliases),
       candidates: input.candidates.map((candidate) => ({
         ...this.safeProfile(candidate.profile, aliases),
@@ -204,14 +238,25 @@ export class HostedAgentRuntime implements AgentRuntime {
         explicitConsentRequired: true,
         peerToPeerMoneyAllowed: false,
       },
-    }));
-    return this.restoreProposalReferences({
-      ...proposal,
+    }, input.auditContext));
+    if (output.outcome === "no_match") {
+      if (!output.reason) throw new Error("Agent returned no reason for a no-match outcome");
+      return { outcome: "no_match" as const, reason: output.reason, missingCapabilities: output.missingCapabilities };
+    }
+    if (!output.proposal || !output.primaryIntentRef) {
+      throw new Error("Agent returned an incomplete proposal outcome");
+    }
+    return {
+      outcome: "proposal" as const,
+      primaryIntentRef: output.primaryIntentRef,
+      proposal: this.restoreProposalReferences({
+      ...output.proposal,
       quest: {
-        ...proposal.quest,
-        venueRequirements: normalizeGeminiVenueRequirements(proposal.quest.venueRequirements),
+        ...output.proposal.quest,
+        venueRequirements: normalizeGeminiVenueRequirements(output.proposal.quest.venueRequirements),
       },
-    }, reverse, profiles);
+      }, reverse, profiles),
+    };
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
@@ -228,7 +273,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         contactDetailsMustRemainPrivate: true,
         peerToPeerMoneyAllowed: false,
       },
-    }));
+    }, input.auditContext));
   }
 
   async recoverQuest(input: Parameters<AgentRuntime["recoverQuest"]>[0]) {
@@ -246,7 +291,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         candidateId: aliases.get(reserve.candidateId),
       })),
       quest: input.run.proposal.quest,
-    }));
+    }, { questRunId: input.run.runId }));
     if (output.replacementCandidateId === null) return output;
     const candidateId = reverse.get(output.replacementCandidateId);
     if (!candidateId) throw new Error("Agent returned an unknown reserve participant");
@@ -256,6 +301,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   private async runStructured<TOutput extends AgentOutputType>(
     agent: Agent<unknown, TOutput>,
     input: unknown,
+    metadata: Record<string, string> = {},
   ): Promise<unknown> {
     const startedAt = Date.now();
     const model = typeof agent.model === "string" ? agent.model : "custom-model";
@@ -271,7 +317,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         latencyMs: Date.now() - startedAt,
         inputTokens: result.state.usage.inputTokens,
         outputTokens: result.state.usage.outputTokens,
-        metadata: { provider: this.options.provider },
+        metadata: { provider: this.options.provider, ...metadata },
       });
       return result.finalOutput;
     } catch (error) {
@@ -284,7 +330,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         latencyMs: Date.now() - startedAt,
         inputTokens: null,
         outputTokens: null,
-        metadata: { provider: this.options.provider },
+        metadata: { provider: this.options.provider, ...metadata },
       });
       throw new Error(hostedProviderErrorMessage(this.options.provider, error), { cause: error });
     }

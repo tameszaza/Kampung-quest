@@ -11,6 +11,7 @@ import { resolveProviderConfiguration } from "@/server/agents/provider-configura
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
+import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
 
@@ -100,6 +101,12 @@ export const assistantRecommendationService = new AssistantRecommendationService
   provider: providerConfiguration.provider,
   demoSeedEnabled: process.env.DEMO_SEED_ENABLED === "true"
     || (process.env.DEMO_SEED_ENABLED === undefined && process.env.NODE_ENV !== "production"),
+});
+
+export const assistantConversationService = new AssistantConversationService({
+  store: kampungStore,
+  agents: agentDependencies.agents,
+  recommendations: assistantRecommendationService,
 });
 
 export const runtimeConfiguration = {

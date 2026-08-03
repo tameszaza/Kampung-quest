@@ -36,13 +36,14 @@ npm run build
 
 ## API workflow
 
-The Senior Quest frontend exposes this workflow as one guided conversation at `/assistant`.
-Maria can describe a need naturally, confirm hard constraints with large quick replies, and
-receive a safety-reviewed recommendation without switching between technical agent roles.
+The Senior Quest frontend exposes a model-driven conversation at `/assistant`. The conversation
+agent asks adaptive questions, while schema-driven controls capture exact availability,
+accessibility and consent. Confirmed runs stream truthful memory, retrieval, synthesis,
+validation and safety stages to the browser.
 
 For direct API use:
 
-1. Create at least two memory profiles with `POST /api/v1/memories`, or submit the complete demo flow with `POST /api/v1/assistant/recommend`.
+1. Start an AI conversation with `POST /api/v1/assistant/conversations`, append answers under its `/turns` route, then confirm it under `/confirm`; the legacy complete-brief endpoint remains available at `POST /api/v1/assistant/recommend`.
 2. Inspect eligible matches with `GET /api/v1/candidates/{candidateId}/retrieve`.
 3. Run synthesis, validation, safety review and coordination with `POST /api/v1/quests/propose/{candidateId}`.
 4. List recommendations with `GET /api/v1/quests?candidateId={candidateId}`, read durable quest state with `GET /api/v1/quests/{questId}`, and submit demo coordination events to `POST /api/v1/quests/{questId}/events`.
@@ -105,13 +106,14 @@ Route handlers call one `KampungQuestEngine` interface. The engine owns ordered 
 
 ## Core engine storage
 
-One PostgreSQL instance contains three logical schemas:
+One PostgreSQL instance contains four logical schemas:
 
 | Schema | Responsibility |
 | --- | --- |
 | `memory` | Authoritative conversation events, exact constraints, versioned Markdown, normalized facts and agent audit records |
 | `retrieval` | Rebuildable need, interest and offer embeddings tied to an exact active memory version |
 | `quest` | Quest runs, proposals, safety/validation results and immutable coordination events |
+| `assistant` | AI conversation transcripts, authoritative brief drafts and replayable workflow events |
 
 The Personal Memory Micro-Agent is invoked only when new information arrives. It receives the active Markdown snapshot, current soft facts, authoritative constraints and the new narrative. A new snapshot becomes active only after all three embeddings are stored. Failed model or embedding work remains recorded while the previous active memory stays usable.
 
@@ -152,10 +154,11 @@ Agent roles do not hand control to one another. Application code invokes them in
 
 ## Guided assistant demo
 
-The central action in the application opens `/assistant`. The browser keeps an unfinished
-conversation draft in local storage, while confirmed memories and quest runs remain owned by
-the configured engine store. `DEMO_SEED_ENABLED=true` supplies four synthetic neighbours for
-the fixed Maria demo identity. Disable it when real participant profiles are available.
+The central action in the application opens `/assistant`. PostgreSQL owns the transcript and
+extracted quest brief; the browser caches only the current conversation identifier for resume.
+`DEMO_SEED_ENABLED=true` supplies twelve clearly labelled synthetic neighbours for the fixed
+Maria demo identity. Test/smoke profiles are excluded from production retrieval. Disable demo
+seeding when real participant profiles are available.
 
 The default deterministic provider makes this flow credential-free. Setting `AGENT_PROVIDER`
 to `openai` or `gemini` uses the existing hosted memory, synthesis and safety adapters without
@@ -818,30 +821,37 @@ Personal memories and vectors are updated
 
 # Revised agent count
 
-Your architecture now requires three primary agent roles plus one lightweight memory role.
+The hosted runtime defines five focused agent roles.
 
-## 1. Personal Memory Micro-Agent
+## 1. Senior Quest Conversation Agent
+
+One shared model-driven guide invoked for each conversation turn. Conversation state remains
+in PostgreSQL rather than in a long-running model process.
+
+## 2. Personal Memory Micro-Agent
 
 One logical instance per senior, invoked only when information changes.
 
-## 2. Quest Synthesis and Matchmaking Agent
+## 3. Quest Synthesis and Matchmaking Agent
 
 One temporary instance per new quest request.
 
 This replaces the previously separate Quest Formation Agent and Matching Analyst Agent.
 
-## 3. Safety Guardian Agent
+## 4. Safety Guardian Agent
 
 One shared safety service across all quests.
 
-## 4. Event Coordination and Recovery Agent
+## 5. Event Coordination and Recovery Agent
 
 One temporary stateful agent per active quest.
 
 Therefore:
 
 ```text
-N dormant personal memory agents
+1 shared conversation model invoked per turn
++
+1 shared memory model invoked per confirmed update
 +
 1 shared quest synthesis model invoked per request
 +
