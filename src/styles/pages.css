@@ -3442,7 +3442,7 @@
   .completion-form { min-height: auto; }
 }
 
-@media (min-width: 1200px) {
+@media (min-width: 1024px) {
   /* Wide desktop uses the fixed side navigation, so chat fills the viewport
    * instead of reserving space for the compact top bar. */
   .chat-center {
