@@ -3441,3 +3441,15 @@
   .completion-layout .auth-card { max-width: 980px; margin-inline: auto; }
   .completion-form { min-height: auto; }
 }
+
+@media (min-width: 1200px) {
+  /* Wide desktop uses the fixed side navigation, so chat fills the viewport
+   * instead of reserving space for the compact top bar. */
+  .chat-center {
+    height: 100dvh;
+  }
+
+  .app-main:has(.chat-center) {
+    min-height: 100dvh;
+  }
+}

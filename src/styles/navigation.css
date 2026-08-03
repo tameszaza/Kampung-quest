@@ -191,3 +191,111 @@
     bottom: 28px;
   }
 }
+
+/* Wide desktop keeps the roomy side navigation; the compact top bar above
+ * remains the tablet/smaller-desktop treatment from the reference. */
+@media (min-width: 1200px) {
+  .desktop-nav {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 248px;
+    height: 100dvh;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    background: #fff;
+  }
+
+  .desktop-nav-inner {
+    width: 100%;
+    height: 100%;
+    padding: 30px 20px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .desktop-brand {
+    margin: 0 8px 38px;
+    font-size: 21px;
+  }
+
+  .brand-symbol {
+    width: 42px;
+    height: 42px;
+  }
+
+  .desktop-nav nav {
+    display: grid;
+    gap: 7px;
+  }
+
+  .desktop-nav nav a {
+    width: auto;
+    min-height: 52px;
+    padding: 0 14px;
+    border-radius: 11px;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .desktop-nav nav a span,
+  .desktop-create-label {
+    display: inline;
+  }
+
+  .desktop-create {
+    width: 100%;
+    height: auto;
+    min-height: 50px;
+    margin-top: 24px;
+    padding: 0 17px;
+    border-radius: 12px;
+    display: inline-flex;
+    justify-content: center;
+    gap: 7px;
+  }
+
+  .desktop-avatar {
+    width: 48px;
+    height: 48px;
+    margin-top: auto;
+  }
+
+  .desktop-user-copy {
+    position: absolute;
+    right: 20px;
+    bottom: 82px;
+    left: 80px;
+    min-width: 0;
+    display: grid;
+  }
+
+  .desktop-user-copy strong,
+  .desktop-user-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-user-copy strong { font-size: 13px; }
+  .desktop-user-copy small { color: var(--muted); font-size: 11px; }
+
+  .desktop-logout {
+    display: block;
+    min-height: 40px;
+    margin-top: 12px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-weight: 750;
+    cursor: pointer;
+  }
+
+  .app-main {
+    margin-left: 248px;
+  }
+}
