@@ -30,7 +30,10 @@ export type IconName =
   | "edit"
   | "close"
   | "trash"
-  | "check";
+  | "check"
+  | "lock"
+  | "eye"
+  | "eye-off";
 
 type IconProps = SVGProps<SVGSVGElement> & {
   name: IconName;
@@ -113,5 +116,11 @@ export function Icon({ name, size = 24, strokeWidth = 1.8, ...props }: IconProps
       return <svg {...common}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>;
     case "check":
       return <svg {...common}><path d="m5 12 4 4L19 6"/></svg>;
+    case "lock":
+      return <svg {...common}><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2"/></svg>;
+    case "eye":
+      return <svg {...common}><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg>;
+    case "eye-off":
+      return <svg {...common}><path d="m3 3 18 18M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.5 16.5 0 0 1-3.2 3.7M6.2 6.2C3.8 7.8 2.5 12 2.5 12s3.5 6 9.5 6c1 0 1.9-.2 2.7-.5"/></svg>;
   }
 }

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Icon } from "@/components/icons";
 import { authClient } from "@/lib/auth-client";
 
 type FormMode = "login" | "register";
@@ -136,23 +137,28 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
     }
   }
 
+  function continueWithFacebook() {
+    setError("Facebook sign-in is not available yet. You can use Google or your email to log in.");
+  }
+
   if (mode === "login") {
     return (
       <form className="auth-form" onSubmit={submit}>
         <header><h2>Welcome back!</h2><p>Log in to continue your journey.</p></header>
         {error ? <div className="form-alert" role="alert">{error}</div> : null}
-        <label>
+        <label className="auth-login-field">
           <span>Email or display name</span>
-          <input name="identifier" autoComplete="username" placeholder="Email or display name" required autoFocus />
+          <span className="auth-input-wrap"><Icon name="profile" size={21} /><input name="identifier" autoComplete="username" placeholder="Enter your email or display name" required autoFocus /></span>
         </label>
-        <label>
+        <label className="auth-login-field">
           <span>Password</span>
           <PasswordField name="password" visible={showPassword} onToggle={() => setShowPassword((value) => !value)} autoComplete="current-password" />
         </label>
-        <div className="auth-help-row"><label className="check-label"><input name="rememberMe" type="checkbox" defaultChecked /> Remember me</label><span>Need help? Call 1800 555 010</span></div>
+        <div className="auth-help-row"><label className="check-label"><input name="rememberMe" type="checkbox" defaultChecked /> Remember me</label><a href="tel:1800555010">Forgot password?</a></div>
         <button className="primary-button auth-submit" disabled={busy}>{busy ? "Logging in…" : "Log In"}</button>
         <AuthDivider />
         <button className="social-auth-button" type="button" onClick={continueWithGoogle} disabled={busy || !googleEnabled} title={googleEnabled ? undefined : "Google sign-in is not configured on this server"}><GoogleMark /> Continue with Google</button>
+        <button className="social-auth-button facebook-auth-button" type="button" onClick={continueWithFacebook} disabled={busy}><span className="facebook-mark" aria-hidden="true">f</span> Continue with Facebook</button>
         <p className="auth-switch">Don’t have an account? <Link href="/register">Sign up</Link></p>
       </form>
     );
@@ -226,7 +232,7 @@ async function uploadAvatar(file: File) {
 }
 
 function PasswordField({ name, visible, onToggle, autoComplete }: { name: string; visible: boolean; onToggle: () => void; autoComplete: string }) {
-  return <span className="password-field"><input name={name} type={visible ? "text" : "password"} autoComplete={autoComplete} minLength={8} maxLength={128} placeholder={autoComplete === "new-password" ? "8+ characters" : "Enter your password"} required /><button type="button" onClick={onToggle} aria-label={visible ? "Hide password" : "Show password"}>{visible ? "Hide" : "Show"}</button></span>;
+  return <span className="password-field"><Icon name="lock" size={21} /><input name={name} type={visible ? "text" : "password"} autoComplete={autoComplete} minLength={8} maxLength={128} placeholder={autoComplete === "new-password" ? "8+ characters" : "Enter your password"} required /><button type="button" onClick={onToggle} aria-label={visible ? "Hide password" : "Show password"}><Icon name={visible ? "eye-off" : "eye"} size={20} /></button></span>;
 }
 
 function GoogleMark() {
