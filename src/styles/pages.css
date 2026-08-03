@@ -1198,19 +1198,42 @@
 
 .password-field {
   position: relative;
-  display: block;
+  min-height: 54px;
+  padding: 0 5px 0 12px;
+  border: 1.5px solid #b8c9c2;
+  border-radius: 12px;
+  background: white;
+  color: var(--ink-soft);
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 6px;
+}
+
+.password-field:focus-within {
+  border-color: var(--green-600);
+  outline: 3px solid rgba(16, 157, 112, 0.16);
+}
+
+.password-field > svg {
+  color: var(--ink-soft);
 }
 
 .password-field input {
-  padding-right: 70px;
+  width: 100%;
+  min-height: 50px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
 }
 
 .password-field button {
-  position: absolute;
-  top: 5px;
-  right: 5px;
+  position: static;
+  width: 58px;
   min-width: 58px;
   height: 44px;
+  padding: 0;
   border: 0;
   border-radius: 9px;
   background: var(--green-50);
@@ -1218,6 +1241,10 @@
   font-size: 13px;
   font-weight: 750;
   cursor: pointer;
+}
+
+.password-field button:hover {
+  background: var(--green-100);
 }
 
 .auth-help-row {
@@ -1778,6 +1805,21 @@
   display: block;
   font-size: 10px;
   text-align: right;
+}
+
+.message-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: normal;
+}
+
+.message-receipt.read {
+  color: var(--green-700);
 }
 
 .message-bubble-editable {

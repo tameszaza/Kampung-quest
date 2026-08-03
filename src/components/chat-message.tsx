@@ -5,17 +5,18 @@ type ChatMessageBubbleProps = {
   mine?: boolean;
   heading?: string;
   time?: string;
+  receipt?: "delivered" | "read";
   actionLabel?: string;
   onAction?: () => void;
 };
 
 /** The shared visual primitive for every incoming and outgoing chat message. */
-export function ChatMessageBubble({ body, mine = false, heading, time, actionLabel, onAction }: ChatMessageBubbleProps) {
+export function ChatMessageBubble({ body, mine = false, heading, time, receipt, actionLabel, onAction }: ChatMessageBubbleProps) {
   const content = (
     <>
       {heading ? <strong>{heading}</strong> : null}
       <p>{body}</p>
-      {time ? <time>{time}</time> : null}
+      {time ? <time>{time}{receipt ? <span className={`message-receipt ${receipt}`} aria-label={receipt === "read" ? "Read" : "Delivered"} title={receipt === "read" ? "Read" : "Delivered"}><span aria-hidden="true">✓</span>{receipt === "read" ? <span aria-hidden="true">✓</span> : null}</span> : null}</time> : null}
       {actionLabel ? <small className="message-bubble-action">{actionLabel}</small> : null}
     </>
   );

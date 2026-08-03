@@ -244,7 +244,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
                   body={message.body}
                   mine={message.mine}
                   heading={showName ? message.senderName : undefined}
-                  time={`${formatMessageTime(message.createdAt)}${message.mine ? "  ✓✓" : ""}`}
+                  time={formatMessageTime(message.createdAt)}
+                  receipt={message.mine ? (message.receipt ?? "delivered") : undefined}
                 />;
               })}
               <div ref={bottomRef} />
