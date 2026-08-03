@@ -7,6 +7,10 @@ import {
 } from "@/server/agents/embedding-provider";
 import { createGeminiCompatibleFetch } from "@/server/agents/gemini-provider-fetch";
 import { HostedAgentRuntime } from "@/server/agents/openai-agent-runtime";
+import {
+  UnavailableAgentRuntime,
+  UnavailableEmbeddingProvider,
+} from "@/server/agents/unavailable-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
@@ -31,18 +35,22 @@ export const kampungStore = globals.kampungStore ?? createStore();
 if (process.env.NODE_ENV !== "production") globals.kampungStore = kampungStore;
 
 const providerConfiguration = resolveProviderConfiguration(process.env);
-if (!providerConfiguration.ready) {
-  const keyName = providerConfiguration.provider === "gemini"
-    ? "GEMINI_API_KEY"
-    : "OPENAI_API_KEY";
-  throw new Error(`${keyName} is required when AGENT_PROVIDER=${providerConfiguration.provider}`);
-}
 
 function createAgentDependencies() {
   if (providerConfiguration.provider === "deterministic") {
     return {
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
+    };
+  }
+  if (!providerConfiguration.ready) {
+    const keyName = providerConfiguration.provider === "gemini"
+      ? "GEMINI_API_KEY"
+      : "OPENAI_API_KEY";
+    const reason = `${keyName} is required when AGENT_PROVIDER=${providerConfiguration.provider}`;
+    return {
+      agents: new UnavailableAgentRuntime(reason),
+      embeddings: new UnavailableEmbeddingProvider(reason),
     };
   }
   const apiKey = providerConfiguration.apiKey;

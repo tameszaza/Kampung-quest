@@ -76,6 +76,85 @@ describe("Senior Quest AI conversation", () => {
     expect(answered.status).toBe("collecting");
   });
 
+  it("accepts different model-selected question orders for different current goals", async () => {
+    class AdaptiveQuestionRuntime extends DeterministicAgentRuntime {
+      override async conductConversation(
+        input: Parameters<DeterministicAgentRuntime["conductConversation"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["conductConversation"]> {
+        if (!input.brief.currentGoal) return super.conductConversation(input);
+        const sportsRequest = input.brief.currentGoal.includes("NBA");
+        return {
+          reply: sportsRequest ? "Which language should we use for the game?" : "When would cooking suit you?",
+          briefPatch: {},
+          requestedField: sportsRequest ? "language" : "availability",
+          suggestedReplies: [],
+          status: "collecting",
+        };
+      }
+    }
+    const service = new AssistantConversationService({
+      store: new InMemoryKampungStore(),
+      agents: new AdaptiveQuestionRuntime(),
+    });
+    const sports = await service.create({ candidateId: "maria" });
+    const sportsFollowUp = await service.addTurn(sports.conversationId, {
+      clientTurnId: "sports_goal",
+      revision: sports.revision,
+      answer: { field: "goal", value: "I want to watch an NBA game" },
+    });
+    const cooking = await service.create({ candidateId: "maria" });
+    const cookingFollowUp = await service.addTurn(cooking.conversationId, {
+      clientTurnId: "cooking_goal",
+      revision: cooking.revision,
+      answer: { field: "goal", value: "I want to cook a salad" },
+    });
+
+    expect(sportsFollowUp.nextField).toBe("language");
+    expect(cookingFollowUp.nextField).toBe("availability");
+    expect(sportsFollowUp.brief.currentGoal).toContain("NBA");
+    expect(cookingFollowUp.brief.currentGoal).toContain("salad");
+  });
+
+  it("persists a failed hosted turn and safely retries the same client turn", async () => {
+    class FailingTurnRuntime extends DeterministicAgentRuntime {
+      calls = 0;
+
+      override async conductConversation(
+        input: Parameters<DeterministicAgentRuntime["conductConversation"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["conductConversation"]> {
+        this.calls += 1;
+        if (this.calls === 2) throw new Error("Gemini request quota is temporarily exhausted");
+        return super.conductConversation(input);
+      }
+    }
+    const store = new InMemoryKampungStore();
+    const service = new AssistantConversationService({ store, agents: new FailingTurnRuntime() });
+    const opened = await service.create({ candidateId: "maria" });
+
+    await expect(service.addTurn(opened.conversationId, {
+      clientTurnId: "durable_turn",
+      revision: opened.revision,
+      answer: { field: "goal", value: "I want help preparing raw salmon safely" },
+    })).rejects.toThrow("quota");
+
+    const failed = await service.get(opened.conversationId);
+    expect(failed?.brief.currentGoal).toBe("I want help preparing raw salmon safely");
+    expect(failed?.messages.at(-1)).toEqual(expect.objectContaining({
+      messageId: "durable_turn",
+      role: "user",
+    }));
+    expect(failed?.error).toContain("quota");
+
+    const retried = await service.addTurn(opened.conversationId, {
+      clientTurnId: "durable_turn",
+      revision: failed!.revision,
+      answer: { field: "goal", value: "I want help preparing raw salmon safely" },
+    });
+    expect(retried.messages.filter((message) => message.messageId === "durable_turn")).toHaveLength(1);
+    expect(retried.messages.at(-1)?.role).toBe("assistant");
+    expect(retried.error).toBeNull();
+  });
+
   it("does not become ready until explicit constraints and consent are present", async () => {
     const store = new InMemoryKampungStore();
     const service = new AssistantConversationService({
@@ -127,6 +206,22 @@ describe("Senior Quest AI conversation", () => {
       "brief", "memory", "retrieval", "synthesis", "validation", "safety",
     ]));
     expect(streamed).toEqual(completed.events.map((event) => event.sequence));
+  });
+
+  it("deduplicates concurrent confirmation and leaves one persisted terminal quest", async () => {
+    const service = orchestrated(true);
+    const ready = await readyConversation(service);
+
+    const confirmations = await Promise.all([
+      service.confirm(ready.conversationId, { revision: ready.revision }),
+      service.confirm(ready.conversationId, { revision: ready.revision }),
+    ]);
+    const persisted = await service.get(ready.conversationId);
+
+    expect(confirmations.every((item) => ["processing", "complete", "no_match"].includes(item.status))).toBe(true);
+    expect(persisted?.status).toBe("complete");
+    expect(persisted?.questRunId).toMatch(/^quest_/);
+    expect(new Set(confirmations.map((item) => item.questRunId).filter(Boolean)).size).toBeLessThanOrEqual(1);
   });
 
   it("returns no_match instead of forcing a quest without eligible neighbours", async () => {

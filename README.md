@@ -160,9 +160,9 @@ extracted quest brief; the browser caches only the current conversation identifi
 Maria demo identity. Test/smoke profiles are excluded from production retrieval. Disable demo
 seeding when real participant profiles are available.
 
-The default deterministic provider makes this flow credential-free. Setting `AGENT_PROVIDER`
-to `openai` or `gemini` uses the existing hosted memory, synthesis and safety adapters without
-changing the frontend contract.
+The application defaults to the hosted Gemini provider and fails visibly when its key or quota
+is unavailable. `AGENT_PROVIDER=deterministic` is an explicit development/test double; it is
+never selected as a provider-failure fallback.
 
 ## Coordination events
 

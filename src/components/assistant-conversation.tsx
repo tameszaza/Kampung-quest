@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Icon } from "@/components/icons";
 import {
   confirmAssistantConversation,
   createAssistantConversation,
   getAssistantConversation,
   getQuestRun,
+  replayAssistantEvents,
   sendAssistantTurn,
 } from "@/features/assistant/client";
 import type {
@@ -58,6 +59,10 @@ export function AssistantConversation() {
   const [text, setText] = useState("");
   const [editingField, setEditingField] = useState<AssistantBriefField | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pendingTurnId = useRef<string | null>(null);
+  const reconnectConversationId = conversation?.conversationId ?? null;
+  const reconnectStatus = conversation?.status ?? null;
+  const reconnectAfterSequence = conversation?.events.at(-1)?.sequence ?? 0;
 
   useEffect(() => {
     let active = true;
@@ -81,6 +86,38 @@ export function AssistantConversation() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    if (!reconnectConversationId || reconnectStatus !== "processing" || confirming) return;
+    let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const conversationId = reconnectConversationId;
+
+    async function reconnect() {
+      try {
+        const replayed = await replayAssistantEvents(conversationId, reconnectAfterSequence);
+        const restored = await getAssistantConversation(conversationId);
+        if (!active || !restored) return;
+        const events = new Map(restored.events.map((event) => [event.sequence, event]));
+        for (const event of replayed) events.set(event.sequence, event);
+        const next = { ...restored, events: [...events.values()].sort((left, right) => left.sequence - right.sequence) };
+        setConversation(next);
+        if (next.questRunId) setQuest(await getQuestRun(next.questRunId));
+        if (next.status === "processing") retryTimer = setTimeout(() => void reconnect(), 1_000);
+      } catch (reason) {
+        if (active) {
+          setError(reason instanceof Error ? reason.message : "Agent progress could not be restored");
+          retryTimer = setTimeout(() => void reconnect(), 2_000);
+        }
+      }
+    }
+
+    void reconnect();
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [reconnectConversationId, reconnectStatus, confirming, reconnectAfterSequence]);
+
   const activeField = editingField ?? conversation?.nextField ?? null;
   const latestEvents = useMemo(() => {
     const byStage = new Map<AssistantWorkflowEvent["stage"], AssistantWorkflowEvent>();
@@ -92,13 +129,17 @@ export function AssistantConversation() {
     if (!conversation || thinking) return;
     setThinking(true);
     setError(null);
+    pendingTurnId.current ??= crypto.randomUUID();
     try {
-      const updated = await sendAssistantTurn(conversation, answer);
+      const updated = await sendAssistantTurn(conversation, answer, pendingTurnId.current);
       setConversation(updated);
+      pendingTurnId.current = null;
       setEditingField(null);
       setText("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Senior Quest could not respond");
+      const restored = await getAssistantConversation(conversation.conversationId).catch(() => null);
+      if (restored) setConversation(restored);
     } finally {
       setThinking(false);
     }
@@ -221,9 +262,9 @@ export function AssistantConversation() {
         {conversation.status === "complete" && quest ? <QuestResult quest={quest} onStartAgain={startAgain} /> : null}
         {conversation.status === "failed" || error ? (
           <div className="assistant-error" role="alert">
-            <strong>Senior Quest paused</strong>
+            <strong>{isQuotaError(error ?? conversation.error) ? "Gemini provider quota reached" : "Senior Quest paused"}</strong>
             <p>{error ?? conversation.error}</p>
-            <button className="secondary-button" type="button" onClick={() => void confirm()}>Retry without losing this conversation</button>
+            {conversation.status === "failed" ? <button className="secondary-button" type="button" onClick={() => void confirm()}>Retry without losing this conversation</button> : null}
           </div>
         ) : null}
       </main>
@@ -289,18 +330,21 @@ function ReviewCard({ conversation, onEdit, onConfirm }: {
   const brief = conversation.brief;
   const rows: Array<[string, string, AssistantBriefField]> = [
     ["Current request", brief.currentGoal ?? "Not provided", "goal"],
+    ["Interests", brief.interests?.join(", ") || "Nothing specific", "interests"],
+    ["What I can offer", brief.offers?.join(", ") || "Nothing specific", "offers"],
     ["When", displayDate(brief.availableWindows?.[0]?.start, brief.availableWindows?.[0]?.end), "availability"],
     ["Group", `${brief.minimumGroupSize}–${brief.maximumGroupSize} people`, "group_size"],
     ["Setting", brief.indoorRequired ? "Indoors" : "Indoor or outdoor", "indoor"],
     ["Stairs", brief.stairsAllowed ? "Comfortable" : "No stairs", "stairs"],
     ["Distance", `Up to ${(brief.maximumDistanceM ?? 0) / 1000} km`, "distance"],
     ["Language", brief.language ?? "Not provided", "language"],
+    ["Invitation consent", brief.invitationConsent ? "Yes—find a quest" : "Not granted", "consent"],
   ];
   return <section className="assistant-review">
     <h2>Review the quest brief</h2>
     <p>This current request—not older goals—will guide matchmaking.</p>
     <dl>{rows.map(([label, value, field]) => <div key={field}><dt>{label}</dt><dd>{value}</dd><button type="button" onClick={() => onEdit(field)}>Edit</button></div>)}</dl>
-    <button className="primary-button" type="button" onClick={onConfirm}>Confirm and find my quest</button>
+    <button className="primary-button" type="button" disabled={!brief.invitationConsent} onClick={onConfirm}>{brief.invitationConsent ? "Confirm and find my quest" : "Grant consent before matchmaking"}</button>
   </section>;
 }
 
@@ -317,8 +361,9 @@ function AgentProgress({ events }: { events: AssistantWorkflowEvent[] }) {
 function QuestResult({ quest, onStartAgain }: { quest: QuestRun; onStartAgain: () => Promise<void> }) {
   const proposal = quest.proposal;
   if (!proposal) return null;
+  const needsHumanReview = quest.status === "human_review";
   return <section className="assistant-result">
-    <span className="result-kicker"><Icon name="check" size={18} /> Agent-checked quest ready</span>
+    <span className="result-kicker"><Icon name={needsHumanReview ? "shield" : "check"} size={18} /> {needsHumanReview ? "Coordinator review required" : "Agent-checked quest ready"}</span>
     <h2>{proposal.quest.title}</h2>
     <p>{proposal.quest.description}</p>
     <div className="result-facts">
@@ -326,10 +371,15 @@ function QuestResult({ quest, onStartAgain }: { quest: QuestRun; onStartAgain: (
       <span><Icon name="clock" />About {proposal.quest.durationMinutes} minutes</span>
       <span><Icon name="people" />{proposal.quest.groupSize} people</span>
     </div>
+    {needsHumanReview ? <p className="assistant-note">No invitation was prepared. A human coordinator must review this proposal and its safety or constraint checks first.</p> : null}
     <div className="assistant-result-actions">
-      <Link className="primary-button" href={`/quests/${quest.runId}`}>View quest details</Link>
+      <Link className="primary-button" href={`/quests/${quest.runId}`}>{needsHumanReview ? "Review quest details" : "View quest details"}</Link>
       <button className="text-button" type="button" onClick={() => void onStartAgain()}>Tell me something new</button>
     </div>
     <p className="demo-disclosure">Demo neighbours are clearly labeled data profiles; no real messages are sent.</p>
   </section>;
+}
+
+function isQuotaError(message: string | null) {
+  return Boolean(message && /quota|rate limit|too many requests/i.test(message));
 }

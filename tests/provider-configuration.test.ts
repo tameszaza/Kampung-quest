@@ -2,10 +2,17 @@ import { describe, expect, it } from "vitest";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
 
 describe("provider configuration", () => {
-  it("keeps deterministic agents credential-free by default", () => {
-    expect(resolveProviderConfiguration({})).toEqual({
+  it("uses deterministic agents only as the explicit test default", () => {
+    expect(resolveProviderConfiguration({ NODE_ENV: "test" })).toEqual({
       provider: "deterministic",
       ready: true,
+    });
+  });
+
+  it("defaults application runtime to hosted Gemini without silently falling back", () => {
+    expect(resolveProviderConfiguration({})).toMatchObject({
+      provider: "gemini",
+      ready: false,
     });
   });
 

@@ -75,7 +75,12 @@ export class AssistantConversationService {
   ): Promise<AssistantConversationSnapshot> {
     const answer = assistantAnswerSchema.parse(command.answer);
     const current = await this.requireConversation(conversationId);
-    if (current.messages.some((message) => message.messageId === command.clientTurnId)) return current;
+    const existingMessageIndex = current.messages.findIndex(
+      (message) => message.messageId === command.clientTurnId,
+    );
+    if (existingMessageIndex >= 0 && current.messages[existingMessageIndex + 1]?.role === "assistant") {
+      return current;
+    }
     if (current.revision !== command.revision) {
       throw new Error("Assistant conversation conflict; reload and retry");
     }
@@ -83,38 +88,62 @@ export class AssistantConversationService {
       throw new Error("Assistant conversation is not accepting answers");
     }
 
-    const brief = questBriefDraftSchema.parse(this.applyAnswer(current.brief, answer));
-    const userMessage: AssistantConversationMessage = {
-      messageId: command.clientTurnId,
-      role: "user",
-      content: this.displayAnswer(answer),
-      createdAt: new Date().toISOString(),
-    };
-    const messages = [...current.messages, userMessage];
+    const brief = existingMessageIndex >= 0
+      ? current.brief
+      : questBriefDraftSchema.parse(this.applyAnswer(current.brief, answer));
+    const messages = existingMessageIndex >= 0
+      ? current.messages
+      : [...current.messages, {
+          messageId: command.clientTurnId,
+          role: "user" as const,
+          content: this.displayAnswer(answer),
+          createdAt: new Date().toISOString(),
+        }];
+    const pending = existingMessageIndex >= 0
+      ? current
+      : await this.dependencies.store.saveAssistantConversation({
+          ...current,
+          revision: current.revision + 1,
+          messages,
+          brief,
+          error: null,
+          updatedAt: new Date().toISOString(),
+        }, current.revision);
     const missingFields = this.missingFields(brief);
-    const turn = await this.dependencies.agents.conductConversation({
-      conversationId,
-      messages,
-      brief,
-      missingFields,
-    });
+    let turn;
+    try {
+      turn = await this.dependencies.agents.conductConversation({
+        conversationId,
+        messages,
+        brief,
+        missingFields,
+      });
+    } catch (error) {
+      await this.dependencies.store.saveAssistantConversation({
+        ...pending,
+        revision: pending.revision + 1,
+        error: error instanceof Error ? error.message : "Senior Quest could not respond",
+        updatedAt: new Date().toISOString(),
+      }, pending.revision);
+      throw error;
+    }
     const patchedBrief = questBriefDraftSchema.parse(this.applySafePatch(brief, turn.briefPatch));
     const remaining = this.missingFields(patchedBrief);
     const ready = remaining.length === 0;
     const updated: AssistantConversationSnapshot = {
-      ...current,
+      ...pending,
       status: ready ? "ready_for_review" : "collecting",
-      revision: current.revision + 1,
+      revision: pending.revision + 1,
       messages: [...messages, this.message("assistant", turn.reply)],
       brief: patchedBrief,
       nextField: ready ? null : this.safeNextField(turn.requestedField, patchedBrief),
       suggestedReplies: turn.suggestedReplies,
-      questRunId: current.status === "no_match" ? null : current.questRunId,
-      events: current.status === "no_match" ? [] : current.events,
+      questRunId: current.status === "no_match" ? null : pending.questRunId,
+      events: current.status === "no_match" ? [] : pending.events,
       error: null,
       updatedAt: new Date().toISOString(),
     };
-    return this.dependencies.store.saveAssistantConversation(updated, current.revision);
+    return this.dependencies.store.saveAssistantConversation(updated, pending.revision);
   }
 
   confirmedBrief(snapshot: AssistantConversationSnapshot) {
@@ -140,20 +169,26 @@ export class AssistantConversationService {
     if (!recommendationService) throw new Error("Assistant recommendation workflow is unavailable");
     const brief = this.confirmedBrief(current);
 
-    current = await this.saveWithEvent({
-      ...current,
-      status: "processing",
-      revision: current.revision + 1,
-      nextField: null,
-      suggestedReplies: [],
-      error: null,
-      updatedAt: new Date().toISOString(),
-    }, current.revision, {
-      stage: "brief",
-      status: "completed",
-      message: "Senior Quest confirmed the current request",
-      kind: "agent",
-    }, onEvent);
+    try {
+      current = await this.saveWithEvent({
+        ...current,
+        status: "processing",
+        revision: current.revision + 1,
+        nextField: null,
+        suggestedReplies: [],
+        error: null,
+        updatedAt: new Date().toISOString(),
+      }, current.revision, {
+        stage: "brief",
+        status: "completed",
+        message: "Senior Quest confirmed the current request",
+        kind: "agent",
+      }, onEvent);
+    } catch (error) {
+      const latest = await this.requireConversation(conversationId);
+      if (["processing", "complete", "no_match"].includes(latest.status)) return latest;
+      throw error;
+    }
 
     try {
       const result = await recommendationService.recommend({

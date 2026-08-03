@@ -75,7 +75,7 @@ export class PostgresKampungStore implements KampungStore {
         created_at: Date | string;
       }>(
         `SELECT message_id, role, content, created_at FROM assistant.messages
-         WHERE conversation_id = $1 ORDER BY created_at, message_id`,
+         WHERE conversation_id = $1 ORDER BY position`,
         [conversationId],
       ),
       this.pool.query<{
@@ -186,11 +186,11 @@ export class PostgresKampungStore implements KampungStore {
     client: PoolClient,
     conversation: AssistantConversationSnapshot,
   ): Promise<void> {
-    for (const message of conversation.messages) {
+    for (const [position, message] of conversation.messages.entries()) {
       await client.query(
-        `INSERT INTO assistant.messages (message_id, conversation_id, role, content, created_at)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (message_id) DO NOTHING`,
-        [message.messageId, conversation.conversationId, message.role, message.content, message.createdAt],
+        `INSERT INTO assistant.messages (message_id, conversation_id, position, role, content, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (message_id) DO NOTHING`,
+        [message.messageId, conversation.conversationId, position, message.role, message.content, message.createdAt],
       );
     }
     for (const event of conversation.events) {

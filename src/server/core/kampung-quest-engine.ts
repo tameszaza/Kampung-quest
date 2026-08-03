@@ -15,9 +15,11 @@ import type {
   MemoryCard,
   MemoryUpdateCommand,
   ProposeQuestCommand,
+  QuestProposal,
   QuestRun,
   RetrievedCandidate,
   RetrievalCommand,
+  ValidationResult,
 } from "@/server/domain/schemas";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import type { KampungStore } from "@/server/repositories/kampung-store";
@@ -220,6 +222,7 @@ export class KampungQuestEngine {
     const reservation = await this.dependencies.store.createQuestRun(base);
     if (!reservation.created) return reservation.run;
 
+    let activeStage: QuestPipelineEvent["stage"] = "retrieval";
     try {
       await observe?.({ stage: "retrieval", status: "started", message: "Searching eligible neighbours", kind: "system" });
       const candidates = await this.retrieveCandidates({
@@ -227,6 +230,7 @@ export class KampungQuestEngine {
         limit: command.candidateLimit,
       });
       await observe?.({ stage: "retrieval", status: "completed", message: `Found ${candidates.length} eligible neighbours`, kind: "system" });
+      activeStage = "synthesis";
       await observe?.({ stage: "synthesis", status: "started", message: "Matchmaker is designing a relevant quest", kind: "agent" });
       let synthesis = await this.dependencies.agents.synthesizeQuest({
         initiator: initiator.profile,
@@ -258,10 +262,13 @@ export class KampungQuestEngine {
       await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker proposed a quest", kind: "agent" });
       const cards = await this.dependencies.store.listMemories();
       const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+      activeStage = "validation";
       await observe?.({ stage: "validation", status: "started", message: "Checking constraints and factual references", kind: "system" });
       let validation = this.validator.validate(proposal, profiles);
       validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
+      validation = this.requireActiveIntent(proposal, initiator.profile, validation);
       if (!validation.valid) {
+        activeStage = "synthesis";
         await observe?.({ stage: "synthesis", status: "started", message: "Matchmaker is correcting the proposal", kind: "agent" });
         synthesis = await this.dependencies.agents.synthesizeQuest({
           initiator: initiator.profile,
@@ -279,13 +286,39 @@ export class KampungQuestEngine {
             updatedAt: new Date().toISOString(),
           });
         }
+        if (synthesis.primaryIntentRef !== stableFactRef("need", initiator.profile.need)) {
+          await observe?.({ stage: "synthesis", status: "completed", message: "The corrected proposal did not preserve the current request", kind: "agent" });
+          return this.dependencies.store.saveQuestRun({
+            ...base,
+            status: "no_match",
+            noMatch: {
+              reason: "The available corrected proposal did not directly address the current request.",
+              missingCapabilities: initiator.profile.interests,
+            },
+            updatedAt: new Date().toISOString(),
+          });
+        }
         proposal = synthesis.proposal;
         await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker corrected the proposal", kind: "agent" });
+        activeStage = "validation";
         validation = this.validator.validate(proposal, profiles);
         validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
+        validation = this.requireActiveIntent(proposal, initiator.profile, validation);
       }
 
       if (!validation.valid) {
+        if (validation.errors.some((error) => error.field === "activeIntent")) {
+          await observe?.({ stage: "validation", status: "failed", message: "The proposal did not directly address the current request", kind: "system" });
+          return this.dependencies.store.saveQuestRun({
+            ...base,
+            status: "no_match",
+            noMatch: {
+              reason: "No valid proposal directly addressed the confirmed current request.",
+              missingCapabilities: initiator.profile.interests,
+            },
+            updatedAt: new Date().toISOString(),
+          });
+        }
         await observe?.({ stage: "validation", status: "failed", message: "The proposal needs human review", kind: "system" });
         return this.dependencies.store.saveQuestRun({
           ...base,
@@ -297,6 +330,7 @@ export class KampungQuestEngine {
       }
 
       await observe?.({ stage: "validation", status: "completed", message: "All quest rules passed", kind: "system" });
+      activeStage = "safety";
       await observe?.({ stage: "safety", status: "started", message: "Safety Guardian is reviewing the quest", kind: "agent" });
       const safety = await this.dependencies.agents.reviewSafety({
         proposal,
@@ -330,7 +364,12 @@ export class KampungQuestEngine {
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
-      await observe?.({ stage: "synthesis", status: "failed", message: "Quest preparation could not finish", kind: "agent" });
+      await observe?.({
+        stage: activeStage,
+        status: "failed",
+        message: `${activeStage === "safety" ? "Safety review" : activeStage === "retrieval" ? "Neighbour search" : activeStage === "validation" ? "Rules check" : "Quest synthesis"} could not finish`,
+        kind: activeStage === "retrieval" || activeStage === "validation" ? "system" : "agent",
+      });
       await this.dependencies.store.saveQuestRun({
         ...base,
         status: "failed",
@@ -571,5 +610,31 @@ export class KampungQuestEngine {
         message: "The initiating candidate must be included in the proposed group.",
       }],
     };
+  }
+
+  private requireActiveIntent(
+    proposal: QuestProposal,
+    initiator: CandidateProfile,
+    validation: ValidationResult,
+  ): ValidationResult {
+    const initiatingParticipant = proposal.proposedParticipants.find(
+      (participant) => participant.candidateId === initiator.candidateId,
+    );
+    const errors = [...validation.errors];
+    if (!proposal.quest.needsAddressed.includes(initiator.need)) {
+      errors.push({
+        candidateId: initiator.candidateId,
+        field: "activeIntent",
+        message: "The quest must address the initiating senior's confirmed current request.",
+      });
+    }
+    if (initiatingParticipant && !initiatingParticipant.needsAddressed.includes(initiator.need)) {
+      errors.push({
+        candidateId: initiator.candidateId,
+        field: "activeIntent",
+        message: "The initiating participant must be linked to the confirmed current request.",
+      });
+    }
+    return { valid: errors.length === 0, errors };
   }
 }

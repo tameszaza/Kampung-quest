@@ -65,9 +65,30 @@ export async function getAssistantConversation(
   return responseJson<AssistantConversationSnapshot>(response);
 }
 
+export async function replayAssistantEvents(
+  conversationId: string,
+  afterSequence: number,
+): Promise<AssistantWorkflowEvent[]> {
+  const response = await fetch(
+    `/api/v1/assistant/conversations/${encodeURIComponent(conversationId)}/events?after=${afterSequence}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: "Workflow events could not be restored" })) as { error?: string };
+    throw new Error(payload.error ?? "Workflow events could not be restored");
+  }
+  const frames = (await response.text()).split("\n\n").filter(Boolean);
+  return frames.flatMap((frame) => {
+    const eventName = frame.split("\n").find((line) => line.startsWith("event: "))?.slice(7);
+    const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+    return eventName === "stage" && data ? [JSON.parse(data) as AssistantWorkflowEvent] : [];
+  });
+}
+
 export async function sendAssistantTurn(
   conversation: AssistantConversationSnapshot,
   answer: AssistantAnswer,
+  clientTurnId = crypto.randomUUID(),
 ): Promise<AssistantConversationSnapshot> {
   const response = await fetch(
     `/api/v1/assistant/conversations/${encodeURIComponent(conversation.conversationId)}/turns`,
@@ -75,7 +96,7 @@ export async function sendAssistantTurn(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        clientTurnId: crypto.randomUUID(),
+        clientTurnId,
         revision: conversation.revision,
         answer,
       }),

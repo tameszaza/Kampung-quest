@@ -30,7 +30,7 @@ export const constraintsSchema = z
 
 export const candidateProfileSchema = z.object({
   candidateId: z.string().min(1),
-  source: z.enum(["real", "demo", "test"]).optional(),
+  source: z.enum(["real", "demo", "test"]).default("real"),
   need: z.string().min(3),
   interests: z.array(z.string()).default([]),
   offers: z.array(z.string()).default([]),

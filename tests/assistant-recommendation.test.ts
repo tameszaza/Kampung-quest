@@ -113,9 +113,10 @@ describe("Senior Quest assistant recommendations", () => {
     expect(otherRuns).toEqual([]);
   });
 
-  it("refreshes demo neighbour availability and language for a later conversation", async () => {
-    const { assistant } = setup();
+  it("refreshes only rolling demo availability while keeping stable profile constraints", async () => {
+    const { assistant, store } = setup();
     await assistant.recommend(command());
+    const firstAnne = await store.findMemory("demo_anne");
     const later = command();
     later.conversationId = "conversation_002";
     later.constraints.availableWindows = [{
@@ -125,9 +126,13 @@ describe("Senior Quest assistant recommendations", () => {
     later.constraints.languages = ["Chinese"];
 
     const result = await assistant.recommend(later);
+    const laterAnne = await store.findMemory("demo_anne");
 
     expect(result.quest.status).toBe("awaiting_acceptance");
     expect(result.quest.proposal?.proposedParticipants.length).toBeGreaterThanOrEqual(2);
+    expect(laterAnne?.profile.constraints.languages).toEqual(firstAnne?.profile.constraints.languages);
+    expect(laterAnne?.profile.distanceFromInitiatorM).toBe(firstAnne?.profile.distanceFromInitiatorM);
+    expect(laterAnne?.profile.constraints.availableWindows).toEqual(later.constraints.availableWindows);
   });
 
   it("makes the newest confirmed request the active need instead of blending old goals", async () => {

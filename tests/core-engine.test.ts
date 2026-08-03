@@ -10,6 +10,7 @@ import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 function profile(candidateId: string): CandidateProfile {
   return {
     candidateId,
+    source: "real",
     need: "Wants companionship during a healthy lunch",
     interests: ["cooking", "healthy eating"],
     offers: ["can teach a low-sodium recipe"],
@@ -321,6 +322,42 @@ describe("KampungQuestEngine memory", () => {
     expect(agents.inputs).toHaveLength(2);
     expect(agents.inputs[1].proposalToCorrect).toBeDefined();
     expect(agents.inputs[1].validationErrors?.length).toBeGreaterThan(0);
+  });
+
+  it("returns no_match when a corrected proposal drops the confirmed active intent", async () => {
+    class DriftingCorrectionRuntime extends DeterministicAgentRuntime {
+      override async synthesizeQuest(
+        input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        const output = await super.synthesizeQuest(input);
+        if (output.outcome !== "proposal") return output;
+        if (!input.proposalToCorrect) {
+          output.proposal.proposedParticipants[0].contributionsUsed = ["invented contribution"];
+          return output;
+        }
+        output.proposal.quest.needsAddressed = output.proposal.quest.needsAddressed.filter(
+          (need) => need !== input.initiator.need,
+        );
+        const initiatingParticipant = output.proposal.proposedParticipants.find(
+          (participant) => participant.candidateId === input.initiator.candidateId,
+        );
+        if (initiatingParticipant) initiatingParticipant.needsAddressed = [];
+        return output;
+      }
+    }
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DriftingCorrectionRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Lunch company" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Healthy cooking" });
+
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+
+    expect(run.status).toBe("no_match");
+    expect(run.noMatch?.reason).toContain("current request");
+    expect(run.proposal).toBeNull();
   });
 
   it("does not invite anyone when safety review rejects a proposal", async () => {

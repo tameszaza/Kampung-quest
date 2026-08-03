@@ -137,6 +137,11 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
       expect(restored?.revision).toBe(answered.revision);
       expect(restored?.brief.currentGoal).toBe("I want to grow herbs with neighbours");
       expect(restored?.messages).toHaveLength(3);
+      expect(restored?.messages.map((message) => message.role)).toEqual([
+        "assistant",
+        "user",
+        "assistant",
+      ]);
     } finally {
       await restartedStore.pool.end();
     }

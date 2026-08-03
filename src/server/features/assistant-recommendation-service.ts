@@ -105,6 +105,21 @@ const DEMO_NEIGHBOURS = [
   },
 ] as const;
 
+const DEMO_LANGUAGES: Record<(typeof DEMO_NEIGHBOURS)[number]["candidateId"], string[]> = {
+  demo_anne: ["English", "Chinese"],
+  demo_david: ["English"],
+  demo_john: ["English", "Chinese"],
+  demo_mei: ["English", "Chinese"],
+  demo_aisha: ["English", "Malay"],
+  demo_ravi: ["English", "Tamil"],
+  demo_lim: ["English", "Chinese"],
+  demo_sofia: ["English"],
+  demo_farah: ["English", "Malay"],
+  demo_kumar: ["English", "Tamil"],
+  demo_helen: ["English"],
+  demo_noor: ["English", "Malay"],
+};
+
 export class AssistantRecommendationService {
   constructor(private readonly dependencies: AssistantRecommendationDependencies) {}
 
@@ -131,31 +146,44 @@ export class AssistantRecommendationService {
       idempotencyKey = `${idempotencyPrefix}:retry:${existingQuest.runId}`;
       existingQuest = await this.dependencies.store.findQuestByIdempotencyKey(idempotencyKey);
     }
-    const seededCandidateCount = this.dependencies.demoSeedEnabled
-      ? await this.ensureDemoNeighbours(command)
-      : 0;
     const currentMemory = await this.dependencies.store.findMemory(command.candidateId);
     await observe?.({ stage: "memory", status: "started", message: "Memory Keeper is updating the active request", kind: "agent" });
-    const memory = failedAttempts > 0 && currentMemory
-      ? currentMemory
-      : await this.dependencies.engine.recordMemory({
-          profile: this.profile({
-            candidateId: command.candidateId,
-            need: command.narrative,
-            interests: command.interests,
-            offers: command.offers,
-            constraints: command.constraints,
-            distanceFromInitiatorM: null,
-          }),
-          narrative: command.narrative,
-          providedSoftFacts: {
-            need: true,
-            interests: true,
-            offers: true,
-          },
-          auditContext: { conversationId: command.conversationId },
-        });
+    let memory: MemoryCard;
+    try {
+      memory = failedAttempts > 0 && currentMemory
+        ? currentMemory
+        : await this.dependencies.engine.recordMemory({
+            profile: this.profile({
+              candidateId: command.candidateId,
+              source: "real",
+              need: command.narrative,
+              interests: command.interests,
+              offers: command.offers,
+              constraints: command.constraints,
+              distanceFromInitiatorM: null,
+            }),
+            narrative: command.narrative,
+            providedSoftFacts: {
+              need: true,
+              interests: true,
+              offers: true,
+            },
+            auditContext: { conversationId: command.conversationId },
+          });
+    } catch (error) {
+      await observe?.({ stage: "memory", status: "failed", message: "Memory Keeper could not update the active request", kind: "agent" });
+      throw error;
+    }
     await observe?.({ stage: "memory", status: "completed", message: "Active request and preferences are ready", kind: "agent" });
+    let seededCandidateCount = 0;
+    try {
+      seededCandidateCount = this.dependencies.demoSeedEnabled
+        ? await this.ensureDemoNeighbours(command)
+        : 0;
+    } catch (error) {
+      await observe?.({ stage: "retrieval", status: "failed", message: "Neighbour demo availability could not be refreshed", kind: "system" });
+      throw error;
+    }
     const quest = await this.dependencies.engine.proposeQuest({
       initiatingCandidateId: command.candidateId,
       idempotencyKey,
@@ -173,19 +201,21 @@ export class AssistantRecommendationService {
   private async ensureDemoNeighbours(command: AssistantRecommendationCommand): Promise<number> {
     let seeded = 0;
     for (const [index, neighbour] of DEMO_NEIGHBOURS.entries()) {
-      const distanceFromInitiatorM = Math.min(
-        command.constraints.maximumDistanceM,
-        250 + index * 150,
-      );
+      const distanceFromInitiatorM = 250 + index * 150;
       const profile = this.profile({
         ...neighbour,
         source: "demo",
         interests: [...neighbour.interests],
         offers: [...neighbour.offers],
         constraints: {
-          ...command.constraints,
+          availableWindows: command.constraints.availableWindows,
+          maximumDistanceM: 2_000,
           minimumGroupSize: 2,
-          maximumGroupSize: Math.min(4, command.constraints.maximumGroupSize),
+          maximumGroupSize: 4,
+          indoorRequired: false,
+          stairsAllowed: index % 4 !== 0,
+          dietaryRequirements: [],
+          languages: DEMO_LANGUAGES[neighbour.candidateId],
           verified: true,
           invitationConsent: true,
         },
