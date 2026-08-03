@@ -1,12 +1,17 @@
 import type {
+  AssistantBriefField,
+  AssistantConversationMessage,
+  AssistantTurnAgentOutput,
   CandidateProfile,
   AgentRunAudit,
   MemoryAgentOutput,
   MemoryCard,
   QuestProposal,
+  QuestSynthesisOutput,
   RetrievedCandidate,
   SafetyReview,
   QuestRun,
+  QuestBriefDraft,
   ValidationErrorItem,
 } from "@/server/domain/schemas";
 
@@ -21,19 +26,28 @@ export interface MemoryAgentInput {
     interests: boolean;
     offers: boolean;
   };
+  auditContext?: Record<string, string>;
 }
 
 export interface AgentRuntime {
+  conductConversation(input: {
+    conversationId: string;
+    messages: AssistantConversationMessage[];
+    brief: QuestBriefDraft;
+    missingFields: AssistantBriefField[];
+  }): Promise<AssistantTurnAgentOutput>;
   updateMemory(input: MemoryAgentInput): Promise<MemoryAgentOutput>;
   synthesizeQuest(input: {
     initiator: CandidateProfile;
     candidates: RetrievedCandidate[];
     validationErrors?: ValidationErrorItem[];
     proposalToCorrect?: QuestProposal;
-  }): Promise<QuestProposal>;
+    auditContext?: Record<string, string>;
+  }): Promise<QuestSynthesisOutput>;
   reviewSafety(input: {
     proposal: QuestProposal;
     profiles: Map<string, CandidateProfile>;
+    auditContext?: Record<string, string>;
   }): Promise<SafetyReview>;
   recoverQuest(input: {
     run: QuestRun;
