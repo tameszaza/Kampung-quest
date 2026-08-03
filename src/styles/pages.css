@@ -1362,6 +1362,7 @@
 .chat-center {
   width: min(var(--content-width), 100%);
   height: calc(100dvh - var(--nav-height) - env(safe-area-inset-bottom));
+  min-height: 0;
   margin: 0 auto;
   background: white;
   overflow: hidden;
@@ -1377,6 +1378,7 @@
 .chat-panel {
   height: 100%;
   min-width: 0;
+  min-height: 0;
 }
 
 .conversation-panel {
@@ -1544,6 +1546,7 @@
   display: none;
   grid-template-rows: auto 1fr auto;
   background: #f4f6f5;
+  overflow: hidden;
 }
 
 .chat-header-stack {
@@ -1749,6 +1752,8 @@
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-bubble time {
@@ -2078,7 +2083,7 @@
   .app-main:has(.chat-center) {
     min-height: calc(100dvh - 74px);
     padding: 0;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .conversation-panel,
@@ -3460,6 +3465,7 @@
   .app-main:has(.chat-center) {
     min-height: calc(100dvh - 74px);
     padding: 0;
+    overflow: hidden;
   }
 
   .detail-page { width: min(1320px, calc(100% - 72px)); }
