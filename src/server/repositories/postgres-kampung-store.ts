@@ -11,6 +11,7 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
+import type { EventCoordinationState } from "@/server/domain/event-coordination";
 import type {
   ActivateMemoryInput,
   KampungStore,
@@ -31,6 +32,240 @@ export class PostgresKampungStore implements KampungStore {
 
   constructor(connectionString: string, pool?: Pool) {
     this.pool = pool ?? new Pool({ connectionString, max: 10 });
+  }
+
+  async saveQuestRunWithFormation(
+    run: QuestRun,
+    state: EventCoordinationState,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query(
+        `UPDATE quest.quest_runs
+         SET status = $2, payload = $3::jsonb, updated_at = $4
+         WHERE run_id = $1 AND updated_at = $5`,
+        [run.runId, run.status, JSON.stringify(run), run.updatedAt, expectedUpdatedAt],
+      );
+      if (updated.rowCount !== 1) throw new Error("Quest state conflict; reload and retry formation");
+      await client.query(
+        `INSERT INTO quest.event_coordination_states (run_id, initiator_id, revision, lifecycle, payload, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+        [state.runId, state.initiatorId, state.revision, state.lifecycle, JSON.stringify(state), state.updatedAt],
+      );
+      await this.persistEventCoordinationChildren(client, state);
+      await client.query("COMMIT");
+      return structuredClone(run);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO quest.event_coordination_states (run_id, initiator_id, revision, lifecycle, payload, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+        [state.runId, state.initiatorId, state.revision, state.lifecycle, JSON.stringify(state), state.updatedAt],
+      );
+      await this.persistEventCoordinationChildren(client, state);
+      await client.query("COMMIT");
+      return structuredClone(state);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async findEventCoordinationState(runId: string): Promise<EventCoordinationState | null> {
+    const result = await this.pool.query<{ payload: EventCoordinationState }>(
+      "SELECT payload FROM quest.event_coordination_states WHERE run_id = $1",
+      [runId],
+    );
+    return result.rows[0]?.payload ?? null;
+  }
+
+  async saveEventCoordinationState(
+    state: EventCoordinationState,
+    expectedRevision: number,
+  ): Promise<EventCoordinationState> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE quest.event_coordination_states
+         SET revision = $2, lifecycle = $3, payload = $4::jsonb, updated_at = $5
+         WHERE run_id = $1 AND revision = $6`,
+        [state.runId, state.revision, state.lifecycle, JSON.stringify(state), state.updatedAt, expectedRevision],
+      );
+      if (result.rowCount !== 1) throw new Error("Quest state conflict; reload and retry");
+      await this.persistEventCoordinationChildren(client, state);
+      await client.query("COMMIT");
+      return structuredClone(state);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]> {
+    const result = await this.pool.query<{ payload: EventCoordinationState }>(
+      `SELECT payload
+       FROM quest.event_coordination_states
+       WHERE initiator_id = $1
+          OR payload @> jsonb_build_object('roster', jsonb_build_array(jsonb_build_object('userId', $1::text)))
+          OR payload @> jsonb_build_object('invitations', jsonb_build_array(jsonb_build_object('guestId', $1::text)))
+          OR payload @> jsonb_build_object('memberships', jsonb_build_array(jsonb_build_object('userId', $1::text)))
+       ORDER BY updated_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => row.payload);
+  }
+
+  private async persistEventCoordinationChildren(client: PoolClient, state: EventCoordinationState): Promise<void> {
+    await client.query(
+      `INSERT INTO quest.event_roster_versions (run_id, roster_revision, validation, created_at)
+       VALUES ($1, $2, $3::jsonb, $4)
+       ON CONFLICT (run_id, roster_revision) DO UPDATE SET validation = EXCLUDED.validation`,
+      [state.runId, state.rosterRevision, JSON.stringify(state.rosterValidation), state.updatedAt],
+    );
+    for (const member of state.roster) {
+      await client.query(
+        `INSERT INTO quest.event_roster_members
+          (run_id, roster_revision, user_id, source, proposed_role, explanation)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+         ON CONFLICT (run_id, roster_revision, user_id) DO UPDATE
+         SET source = EXCLUDED.source, proposed_role = EXCLUDED.proposed_role, explanation = EXCLUDED.explanation`,
+        [state.runId, state.rosterRevision, member.userId, member.source, member.proposedRole, JSON.stringify(member.explanation)],
+      );
+    }
+    for (const invitation of state.invitations) {
+      await client.query(
+        `INSERT INTO quest.event_invitations
+          (invitation_id, run_id, inviter_id, guest_id, status, version, roster_revision,
+           delivery_state, idempotency_key, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (invitation_id) DO UPDATE
+         SET status = EXCLUDED.status, version = EXCLUDED.version,
+             delivery_state = EXCLUDED.delivery_state, updated_at = EXCLUDED.updated_at`,
+        [invitation.invitationId, state.runId, invitation.inviterId, invitation.guestId,
+          invitation.status, invitation.version, invitation.rosterRevision, invitation.deliveryState,
+          invitation.idempotencyKey, invitation.createdAt, invitation.updatedAt],
+      );
+    }
+    for (const membership of state.memberships) {
+      await client.query(
+        `INSERT INTO quest.event_memberships
+          (membership_id, run_id, user_id, role, roster_source, status, joined_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (membership_id) DO UPDATE
+         SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at`,
+        [membership.membershipId, state.runId, membership.userId, membership.role,
+          membership.rosterSource, membership.status, membership.joinedAt, membership.updatedAt],
+      );
+    }
+    for (const thread of state.threads) {
+      await client.query(
+        `INSERT INTO quest.event_coordination_threads
+          (thread_id, run_id, user_id, revision, last_read_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (thread_id) DO UPDATE
+         SET revision = EXCLUDED.revision, last_read_at = EXCLUDED.last_read_at, updated_at = EXCLUDED.updated_at`,
+        [thread.threadId, state.runId, thread.userId, thread.revision, thread.lastReadAt, thread.updatedAt],
+      );
+      for (const message of thread.messages) {
+        await client.query(
+          `INSERT INTO quest.event_coordination_messages
+            (message_id, thread_id, role, kind, body, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (message_id) DO NOTHING`,
+          [message.messageId, thread.threadId, message.role, message.kind, message.body, message.createdAt],
+        );
+      }
+      await client.query(
+        `INSERT INTO quest.event_participant_requirements
+          (run_id, user_id, thread_revision, confirmed, pending, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)
+         ON CONFLICT (run_id, user_id, thread_revision) DO UPDATE
+         SET confirmed = EXCLUDED.confirmed, pending = EXCLUDED.pending, updated_at = EXCLUDED.updated_at`,
+        [state.runId, thread.userId, thread.revision, JSON.stringify(thread.confirmedRequirements),
+          thread.pendingRequirements ? JSON.stringify(thread.pendingRequirements) : null, thread.updatedAt],
+      );
+      await client.query(
+        `INSERT INTO quest.event_participant_availability
+          (run_id, user_id, requirement_revision, windows, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5)
+         ON CONFLICT (run_id, user_id, requirement_revision) DO UPDATE
+         SET windows = EXCLUDED.windows, updated_at = EXCLUDED.updated_at`,
+        [state.runId, thread.userId, thread.revision,
+          JSON.stringify(thread.confirmedRequirements.availableWindows), thread.updatedAt],
+      );
+    }
+    for (const arrangement of state.arrangements) {
+      await client.query(
+        `INSERT INTO quest.event_arrangements
+          (arrangement_id, run_id, version, status, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+         ON CONFLICT (arrangement_id) DO UPDATE
+         SET status = EXCLUDED.status, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+        [arrangement.arrangementId, state.runId, arrangement.version, arrangement.status,
+          JSON.stringify(arrangement), arrangement.createdAt, arrangement.updatedAt],
+      );
+      for (const confirmation of arrangement.confirmations) {
+        await client.query(
+          `INSERT INTO quest.event_arrangement_confirmations
+            (arrangement_id, user_id, status, responded_at)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (arrangement_id, user_id) DO UPDATE
+           SET status = EXCLUDED.status, responded_at = EXCLUDED.responded_at`,
+          [arrangement.arrangementId, confirmation.userId, confirmation.status, confirmation.respondedAt],
+        );
+      }
+    }
+    for (const notification of state.notifications) {
+      await client.query(
+        `INSERT INTO quest.event_notifications
+          (notification_id, run_id, user_id, kind, title, body, read_at, deduplication_key, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (notification_id) DO UPDATE SET read_at = EXCLUDED.read_at`,
+        [notification.notificationId, state.runId, notification.userId, notification.kind,
+          notification.title, notification.body, notification.readAt,
+          notification.deduplicationKey, notification.createdAt],
+      );
+    }
+    for (const event of state.auditEvents) {
+      await client.query(
+        `INSERT INTO quest.event_coordination_audit_events
+          (event_id, run_id, event_type, actor_id, aggregate_revision, previous_lifecycle,
+           new_lifecycle, idempotency_key, safe_diff, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+         ON CONFLICT (event_id) DO NOTHING`,
+        [event.eventId, state.runId, event.type, event.actorId, event.aggregateRevision,
+          event.previousLifecycle, event.newLifecycle, event.idempotencyKey,
+          JSON.stringify(event.safeDiff), event.createdAt],
+      );
+    }
+    for (const job of state.outbox) {
+      await client.query(
+        `INSERT INTO quest.event_outbox
+          (job_id, run_id, kind, recipient_id, deduplication_key, payload, status, attempts, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+         ON CONFLICT (job_id) DO UPDATE
+         SET status = EXCLUDED.status, attempts = EXCLUDED.attempts, updated_at = EXCLUDED.updated_at`,
+        [job.jobId, state.runId, job.kind, job.recipientId, job.deduplicationKey,
+          JSON.stringify(job.payload), job.status, job.attempts, job.createdAt, job.updatedAt],
+      );
+    }
   }
 
   async createAssistantConversation(

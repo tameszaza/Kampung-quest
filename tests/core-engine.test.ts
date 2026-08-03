@@ -3,8 +3,9 @@ import type { CandidateProfile } from "@/server/domain/schemas";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
-import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
+import { MockInvitationAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
+import { EventCoordinator } from "@/server/features/event-coordinator";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 
 function profile(candidateId: string): CandidateProfile {
@@ -193,12 +194,13 @@ describe("KampungQuestEngine memory", () => {
   });
 
   it("persists an idempotent, validated and safety-approved quest proposal", async () => {
-    const invitations = new MockInvitationAdapter();
+    const store = new InMemoryKampungStore();
+    const eventCoordinator = new EventCoordinator({ store });
     const engine = new KampungQuestEngine({
-      store: new InMemoryKampungStore(),
+      store,
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
-      invitations,
+      eventCoordinator,
     });
     await engine.recordMemory({ profile: profile("candidate_001"), narrative: "I want company for lunch." });
     await engine.recordMemory({
@@ -218,14 +220,11 @@ describe("KampungQuestEngine memory", () => {
       idempotencyKey: "demo-proposal-1",
     });
 
-    expect(first.status).toBe("awaiting_acceptance");
+    expect(first.status).toBe("forming");
     expect(first.validation?.valid).toBe(true);
     expect(first.safety?.status).toBe("approved");
-    expect(first.coordination?.invitations).toHaveLength(2);
-    expect(invitations.sent.map((invitation) => invitation.candidateId).sort()).toEqual([
-      "candidate_001",
-      "candidate_002",
-    ]);
+    expect(first.coordination).toBeNull();
+    expect((await store.findEventCoordinationState(first.runId))?.invitations).toEqual([]);
     expect(repeated.runId).toBe(first.runId);
     expect((await engine.getQuest(first.runId))?.runId).toBe(first.runId);
   });
@@ -438,105 +437,4 @@ describe("KampungQuestEngine memory", () => {
     expect(invitations.sent).toEqual([]);
   });
 
-  it("confirms a quest only after every proposed participant accepts", async () => {
-    const venues = new MockVenueAdapter();
-    const engine = new KampungQuestEngine({
-      store: new InMemoryKampungStore(),
-      agents: new DeterministicAgentRuntime(),
-      embeddings: new DeterministicEmbeddingProvider(),
-      venues,
-    });
-    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Lunch company" });
-    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Healthy cooking" });
-    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
-
-    const waiting = await engine.applyCoordinationEvent({
-      runId: run.runId,
-      type: "participant_accepted",
-      candidateId: "candidate_001",
-    });
-    expect(waiting.status).toBe("awaiting_acceptance");
-    expect(venues.confirmations).toHaveLength(0);
-
-    const confirmed = await engine.applyCoordinationEvent({
-      runId: run.runId,
-      type: "participant_accepted",
-      candidateId: "candidate_002",
-    });
-
-    expect(venues.confirmations).toHaveLength(1);
-    expect(confirmed.status).toBe("confirmed");
-    expect(confirmed.coordination?.invitations.every((invitation) => invitation.status === "accepted")).toBe(true);
-  });
-
-  it("revalidates and reinvites a reserve after a participant declines", async () => {
-    const invitations = new MockInvitationAdapter();
-    const engine = new KampungQuestEngine({
-      store: new InMemoryKampungStore(),
-      agents: new DeterministicAgentRuntime(),
-      embeddings: new DeterministicEmbeddingProvider(),
-      invitations,
-    });
-    const twoPersonProfile = (candidateId: string) =>
-      withProfile(candidateId, {
-        constraints: { ...profile(candidateId).constraints, maximumGroupSize: 2 },
-      });
-    await engine.recordMemory({ profile: twoPersonProfile("candidate_001"), narrative: "Host" });
-    await engine.recordMemory({ profile: twoPersonProfile("candidate_002"), narrative: "First match" });
-    await engine.recordMemory({ profile: twoPersonProfile("candidate_003"), narrative: "Reserve match" });
-    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
-    const selectedGuest = run.proposal?.proposedParticipants.find(
-      (participant) => participant.candidateId !== "candidate_001",
-    );
-    const reserve = run.proposal?.reserveCandidates[0];
-    expect(selectedGuest).toBeDefined();
-    expect(reserve).toBeDefined();
-
-    const recovered = await engine.applyCoordinationEvent({
-      runId: run.runId,
-      type: "participant_declined",
-      candidateId: selectedGuest?.candidateId,
-    });
-
-    expect(recovered.status).toBe("awaiting_acceptance");
-    expect(recovered.proposal?.proposedParticipants.some(
-      (participant) => participant.candidateId === reserve?.candidateId,
-    )).toBe(true);
-    expect(recovered.validation?.valid).toBe(true);
-    expect(recovered.safety?.status).toBe("approved");
-    expect(invitations.sent.at(-1)?.candidateId).toBe(reserve?.candidateId);
-
-    const initiatorAccepted = await engine.applyCoordinationEvent({
-      runId: run.runId,
-      type: "participant_accepted",
-      candidateId: "candidate_001",
-    });
-    expect(initiatorAccepted.status).toBe("awaiting_acceptance");
-    const confirmed = await engine.applyCoordinationEvent({
-      runId: run.runId,
-      type: "participant_accepted",
-      candidateId: reserve?.candidateId,
-    });
-    expect(confirmed.status).toBe("confirmed");
-    expect(confirmed.coordination?.invitations.find(
-      (candidate) => candidate.candidateId === selectedGuest?.candidateId,
-    )?.status).toBe("replaced");
-  });
-
-  it("rejects cancellation from a terminal state", async () => {
-    const engine = new KampungQuestEngine({
-      store: new InMemoryKampungStore(),
-      agents: new DeterministicAgentRuntime(),
-      embeddings: new DeterministicEmbeddingProvider(),
-    });
-    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Host" });
-    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Guest" });
-    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
-    await engine.applyCoordinationEvent({ runId: run.runId, type: "quest_cancelled" });
-
-    await expect(engine.applyCoordinationEvent({
-      runId: run.runId,
-      type: "quest_cancelled",
-    })).rejects.toThrow("not valid");
-  });
 });

@@ -7,6 +7,7 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
+import type { EventCoordinationState } from "@/server/domain/event-coordination";
 
 export interface ActivateMemoryInput {
   attemptId: string;
@@ -23,6 +24,18 @@ export interface MemoryUpdateAttempt {
 }
 
 export interface KampungStore {
+  createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
+  findEventCoordinationState(runId: string): Promise<EventCoordinationState | null>;
+  saveEventCoordinationState(
+    state: EventCoordinationState,
+    expectedRevision: number,
+  ): Promise<EventCoordinationState>;
+  listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
+  saveQuestRunWithFormation(
+    run: QuestRun,
+    state: EventCoordinationState,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun>;
   createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
   findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null>;
   saveAssistantConversation(
@@ -65,6 +78,56 @@ export class InMemoryKampungStore implements KampungStore {
   private readonly coordinationEvents: CoordinationEventRecord[] = [];
   private readonly memoryAttempts = new Map<string, MemoryUpdateCommand>();
   private readonly agentRuns: AgentRunAudit[] = [];
+  private readonly eventCoordinationStates = new Map<string, EventCoordinationState>();
+
+  async saveQuestRunWithFormation(
+    run: QuestRun,
+    state: EventCoordinationState,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun> {
+    const current = this.questRuns.get(run.runId);
+    if (!current || current.updatedAt !== expectedUpdatedAt || this.eventCoordinationStates.has(run.runId)) {
+      throw new Error("Quest state conflict; reload and retry formation");
+    }
+    this.questRuns.set(run.runId, structuredClone(run));
+    this.eventCoordinationStates.set(run.runId, structuredClone(state));
+    return structuredClone(run);
+  }
+
+  async createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState> {
+    if (this.eventCoordinationStates.has(state.runId)) {
+      throw new Error("Event coordination state already exists");
+    }
+    this.eventCoordinationStates.set(state.runId, structuredClone(state));
+    return structuredClone(state);
+  }
+
+  async findEventCoordinationState(runId: string): Promise<EventCoordinationState | null> {
+    const state = this.eventCoordinationStates.get(runId);
+    return state ? structuredClone(state) : null;
+  }
+
+  async saveEventCoordinationState(
+    state: EventCoordinationState,
+    expectedRevision: number,
+  ): Promise<EventCoordinationState> {
+    const current = this.eventCoordinationStates.get(state.runId);
+    if (!current || current.revision !== expectedRevision) {
+      throw new Error("Quest state conflict; reload and retry");
+    }
+    this.eventCoordinationStates.set(state.runId, structuredClone(state));
+    return structuredClone(state);
+  }
+
+  async listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]> {
+    return [...this.eventCoordinationStates.values()]
+      .filter((state) => state.initiatorId === userId
+        || state.roster.some((member) => member.userId === userId)
+        || state.invitations.some((invitation) => invitation.guestId === userId)
+        || state.memberships.some((membership) => membership.userId === userId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((state) => structuredClone(state));
+  }
 
   async createAssistantConversation(
     conversation: AssistantConversationSnapshot,

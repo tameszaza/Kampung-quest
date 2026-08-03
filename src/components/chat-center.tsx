@@ -6,7 +6,10 @@ import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
+import { listEventActivities } from "@/features/events/client";
 import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
+
+type MessageListItem = ConversationSummary & { questRunId?: string };
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
 
@@ -23,7 +26,7 @@ const assistantConversation: ConversationSummary = {
 
 export function ChatCenter({ initialConversation }: { initialConversation?: "assistant" }) {
   const { showToast } = useAppState();
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversations, setConversations] = useState<MessageListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
@@ -50,10 +53,33 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
 
   const loadConversations = useCallback(async () => {
     try {
-      const response = await fetch("/api/chat/conversations", { cache: "no-store" });
+      const [response, eventActivities] = await Promise.all([
+        fetch("/api/chat/conversations", { cache: "no-store" }),
+        listEventActivities(),
+      ]);
       const result = await response.json() as { conversations?: ConversationSummary[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not load conversations");
-      const nextConversations = result.conversations ?? [];
+      const eventCards = [
+        ...eventActivities.invitations.map((invitation) => invitation.activity),
+        ...Object.values(eventActivities.my).flat(),
+      ];
+      const seen = new Set<string>();
+      const questConversations: MessageListItem[] = eventCards.filter((activity) => {
+        if (seen.has(activity.runId)) return false;
+        seen.add(activity.runId);
+        return true;
+      }).map((activity) => ({
+        id: `quest:${activity.runId}`,
+        questRunId: activity.runId,
+        type: "group",
+        title: activity.title,
+        imageUrl: null,
+        preview: activity.lifecycle === "forming" ? "Group selection" : `Quest coordination · ${activity.lifecycle.replaceAll("_", " ")}`,
+        lastMessageAt: new Date().toISOString(),
+        unreadCount: eventActivities.invitations.some((invitation) => invitation.runId === activity.runId) ? 1 : 0,
+        memberCount: 1,
+      }));
+      const nextConversations: MessageListItem[] = [...questConversations, ...(result.conversations ?? [])];
       setConversations(nextConversations);
       setSelectedId((current) => current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null));
       setError("");
@@ -94,6 +120,11 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function openConversation(id: string) {
+    const questRunId = conversations.find((item) => item.id === id)?.questRunId;
+    if (questRunId) {
+      window.location.assign(`/messages?quest=${encodeURIComponent(questRunId)}`);
+      return;
+    }
     setSelectedId(id);
     if (id === ASSISTANT_CONVERSATION_ID) setMessages([]);
     setMenuOpen(false);

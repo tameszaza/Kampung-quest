@@ -221,6 +221,7 @@ export class AssistantRecommendationService {
         offers: [...neighbour.offers],
         constraints: {
           availableWindows: command.constraints.availableWindows,
+          recurringAvailabilityRules: command.constraints.recurringAvailabilityRules,
           maximumDistanceM: 2_000,
           minimumGroupSize: 2,
           maximumGroupSize: 4,

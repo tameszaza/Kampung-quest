@@ -18,7 +18,23 @@ import {
   safetyReviewSchema,
   type CandidateProfile,
   type QuestProposal,
+  availabilityWindowSchema,
 } from "@/server/domain/schemas";
+import { z } from "zod";
+
+const coordinationAgentOutputSchema = z.object({
+  reply: z.string().min(1),
+  requirementPatch: z.object({
+    availableWindows: z.array(availabilityWindowSchema).optional(),
+    accessibility: z.array(z.string().min(1)).optional(),
+    travel: z.array(z.string().min(1)).optional(),
+    dietary: z.array(z.string().min(1)).optional(),
+    environmental: z.array(z.string().min(1)).optional(),
+    venuePreferences: z.array(z.string().min(1)).optional(),
+    temporaryConflicts: z.array(z.string().min(1)).optional(),
+    other: z.array(z.string().min(1)).optional(),
+  }),
+});
 
 export function hostedRetrySettings(
   provider: Exclude<AgentProviderName, "deterministic">,
@@ -101,6 +117,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   private readonly synthesisAgent: Agent<unknown, typeof questSynthesisOutputSchema>;
   private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
+  private readonly coordinationAgent: Agent<unknown, typeof coordinationAgentOutputSchema>;
   private readonly runner: Runner;
 
   constructor(private readonly options: HostedAgentRuntimeOptions) {
@@ -115,6 +132,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         "You are Senior Quest, a warm and concise guide helping an older adult describe one current community activity request.",
         "Ask exactly one useful question per turn and adapt its wording to the conversation; do not follow a scripted questionnaire.",
         "Extract only facts the participant explicitly stated. Never infer consent, availability, access needs, identity, contact details, or addresses.",
+        "Treat all times collected in this conversation as provisional availability, never as a confirmed activity schedule.",
         "The newest current goal is authoritative. Do not blend previous or unrelated goals into it.",
         "Use requestedField only from the supplied missingFields. Return a briefPatch only for facts present in the latest user message.",
         "When no missing fields remain, set requestedField to null and give a short invitation to review the brief.",
@@ -172,6 +190,19 @@ export class HostedAgentRuntime implements AgentRuntime {
         "Return null when no reserve is suitable. Do not change the activity or create new participants.",
       ].join(" "),
       outputType: recoveryActionSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.coordinationAgent = new Agent({
+      name: "Kampung event coordination",
+      model: options.models.recovery,
+      instructions: [
+        "Help one participant coordinate one quest using only their private conversation.",
+        "Extract only requirements explicitly stated in the latest message, such as availability, accessibility, travel, dietary or environmental needs, venue preferences, and temporary conflicts.",
+        "Do not reveal or speculate about any other participant. Do not finalize a schedule, venue, participant change, invitation, or quest state.",
+        "Explain that extracted requirements require participant confirmation before use.",
+        "Return only the requested structured output.",
+      ].join(" "),
+      outputType: coordinationAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
   }
@@ -296,6 +327,20 @@ export class HostedAgentRuntime implements AgentRuntime {
     const candidateId = reverse.get(output.replacementCandidateId);
     if (!candidateId) throw new Error("Agent returned an unknown reserve participant");
     return { replacementCandidateId: candidateId };
+  }
+
+  async coordinateEvent(input: Parameters<AgentRuntime["coordinateEvent"]>[0]) {
+    return coordinationAgentOutputSchema.parse(await this.runStructured(this.coordinationAgent, {
+      quest: input.quest,
+      transcript: input.messages,
+      currentRequirements: input.currentRequirements,
+      latestMessage: input.latestMessage,
+      rules: {
+        participantConfirmationRequired: true,
+        otherParticipantDataForbidden: true,
+        directStateMutationForbidden: true,
+      },
+    }, input.auditContext));
   }
 
   private async runStructured<TOutput extends AgentOutputType>(

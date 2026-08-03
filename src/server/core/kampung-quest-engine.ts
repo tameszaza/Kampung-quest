@@ -23,6 +23,7 @@ import type {
 } from "@/server/domain/schemas";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import type { KampungStore } from "@/server/repositories/kampung-store";
+import type { EventCoordinator } from "@/server/features/event-coordinator";
 
 interface KampungQuestEngineDependencies {
   store: KampungStore;
@@ -30,6 +31,7 @@ interface KampungQuestEngineDependencies {
   embeddings: EmbeddingProvider;
   invitations?: InvitationAdapter;
   venues?: VenueAdapter;
+  eventCoordinator?: EventCoordinator;
 }
 
 export interface QuestPipelineEvent {
@@ -339,30 +341,19 @@ export class KampungQuestEngine {
       });
       await observe?.({ stage: "safety", status: "completed", message: safety.status === "approved" ? "Safety review approved" : "Safety review requires attention", kind: "agent" });
       const approved = safety.status === "approved";
-      if (approved) {
-        await Promise.all(proposal.proposedParticipants.map((participant) =>
-          this.invitations.send({ runId, candidateId: participant.candidateId })
-        ));
-      }
-      return this.dependencies.store.saveQuestRun({
+      const finalRun: QuestRun = {
         ...base,
-        status: approved ? "awaiting_acceptance" : "human_review",
+        status: approved ? "forming" : "human_review",
         proposal,
         validation,
         safety,
-        coordination: approved
-          ? {
-              questId: runId,
-              state: "awaiting_acceptance",
-              invitations: proposal.proposedParticipants.map((participant) => ({
-                candidateId: participant.candidateId,
-                status: "pending",
-              })),
-              nextAction: "Collect explicit acceptance, then confirm the venue and exact schedule.",
-            }
-          : null,
+        coordination: null,
         updatedAt: new Date().toISOString(),
-      });
+      };
+      if (approved && this.dependencies.eventCoordinator) {
+        return this.dependencies.eventCoordinator.activateFormation(finalRun, base.updatedAt);
+      }
+      return this.dependencies.store.saveQuestRun(finalRun);
     } catch (error) {
       await observe?.({
         stage: activeStage,
