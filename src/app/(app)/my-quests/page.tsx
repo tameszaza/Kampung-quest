@@ -16,11 +16,11 @@ export default function MyQuestsPage() {
 
   return (
     <div className="page-container narrow-page">
-      <PageHeader title="My Quests" />
+      <PageHeader title="My Activities" />
       <Tabs tabs={["Upcoming", "Past"]} active={tab} onChange={setTab} />
       <section className="joined-list">
         {visibleQuests.map((quest) => (
-          <Link className="joined-card" href={`/quests/${quest.slug}`} key={quest.slug}>
+          <Link className="joined-card" href={`/quests/${quest.slug}?from=my-activities`} key={quest.slug}>
             <div className="joined-image">
               <Image src={quest.image} alt="" fill sizes="(max-width: 767px) 100vw, 460px" />
               <span className="image-badge">{tab === "Upcoming" ? "UPCOMING" : "COMPLETED"}</span>

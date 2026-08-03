@@ -12,14 +12,15 @@ import {
 } from "react";
 
 type InviteDecision = "accepted" | "declined";
+export type ActivityDecision = "accepted" | "declined";
 
 type AppStateValue = {
   savedQuests: Set<string>;
-  interestedQuests: Set<string>;
+  activityDecisions: Record<string, ActivityDecision>;
   inviteDecisions: Record<string, InviteDecision>;
   toast: string | null;
   toggleSaved: (slug: string) => void;
-  toggleInterested: (slug: string) => void;
+  decideActivity: (activityId: string, decision: ActivityDecision) => void;
   decideInvite: (inviteId: string, decision: InviteDecision) => void;
   showToast: (message: string) => void;
 };
@@ -29,13 +30,13 @@ const AppStateContext = createContext<AppStateValue | null>(null);
 
 type StoredState = {
   savedQuests?: string[];
-  interestedQuests?: string[];
+  activityDecisions?: Record<string, ActivityDecision>;
   inviteDecisions?: Record<string, InviteDecision>;
 };
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [savedQuests, setSavedQuests] = useState<Set<string>>(new Set());
-  const [interestedQuests, setInterestedQuests] = useState<Set<string>>(new Set());
+  const [activityDecisions, setActivityDecisions] = useState<Record<string, ActivityDecision>>({});
   const [inviteDecisions, setInviteDecisions] = useState<Record<string, InviteDecision>>({});
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,7 +50,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         /* eslint-disable react-hooks/set-state-in-effect -- This effect hydrates
          * client-only state from localStorage after the initial server render. */
         setSavedQuests(new Set(parsed.savedQuests ?? []));
-        setInterestedQuests(new Set(parsed.interestedQuests ?? []));
+        setActivityDecisions(parsed.activityDecisions ?? {});
         setInviteDecisions(parsed.inviteDecisions ?? {});
         /* eslint-enable react-hooks/set-state-in-effect */
       }
@@ -64,11 +65,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (!hydrated.current) return;
     const state: StoredState = {
       savedQuests: [...savedQuests],
-      interestedQuests: [...interestedQuests],
+      activityDecisions,
       inviteDecisions,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [savedQuests, interestedQuests, inviteDecisions]);
+  }, [savedQuests, activityDecisions, inviteDecisions]);
 
   useEffect(() => {
     return () => {
@@ -91,13 +92,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const toggleInterested = useCallback((slug: string) => {
-    setInterestedQuests((current) => {
-      const next = new Set(current);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
-      return next;
-    });
+  const decideActivity = useCallback((activityId: string, decision: ActivityDecision) => {
+    setActivityDecisions((current) => ({ ...current, [activityId]: decision }));
   }, []);
 
   const decideInvite = useCallback((inviteId: string, decision: InviteDecision) => {
@@ -107,21 +103,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppStateValue>(
     () => ({
       savedQuests,
-      interestedQuests,
+      activityDecisions,
       inviteDecisions,
       toast,
       toggleSaved,
-      toggleInterested,
+      decideActivity,
       decideInvite,
       showToast,
     }),
     [
       savedQuests,
-      interestedQuests,
+      activityDecisions,
       inviteDecisions,
       toast,
       toggleSaved,
-      toggleInterested,
+      decideActivity,
       decideInvite,
       showToast,
     ],

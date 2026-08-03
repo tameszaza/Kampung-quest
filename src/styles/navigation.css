@@ -1,4 +1,14 @@
 .desktop-nav {
+  position: relative;
+  display: none;
+}
+
+.desktop-avatar {
+  position: relative;
+}
+
+.desktop-user-copy,
+.desktop-logout {
   display: none;
 }
 
@@ -90,13 +100,13 @@
   }
 
   .desktop-nav-inner {
-    width: min(var(--content-width), calc(100% - 48px));
+    width: min(var(--content-width), calc(100% - 32px));
     height: 100%;
     margin: 0 auto;
     display: grid;
     grid-template-columns: auto 1fr auto auto;
     align-items: center;
-    gap: 24px;
+    gap: 16px;
   }
 
   .desktop-brand {
@@ -124,19 +134,24 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
   }
 
   .desktop-nav nav a {
+    position: relative;
+    width: 48px;
     min-height: 44px;
-    padding: 0 14px;
+    padding: 0;
     border-radius: 999px;
     color: var(--ink-soft);
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 700;
+    justify-content: center;
+  }
+
+  .desktop-nav nav a span,
+  .desktop-create-label {
+    display: none;
   }
 
   .desktop-nav nav a:hover,
@@ -146,17 +161,16 @@
   }
 
   .desktop-create {
-    min-height: 44px;
-    padding: 0 17px;
+    width: 50px;
+    height: 50px;
+    padding: 0;
     border: 0;
-    border-radius: 999px;
+    border-radius: 50%;
     background: var(--green-600);
     color: white;
-    display: inline-flex;
+    display: inline-grid;
+    place-items: center;
     align-items: center;
-    gap: 7px;
-    font-size: 14px;
-    font-weight: 750;
     cursor: pointer;
   }
 
@@ -178,23 +192,110 @@
   }
 }
 
-@media (min-width: 768px) and (max-width: 960px) {
+/* Wide desktop keeps the roomy side navigation; the compact top bar above
+ * remains the tablet/smaller-desktop treatment from the reference. */
+@media (min-width: 1024px) {
+  .desktop-nav {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 248px;
+    height: 100dvh;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    background: #fff;
+  }
+
   .desktop-nav-inner {
-    gap: 12px;
+    width: 100%;
+    height: 100%;
+    padding: 30px 20px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .desktop-brand {
+    margin: 0 8px 38px;
+    font-size: 21px;
+  }
+
+  .brand-symbol {
+    width: 42px;
+    height: 42px;
+  }
+
+  .desktop-nav nav {
+    display: grid;
+    gap: 7px;
   }
 
   .desktop-nav nav a {
-    padding: 0 10px;
+    width: auto;
+    min-height: 52px;
+    padding: 0 14px;
+    border-radius: 11px;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
   }
 
   .desktop-nav nav a span,
-  .desktop-create {
-    font-size: 0;
+  .desktop-create-label {
+    display: inline;
   }
 
   .desktop-create {
-    width: 44px;
-    padding: 0;
+    width: 100%;
+    height: auto;
+    min-height: 50px;
+    margin-top: 24px;
+    padding: 0 17px;
+    border-radius: 12px;
+    display: inline-flex;
     justify-content: center;
+    gap: 7px;
+  }
+
+  .desktop-avatar {
+    width: 48px;
+    height: 48px;
+    margin-top: auto;
+  }
+
+  .desktop-user-copy {
+    position: absolute;
+    right: 20px;
+    bottom: 82px;
+    left: 80px;
+    min-width: 0;
+    display: grid;
+  }
+
+  .desktop-user-copy strong,
+  .desktop-user-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-user-copy strong { font-size: 13px; }
+  .desktop-user-copy small { color: var(--muted); font-size: 11px; }
+
+  .desktop-logout {
+    display: block;
+    min-height: 40px;
+    margin-top: 12px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-weight: 750;
+    cursor: pointer;
+  }
+
+  .app-main {
+    margin-left: 248px;
   }
 }

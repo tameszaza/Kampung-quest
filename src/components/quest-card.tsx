@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useAppState } from "@/components/app-state";
+import { ActivityActions } from "@/components/activity-actions";
 import { Icon } from "@/components/icons";
 import { MetaRow } from "@/components/meta-row";
 import type { Quest } from "@/types/quest";
@@ -34,6 +35,7 @@ export function QuestCard({ quest, compact = false }: { quest: Quest; compact?: 
       >
         <Icon name="heart" size={23} />
       </button>
+      <ActivityActions activityId={quest.slug} />
     </article>
   );
 }

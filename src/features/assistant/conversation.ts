@@ -119,6 +119,7 @@ export function assistantConversationReducer(
 
 export function toRecommendationRequest(
   state: AssistantConversationState,
+  candidateId = "maria",
 ): AssistantRecommendationCommand {
   if (
     !state.narrative
@@ -136,7 +137,7 @@ export function toRecommendationRequest(
   }
   return {
     conversationId: state.conversationId,
-    candidateId: "maria",
+    candidateId,
     narrative: state.narrative,
     interests: state.interests,
     offers: state.offers,

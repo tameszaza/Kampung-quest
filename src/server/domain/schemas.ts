@@ -46,7 +46,7 @@ export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 
 export const assistantRecommendationRequestSchema = z.object({
   conversationId: z.string().min(1),
-  candidateId: z.literal("maria"),
+  candidateId: z.string().min(1),
   narrative: z.string().min(3),
   interests: z.array(z.string().min(1)).default([]),
   offers: z.array(z.string().min(1)).default([]),
