@@ -346,6 +346,7 @@ function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnsw
   const [patternText, setPatternText] = useState("");
   const [patternError, setPatternError] = useState("");
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Singapore";
+  const specificSelection = specificAvailabilityWindows(windows, start, end, timeZone);
 
   function addWindow() {
     if (Date.parse(end) <= Date.parse(start)) return;
@@ -380,8 +381,8 @@ function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnsw
   return <form className="assistant-choice-panel availability-panel" onSubmit={(event) => {
     event.preventDefault();
     if (mode === "specific") {
-      if (!windows.length) return;
-      onAnswer({ field: "availability", value: { availableWindows: windows, recurringAvailabilityRules: [] } });
+      if (!specificSelection.length) return;
+      onAnswer({ field: "availability", value: { availableWindows: specificSelection, recurringAvailabilityRules: [] } });
       return;
     }
     const rule: WeeklyAvailabilityRule = {
@@ -407,7 +408,7 @@ function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnsw
       <label>Available until<input type="datetime-local" required value={end} onChange={(event) => setEnd(event.target.value)} /></label>
       <button className="secondary-button" type="button" disabled={disabled || Date.parse(end) <= Date.parse(start)} onClick={addWindow}>Add available time</button>
       {windows.length ? <ul className="availability-list">{windows.map((window, index) => <li key={`${window.start}-${window.end}`}><span>{displayDate(window.start, window.end)}</span><button type="button" onClick={() => setWindows((items) => items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></li>)}</ul> : null}
-      <button className="primary-button" type="submit" disabled={disabled || windows.length === 0}>Confirm {windows.length || ""} available time{windows.length === 1 ? "" : "s"}</button>
+      <button className="primary-button" type="submit" disabled={disabled || specificSelection.length === 0}>Confirm {specificSelection.length || ""} available time{specificSelection.length === 1 ? "" : "s"}</button>
     </> : <>
       <div className="availability-natural-entry"><label>Describe a weekly pattern (optional)<input type="text" value={patternText} onChange={(event) => setPatternText(event.target.value)} placeholder="For example, weekday mornings" /></label><button className="secondary-button" type="button" disabled={!patternText.trim()} onClick={interpretPattern}>Interpret</button></div>
       {patternError ? <p className="field-error" role="alert">{patternError}</p> : null}
@@ -439,6 +440,23 @@ function parseWeeklyPattern(value: string): { days: number[]; start: string; end
         ? { start: "17:00", end: "20:00" }
         : null;
   return days.length && period ? { days, ...period } : null;
+}
+
+export function specificAvailabilityWindows(
+  savedWindows: AvailabilityWindow[],
+  currentStart: string,
+  currentEnd: string,
+  timeZone: string,
+): AvailabilityWindow[] {
+  if (savedWindows.length) return savedWindows;
+  const start = Date.parse(currentStart);
+  const end = Date.parse(currentEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  return [{
+    start: new Date(start).toISOString(),
+    end: new Date(end).toISOString(),
+    timeZone,
+  }];
 }
 
 function ReviewCard({ conversation, onEdit, onConfirm }: {
