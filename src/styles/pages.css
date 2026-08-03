@@ -2133,14 +2133,20 @@
 
 /* Privacy and password security */
 .security-settings {
-  margin: -25px 0 25px;
-  padding: 0 20px 20px;
-  background: transparent;
+  margin: 0 0 25px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .security-intro {
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 12px;
   display: grid;
-  gap: 6px;
   padding: 2px 2px 18px;
 }
 
@@ -2182,6 +2188,7 @@
 }
 
 .security-section-heading {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
 }
@@ -2357,9 +2364,7 @@
 
 .security-confirm {
   justify-content: flex-start;
-  padding: 12px;
-  border-radius: 9px;
-  background: #fff7e7;
+  padding: 0;
   color: #735100;
   font-size: 13px;
   font-weight: 700;
@@ -2398,13 +2403,6 @@
   font-weight: 800;
 }
 
-.security-intro {
-  grid-template-columns: 48px minmax(0, 1fr);
-  align-items: center;
-  column-gap: 12px;
-  row-gap: 12px;
-}
-
 .security-intro-icon,
 .security-heading-icon,
 .security-choice-icon {
@@ -2435,10 +2433,7 @@
 .security-email {
   grid-column: 1 / -1;
   min-height: 48px;
-  padding: 8px 11px;
-  border: 1px solid #dce9e4;
-  border-radius: 10px;
-  background: #fff;
+  padding: 8px 0 0;
   color: var(--green-800);
   display: flex;
   align-items: center;
@@ -2460,20 +2455,24 @@
 .security-heading h4 { font-size: 17px; }
 .security-heading p { margin: 0; font-size: 12px; }
 
-.security-choice-list { display: grid; gap: 8px; }
+.security-choice-list { display: grid; gap: 0; }
 
 .security-choice,
 .security-switch-setting {
   min-height: 62px;
-  padding: 9px 10px;
-  border: 1px solid #e0ebe7;
-  border-radius: 11px;
-  background: #fff;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) minmax(150px, 38%);
   align-items: center;
   gap: 9px;
 }
+
+.security-choice:last-child,
+.security-switch-setting:last-child { border-bottom: 0; }
 
 .security-choice-icon { width: 34px; height: 34px; }
 .security-choice-copy { min-width: 0; display: grid; gap: 2px; }
@@ -2491,22 +2490,20 @@
 
 .security-password-status {
   min-height: 42px;
-  padding: 0 11px;
-  border-radius: 9px;
+  padding: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
 }
 
-.security-password-status.is-set { background: var(--green-100); color: var(--green-800); }
-.security-password-status.is-missing { background: #fff7df; color: #73520b; }
+.security-password-status.is-set { color: var(--green-800); }
+.security-password-status.is-missing { color: #73520b; }
 
-.security-section-heading { display: grid; }
 .security-section-heading .quiet-button { display: inline-flex; align-items: center; gap: 6px; }
 
 @media (max-width: 639px) {
-  .security-settings { margin-left: -1px; margin-right: -1px; padding: 0 16px 16px; }
+  .security-settings { margin-left: 0; margin-right: 0; padding: 16px; }
   .security-section-heading { grid-template-columns: 1fr; }
   .security-section-heading .quiet-button { justify-self: start; }
   .security-choice { grid-template-columns: 36px minmax(0, 1fr); }

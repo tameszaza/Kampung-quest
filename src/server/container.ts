@@ -12,12 +12,14 @@ import {
   UnavailableEmbeddingProvider,
 } from "@/server/agents/unavailable-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
+import { GeminiQuestImageAgent, type QuestImageAgent } from "@/server/agents/quest-image-agent";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
 import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
+import { createQuestImageStorage, type QuestImageStorage } from "@/server/quest/quest-image-storage";
 
 const globals = globalThis as typeof globalThis & {
   kampungStore?: KampungStore;
@@ -41,6 +43,8 @@ function createAgentDependencies() {
     return {
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
+      imageAgent: undefined as QuestImageAgent | undefined,
+      imageStorage: undefined as QuestImageStorage | undefined,
     };
   }
   if (!providerConfiguration.ready) {
@@ -51,6 +55,8 @@ function createAgentDependencies() {
     return {
       agents: new UnavailableAgentRuntime(reason),
       embeddings: new UnavailableEmbeddingProvider(reason),
+      imageAgent: undefined as QuestImageAgent | undefined,
+      imageStorage: undefined as QuestImageStorage | undefined,
     };
   }
   const apiKey = providerConfiguration.apiKey;
@@ -91,6 +97,16 @@ function createAgentDependencies() {
       dimensions: providerConfiguration.embeddingDimensions,
       fetch: geminiFetch,
     }),
+    imageAgent: providerConfiguration.provider === "gemini"
+      ? new GeminiQuestImageAgent({
+          apiKey,
+          model: providerConfiguration.imageModel,
+          baseURL: providerConfiguration.imageBaseURL ?? "https://generativelanguage.googleapis.com/v1",
+        })
+      : undefined,
+    imageStorage: providerConfiguration.provider === "gemini"
+      ? createQuestImageStorage()
+      : undefined,
   };
 }
 

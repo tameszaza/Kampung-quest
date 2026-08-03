@@ -6,6 +6,7 @@ import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
+import type { QuestImageAgent } from "@/server/agents/quest-image-agent";
 
 function profile(candidateId: string): CandidateProfile {
   return {
@@ -145,6 +146,97 @@ describe("KampungQuestEngine memory", () => {
     expect(candidates[0].scores.offerComplementarity).toBeGreaterThan(0);
   });
 
+  it("does not retrieve a candidate who already accepted an active quest", async () => {
+    const store = new InMemoryKampungStore();
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_001", {
+        need: "Wants help learning QR payment",
+        interests: ["smartphones"],
+        offers: [],
+      }),
+      narrative: "I want to learn QR payment.",
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_002", {
+        need: "Wants to teach QR payment",
+        interests: ["smartphones"],
+        offers: ["can teach smartphone and QR payment skills"],
+      }),
+      narrative: "I can teach QR payments.",
+    });
+    await store.saveQuestRun({
+      runId: "active-quest",
+      initiatingCandidateId: "candidate_003",
+      idempotencyKey: null,
+      status: "confirmed",
+      proposal: null,
+      validation: null,
+      safety: null,
+      coordination: {
+        questId: "active-quest",
+        state: "confirmed",
+        invitations: [{ candidateId: "candidate_002", status: "accepted" }],
+        nextAction: "Complete the activity",
+      },
+      createdAt: "2026-08-03T03:00:00.000Z",
+      updatedAt: "2026-08-03T04:00:00.000Z",
+    });
+
+    expect(await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" })).toEqual([]);
+  });
+
+  it("keeps candidates with only pending invitations eligible", async () => {
+    const store = new InMemoryKampungStore();
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_001", {
+        need: "Wants help learning QR payment",
+        interests: ["smartphones"],
+        offers: [],
+      }),
+      narrative: "I want to learn QR payment.",
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_002", {
+        need: "Wants to teach QR payment",
+        interests: ["smartphones"],
+        offers: ["can teach smartphone and QR payment skills"],
+      }),
+      narrative: "I can teach QR payments.",
+    });
+    await store.saveQuestRun({
+      runId: "pending-quest",
+      initiatingCandidateId: "candidate_003",
+      idempotencyKey: null,
+      status: "awaiting_acceptance",
+      proposal: null,
+      validation: null,
+      safety: null,
+      coordination: {
+        questId: "pending-quest",
+        state: "awaiting_acceptance",
+        invitations: [{ candidateId: "candidate_002", status: "pending" }],
+        nextAction: "Await acceptance",
+      },
+      createdAt: "2026-08-03T03:00:00.000Z",
+      updatedAt: "2026-08-03T04:00:00.000Z",
+    });
+
+    expect(
+      (await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" }))
+        .map((candidate) => candidate.profile.candidateId),
+    ).toEqual(["candidate_002"]);
+  });
+
   it("filters candidates whose group-size ranges cannot overlap", async () => {
     const engine = new KampungQuestEngine({
       store: new InMemoryKampungStore(),
@@ -228,6 +320,29 @@ describe("KampungQuestEngine memory", () => {
     ]);
     expect(repeated.runId).toBe(first.runId);
     expect((await engine.getQuest(first.runId))?.runId).toBe(first.runId);
+  });
+
+  it("attaches a generated thumbnail without making image generation part of quest validity", async () => {
+    const imageAgent: QuestImageAgent = {
+      generate: async () => ({ bytes: Buffer.from("image"), mimeType: "image/png", model: "test" }),
+    };
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+      imageAgent,
+      imageStorage: { save: async () => "/api/quest-images/test-image", read: async () => Buffer.from("image") },
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "I want company for lunch." });
+    await engine.recordMemory({
+      profile: withProfile("candidate_002", { need: "Wants to learn healthy lunch cooking", offers: ["prepare ingredients"] }),
+      narrative: "I want to learn and can prepare ingredients.",
+    });
+
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+
+    expect(run.status).toBe("awaiting_acceptance");
+    expect(run.imageUrl).toBe("/api/quest-images/test-image");
   });
 
   it("atomically reserves an idempotency key before model work", async () => {

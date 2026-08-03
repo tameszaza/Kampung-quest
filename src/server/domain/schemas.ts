@@ -350,6 +350,8 @@ export interface QuestRun {
   validation: ValidationResult | null;
   safety: SafetyReview | null;
   coordination: CoordinationPlan | null;
+  /** Optimized, generated thumbnail. Null/undefined means use the local fallback image. */
+  imageUrl?: string | null;
   noMatch?: {
     reason: string;
     missingCapabilities: string[];

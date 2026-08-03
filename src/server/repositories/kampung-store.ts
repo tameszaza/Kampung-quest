@@ -52,6 +52,8 @@ export interface KampungStore {
   findQuestRun(runId: string): Promise<QuestRun | null>;
   findQuestByIdempotencyKey(key: string): Promise<QuestRun | null>;
   listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]>;
+  /** Candidates who accepted an invitation on a still-active quest. */
+  listAcceptedCandidateIds(): Promise<string[]>;
   appendCoordinationEvent(event: CoordinationEventRecord): Promise<void>;
   healthCheck(): Promise<{ database: boolean; vector: boolean }>;
   recordAgentRun(record: AgentRunAudit): Promise<void>;
@@ -228,6 +230,17 @@ export class InMemoryKampungStore implements KampungStore {
       .map((run) => structuredClone(run));
   }
 
+  async listAcceptedCandidateIds(): Promise<string[]> {
+    const accepted = new Set<string>();
+    for (const run of this.questRuns.values()) {
+      if (!run.coordination || isTerminalQuestStatus(run.status)) continue;
+      for (const invitation of run.coordination.invitations) {
+        if (invitation.status === "accepted") accepted.add(invitation.candidateId);
+      }
+    }
+    return [...accepted];
+  }
+
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {
     this.coordinationEvents.push(structuredClone(event));
   }
@@ -239,4 +252,8 @@ export class InMemoryKampungStore implements KampungStore {
   async recordAgentRun(record: AgentRunAudit): Promise<void> {
     this.agentRuns.push(structuredClone(record));
   }
+}
+
+function isTerminalQuestStatus(status: QuestRun["status"]): boolean {
+  return status === "completed" || status === "cancelled" || status === "failed";
 }

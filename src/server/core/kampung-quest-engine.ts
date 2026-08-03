@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "@/server/agents/agent-runtime";
+import type { QuestImageAgent } from "@/server/agents/quest-image-agent";
 import { stableFactRef } from "@/server/agents/provider-privacy";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
 import {
@@ -23,6 +24,7 @@ import type {
 } from "@/server/domain/schemas";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import type { KampungStore } from "@/server/repositories/kampung-store";
+import type { QuestImageStorage } from "@/server/quest/quest-image-storage";
 
 interface KampungQuestEngineDependencies {
   store: KampungStore;
@@ -30,6 +32,8 @@ interface KampungQuestEngineDependencies {
   embeddings: EmbeddingProvider;
   invitations?: InvitationAdapter;
   venues?: VenueAdapter;
+  imageAgent?: QuestImageAgent;
+  imageStorage?: QuestImageStorage;
 }
 
 export interface QuestPipelineEvent {
@@ -124,7 +128,7 @@ export class KampungQuestEngine {
     if (!need || !interest) throw new Error("Initiating candidate memory is not retrieval-ready");
 
     const rawLimit = 10;
-    const [needMatches, offerMatches, interestMatches, cards] = await Promise.all([
+    const [needMatches, offerMatches, interestMatches, cards, acceptedCandidateIdsResult] = await Promise.all([
       this.dependencies.store.searchEmbeddings({
         kind: "need",
         query: need.vector,
@@ -147,8 +151,10 @@ export class KampungQuestEngine {
         limit: rawLimit,
       }),
       this.dependencies.store.listMemories(),
+      this.dependencies.store.listAcceptedCandidateIds(),
     ]);
     const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+    const acceptedCandidateIds = new Set(acceptedCandidateIdsResult);
     const scoreByCandidate = new Map<string, { need: number; offer: number; interest: number }>();
     for (const [key, matches] of [
       ["need", needMatches],
@@ -165,7 +171,7 @@ export class KampungQuestEngine {
     return [...scoreByCandidate.entries()]
       .flatMap(([candidateId, vectorScores]) => {
         const profile = profiles.get(candidateId);
-        if (!profile || !this.passesHardFilters(initiatorCard.profile, profile)) return [];
+        if (!profile || !this.passesHardFilters(initiatorCard.profile, profile, acceptedCandidateIds)) return [];
         const minimumGroupSize = Math.max(
           initiatorCard.profile.constraints.minimumGroupSize,
           profile.constraints.minimumGroupSize,
@@ -330,6 +336,31 @@ export class KampungQuestEngine {
       }
 
       await observe?.({ stage: "validation", status: "completed", message: "All quest rules passed", kind: "system" });
+      // Retrieval and invitation happen in separate steps. Re-check here so a
+      // participant who accepted another quest while this proposal was being
+      // synthesized can never receive a second invitation.
+      const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+      const alreadyAcceptedParticipant = proposal.proposedParticipants.find((participant) =>
+        acceptedCandidateIds.has(participant.candidateId),
+      );
+      if (alreadyAcceptedParticipant) {
+        const eligibility = {
+          valid: false,
+          errors: [...validation.errors, {
+            candidateId: alreadyAcceptedParticipant.candidateId,
+            field: "eligibility",
+            message: "Participant has already accepted another active quest.",
+          }],
+        };
+        await observe?.({ stage: "validation", status: "failed", message: "A participant accepted another active quest", kind: "system" });
+        return this.dependencies.store.saveQuestRun({
+          ...base,
+          status: "human_review",
+          proposal,
+          validation: eligibility,
+          updatedAt: new Date().toISOString(),
+        });
+      }
       activeStage = "safety";
       await observe?.({ stage: "safety", status: "started", message: "Safety Guardian is reviewing the quest", kind: "agent" });
       const safety = await this.dependencies.agents.reviewSafety({
@@ -344,7 +375,7 @@ export class KampungQuestEngine {
           this.invitations.send({ runId, candidateId: participant.candidateId })
         ));
       }
-      return this.dependencies.store.saveQuestRun({
+      const completedRun: QuestRun = {
         ...base,
         status: approved ? "awaiting_acceptance" : "human_review",
         proposal,
@@ -362,7 +393,8 @@ export class KampungQuestEngine {
             }
           : null,
         updatedAt: new Date().toISOString(),
-      });
+      };
+      return this.dependencies.store.saveQuestRun(await this.attachQuestImage(completedRun));
     } catch (error) {
       await observe?.({
         stage: activeStage,
@@ -482,10 +514,22 @@ export class KampungQuestEngine {
         run.initiatingCandidateId,
         this.validator.validate(proposal, profiles),
       );
-      const safety = validation.valid
+      const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+      const reserveAlreadyAccepted = acceptedCandidateIds.has(reserve.candidateId);
+      const replacementValidation = reserveAlreadyAccepted
+        ? {
+            valid: false,
+            errors: [...validation.errors, {
+              candidateId: reserve.candidateId,
+              field: "eligibility",
+              message: "Replacement participant has already accepted another active quest.",
+            }],
+          }
+        : validation;
+      const safety = replacementValidation.valid
         ? await this.dependencies.agents.reviewSafety({ proposal, profiles })
         : null;
-      const approved = validation.valid && safety?.status === "approved";
+      const approved = replacementValidation.valid && safety?.status === "approved";
       if (approved) {
         await this.invitations.send({ runId: run.runId, candidateId: reserve.candidateId });
         invitation.status = "replaced";
@@ -499,7 +543,7 @@ export class KampungQuestEngine {
         ...run,
         status: approved ? "awaiting_acceptance" : "human_review",
         proposal,
-        validation,
+        validation: replacementValidation,
         safety,
         coordination,
         updatedAt: this.nextUpdatedAt(run.updatedAt),
@@ -547,11 +591,35 @@ export class KampungQuestEngine {
     }, previous.updatedAt);
   }
 
+  /**
+   * Thumbnail generation is deliberately best effort. A model outage, quota
+   * limit, or malformed image must never prevent a valid quest from being
+   * shown; the UI will use its local activity image when imageUrl is absent.
+   */
+  private async attachQuestImage(run: QuestRun): Promise<QuestRun> {
+    if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) return run;
+    try {
+      const generated = await this.dependencies.imageAgent.generate({
+        quest: run.proposal.quest,
+        variationKey: run.runId,
+      });
+      if (!generated) return run;
+      const imageUrl = await this.dependencies.imageStorage.save(generated);
+      return { ...run, imageUrl };
+    } catch {
+      return run;
+    }
+  }
+
   private nextUpdatedAt(previous: string): string {
     return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
   }
 
-  private passesHardFilters(initiator: CandidateProfile, candidate: CandidateProfile): boolean {
+  private passesHardFilters(
+    initiator: CandidateProfile,
+    candidate: CandidateProfile,
+    acceptedCandidateIds: Set<string>,
+  ): boolean {
     if (
       candidate.candidateId === initiator.candidateId ||
       candidate.source === "test" ||
@@ -559,6 +627,7 @@ export class KampungQuestEngine {
       !candidate.constraints.verified ||
       !candidate.constraints.invitationConsent ||
       candidate.alreadyCommitted ||
+      acceptedCandidateIds.has(candidate.candidateId) ||
       candidate.relationshipBlocked
     ) return false;
 

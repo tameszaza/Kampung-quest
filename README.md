@@ -206,12 +206,24 @@ AGENT_PROVIDER=gemini
 GEMINI_API_KEY=your-server-side-key
 ```
 
-The defaults use `gemini-2.5-flash-lite` for memory, safety and recovery,
-`gemini-2.5-flash` for quest synthesis, and `gemini-embedding-001` for retrieval.
+The defaults use `gemini-3.1-flash-lite` for memory, safety and recovery,
+`gemini-3.5-flash` for quest synthesis, `gemini-embedding-001` for retrieval, and
+`gemini-3.1-flash-lite-image` for generated quest thumbnails. The image model is used
+only for image generation; text agents continue to use the text-capable models above.
 The application explicitly requests 1536-dimensional Gemini embeddings to match the
 PostgreSQL `vector(1536)` column. `GEMINI_BASE_URL` and every Gemini model name can be
 overridden through the environment variables shown in `.env.example`. Keep all provider
 keys server-side; do not expose them through `NEXT_PUBLIC_` variables.
+
+### Quest thumbnails
+
+When Gemini is configured, the quest engine invokes a small, best-effort image agent after a
+proposal is validated. It reuses `GEMINI_API_KEY` (there is no second credential), asks for a
+distinct, text-free 16:9 illustration based on the quest goal, and stores only an optimized
+1200×675 WebP in `QUEST_IMAGE_STORAGE_DIR`. Quest runs keep an opaque `/api/quest-images/...`
+URL, so the image bytes never enter the database. A timeout, quota error, or invalid response
+does not fail the quest; cards use the existing local activity thumbnail instead. Configure
+`GEMINI_IMAGE_MODEL` and `GEMINI_IMAGE_BASE_URL` only when overriding the documented defaults.
 
 Embeddings from different providers, endpoints or models are not comparable, even when they
 have the same number of dimensions. Retrieval therefore records an embedding-space identifier
@@ -228,6 +240,17 @@ extracted quest brief; the browser caches only the current conversation identifi
 `DEMO_SEED_ENABLED=true` supplies twelve clearly labelled synthetic neighbours for authenticated
 members. Test/smoke profiles are excluded from production retrieval. Disable demo seeding when
 real participant profiles are available.
+
+To reset local application data and restore only the canonical community members, run the guarded
+reset command from the host:
+
+```bash
+RESET_DATABASE=NUKE DATABASE_URL=postgresql://kampung:kampung_dev_password@localhost:5432/kampung_quest npm run db:reset
+```
+
+The reset preserves migration history, removes accounts, sessions, chats, memories, conversations
+and quest runs, and seeds no accepted quests. A candidate is excluded from new invitations once
+they have accepted an invitation on an active quest; pending or terminal quests do not block matching.
 
 The application defaults to the hosted Gemini provider and fails visibly when its key or quota
 is unavailable. `AGENT_PROVIDER=deterministic` is an explicit development/test double; it is

@@ -25,6 +25,8 @@ describe("provider configuration", () => {
       ready: true,
       apiKey: "test-gemini-key",
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      imageBaseURL: "https://generativelanguage.googleapis.com/v1",
+      imageModel: "gemini-3.1-flash-lite-image",
       useResponses: false,
       models: {
         memory: "gemini-3.1-flash-lite",
@@ -42,6 +44,8 @@ describe("provider configuration", () => {
       AGENT_PROVIDER: "gemini",
       GEMINI_API_KEY: "key",
       GEMINI_BASE_URL: "https://example.test/openai/",
+      GEMINI_IMAGE_BASE_URL: "https://example.test/v1",
+      GEMINI_IMAGE_MODEL: "image-model",
       GEMINI_MEMORY_MODEL: "memory-model",
       GEMINI_SYNTHESIS_MODEL: "synthesis-model",
       GEMINI_SAFETY_MODEL: "safety-model",
@@ -51,6 +55,8 @@ describe("provider configuration", () => {
 
     expect(configuration).toMatchObject({
       baseURL: "https://example.test/openai/",
+      imageBaseURL: "https://example.test/v1",
+      imageModel: "image-model",
       models: {
         memory: "memory-model",
         synthesis: "synthesis-model",

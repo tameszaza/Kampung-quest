@@ -48,7 +48,7 @@ Unfinished assistant answers are stored in `localStorage`, while confirmed memor
 ## Validation completed
 
 - Full TypeScript type check, ESLint, Vitest, and optimized Next.js production build.
-- 49 unit and PostgreSQL integration tests, including Better Auth password hashing/unique usernames and avatar optimization.
+- 77 automated tests passed (5 skipped), including Better Auth password hashing/unique usernames and avatar optimization.
 - Docker's Next.js build uses a disposable build-only Better Auth value; the runtime container always reads the real `BETTER_AUTH_SECRET` from Compose/environment.
 - Responsive visual inspection at 390 px, 768 px, and 1536 px widths against both supplied mobile references and `desktop1.png`.
 - Automated horizontal overflow checks on home, activities, activity details, my activities, invites, needs, messages, profile, and settings at all three widths.
@@ -57,6 +57,11 @@ Unfinished assistant answers are stored in `localStorage`, while confirmed memor
 - Senior Quest's embedded conversation now reuses the shared message bubble/composer primitives used by direct and group chats. Guided quick replies sit above the shared composer, while Enter submits text answers (Shift+Enter keeps a newline). Verified at 390 px, 768 px, and 1440 px with direct-chat Enter-to-send and delivered-receipt checks.
 - Activity visibility now uses explicit ISO start times: accepted suggested or invited activities move into My Activities, past suggestions are hidden, and pending past invitations stay visible as Expired.
 - My Activities filters both demo and persisted quests by their real start time (including the Upcoming tab), and shows a clear empty state instead of placing future events in Past. Guided quick replies now share the assistant thread surface and the shared textarea composer vertically centers its placeholder.
+- Matching now checks persisted active quest coordination before retrieval and immediately before invitation dispatch, so an accepted participant cannot be invited to another active quest. The guarded local database reset restores only the three community seed members and leaves accepted-quest state empty.
+- Generated quest thumbnails use a separate, best-effort Gemini image agent with the existing server-side key. Images are resized/cropped to 1200×675 WebP, addressed through an opaque cached API URL, and fall back to the local activity image on any provider or storage failure.
+- Privacy and password security now share the preference page's single outer surface: controls are flat, section dividers are subtle, and mobile layouts keep full-width touch targets without nested bordered cards. Re-rendered at 390, 768, and 1440 px with no horizontal overflow.
+- Gemini text and image roles are separated: text matchmaking and assistant work use `gemini-3.1-flash-lite`, while quest thumbnails use `gemini-3.1-flash-lite-image` through the v1 `generateContent` endpoint with a 16:9, 1K image configuration. The model catalog and text endpoint both respond successfully; the configured key currently has zero image free-tier quota (HTTP 429), so the documented local-thumbnail fallback remains expected until image quota is enabled.
+- Final authenticated browser sweep covered every app route plus login, registration, and landing at 390, 768, and 1440 px. It found and fixed a server/client hydration mismatch caused by a live assistant-row timestamp; the row now renders a deterministic “Now” label. The empty needs state now uses an authenticated 200 response instead of an expected 404. The rebuilt app reports no runtime exceptions, console errors, or horizontal overflow across the matrix.
 
 Normal verification commands:
 

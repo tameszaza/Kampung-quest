@@ -32,6 +32,7 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       AVATAR_STORAGE_DIR: /app/.data/avatars
+      QUEST_IMAGE_STORAGE_DIR: /app/.data/quest-images
       AGENT_PROVIDER: ${AGENT_PROVIDER:-gemini}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
@@ -41,6 +42,8 @@ services:
       OPENAI_RECOVERY_MODEL: ${OPENAI_RECOVERY_MODEL:-gpt-5.6-terra}
       OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      GEMINI_IMAGE_BASE_URL: ${GEMINI_IMAGE_BASE_URL:-https://generativelanguage.googleapis.com/v1}
+      GEMINI_IMAGE_MODEL: ${GEMINI_IMAGE_MODEL:-gemini-3.1-flash-lite-image}
       GEMINI_MEMORY_MODEL: ${GEMINI_MEMORY_MODEL:-gemini-3.1-flash-lite}
       GEMINI_SYNTHESIS_MODEL: ${GEMINI_SYNTHESIS_MODEL:-gemini-3.5-flash}
       GEMINI_SAFETY_MODEL: ${GEMINI_SAFETY_MODEL:-gemini-3.1-flash-lite}

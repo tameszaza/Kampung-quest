@@ -16,7 +16,10 @@ const assistantConversation: ConversationSummary = {
   title: "Senior Quest",
   imageUrl: null,
   preview: "Your friendly community helper",
-  lastMessageAt: new Date().toISOString(),
+  // Keep the server-rendered assistant row deterministic. A live timestamp here
+  // is rendered once on the server and once in the browser (often in different
+  // time zones), which causes a hydration mismatch before conversations load.
+  lastMessageAt: "now",
   unreadCount: 0,
   memberCount: 1,
 };
@@ -348,6 +351,7 @@ function Avatar({ src, name, size, group = false }: { src: string | null; name: 
 }
 
 function formatThreadTime(value: string) {
+  if (value === "now") return "Now";
   const date = new Date(value);
   const today = new Date();
   return date.toDateString() === today.toDateString()

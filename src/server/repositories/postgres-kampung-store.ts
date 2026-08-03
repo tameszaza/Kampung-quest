@@ -559,6 +559,20 @@ export class PostgresKampungStore implements KampungStore {
     return result.rows.map((row) => row.payload);
   }
 
+  async listAcceptedCandidateIds(): Promise<string[]> {
+    const result = await this.pool.query<{ candidate_id: string }>(
+      `SELECT DISTINCT invitation->>'candidateId' AS candidate_id
+       FROM quest.quest_runs run
+       CROSS JOIN LATERAL jsonb_array_elements(
+         COALESCE(run.payload->'coordination'->'invitations', '[]'::jsonb)
+       ) AS invitation
+       WHERE run.status IN ('awaiting_acceptance', 'confirmed', 'human_review')
+         AND invitation->>'status' = 'accepted'
+         AND invitation->>'candidateId' IS NOT NULL`,
+    );
+    return result.rows.map((row) => row.candidate_id);
+  }
+
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {
     await this.pool.query(
       `INSERT INTO quest.coordination_events

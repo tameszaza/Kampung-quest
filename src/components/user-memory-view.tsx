@@ -15,7 +15,7 @@ export function UserMemoryView() {
 
   useEffect(() => {
     let active = true;
-    void getUserMemory(user.id).then((value) => {
+    void getUserMemory().then((value) => {
       if (active) setMemory(value);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "Could not load your memory");

@@ -6,6 +6,7 @@ import { isQuestRunPast } from "@/lib/activity-time";
 import type { QuestRun } from "@/server/domain/schemas";
 
 export function questImage(run: QuestRun) {
+  if (run.imageUrl) return run.imageUrl;
   const text = `${run.proposal?.quest.title ?? ""} ${run.proposal?.quest.description ?? ""}`.toLowerCase();
   if (text.includes("walk") || text.includes("exercise")) return "/assets/walk.jpg";
   if (text.includes("digital") || text.includes("phone") || text.includes("technology")) {

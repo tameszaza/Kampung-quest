@@ -10,6 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "db:migrate": "node scripts/migrate.mjs",
+    "db:reset": "node scripts/reset-database.mjs",
     "db:reset-users": "node scripts/reset-users.mjs",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node .next/standalone/server.js",
