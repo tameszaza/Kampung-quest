@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Fragment,
   useEffect,
   useMemo,
   useReducer,
@@ -9,6 +10,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { getQuestRun, requestRecommendation } from "@/features/assistant/client";
 import {
@@ -109,7 +111,7 @@ function friendlyRole(role: string) {
   return role.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
-export function AssistantConversation({ embedded = false }: { embedded?: boolean } = {}) {
+export function AssistantConversation({ embedded = false, resetToken = 0 }: { embedded?: boolean; resetToken?: number } = {}) {
   const { user } = useUser();
   const [state, dispatch] = useReducer(
     assistantConversationReducer,
@@ -239,6 +241,14 @@ export function AssistantConversation({ embedded = false }: { embedded?: boolean
     setAvailabilityError(null);
   }
 
+  useEffect(() => {
+    if (resetToken <= 0) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- Reset is an explicit command from the chat header. */
+    startAgain();
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // The token deliberately triggers a reset from the parent chat header.
+  }, [resetToken]);
+
   if (!hydrated) {
     return <div className="assistant-loading" role="status">Preparing your Senior Quest assistant…</div>;
   }
@@ -261,49 +271,52 @@ export function AssistantConversation({ embedded = false }: { embedded?: boolean
       </header> : null}
 
       <main className="assistant-thread" aria-live="polite">
-        {embedded ? <div className="assistant-inline-tools">
-          <span>Tell me what would feel helpful or enjoyable today.</span>
-          <button className="assistant-reset" type="button" onClick={startAgain}>Start over</button>
-        </div> : null}
-        {embedded ? <div className="assistant-chat-day-label">Today</div> : null}
-        <div className="assistant-welcome">
+        {embedded ? <ChatDayLabel /> : null}
+        {embedded ? <ChatMessageBubble
+          heading={`Hello ${firstName}, I'm here to help.`}
+          body="Tell me what would feel helpful or enjoyable, and I'll look for a safe activity with nearby neighbours."
+        /> : <div className="assistant-welcome">
           <span className="assistant-avatar" aria-hidden="true">♥</span>
           <div className="assistant-bubble">
             <strong>Hello {firstName}, I&apos;m here to help.</strong>
             <p>Tell me what would feel helpful or enjoyable, and I&apos;ll look for a safe activity with nearby neighbours.</p>
           </div>
-        </div>
+        </div>}
 
         {transcript.map((item) => (
-          <div className="assistant-exchange" key={item.step}>
-            <div className="assistant-row"><span className="assistant-avatar" aria-hidden="true">♥</span><p className="assistant-bubble">{item.prompt}</p></div>
-            <button className="user-bubble" type="button" onClick={() => dispatch({ type: "edit", step: item.step })} title="Edit this answer">{item.answer}<small>Edit</small></button>
-          </div>
+          <Fragment key={item.step}>
+            {embedded ? <>
+              <ChatMessageBubble body={item.prompt} />
+              <ChatMessageBubble body={item.answer} mine actionLabel="Edit" onAction={() => dispatch({ type: "edit", step: item.step })} />
+            </> : <div className="assistant-exchange">
+              <div className="assistant-row"><span className="assistant-avatar" aria-hidden="true">♥</span><p className="assistant-bubble">{item.prompt}</p></div>
+              <button className="user-bubble" type="button" onClick={() => dispatch({ type: "edit", step: item.step })} title="Edit this answer">{item.answer}<small>Edit</small></button>
+            </div>}
+          </Fragment>
         ))}
 
         {currentPrompt && state.step !== "review" ? (
-          <div className="assistant-row" ref={latestRef}>
+          embedded ? <div ref={latestRef}><ChatMessageBubble body={currentPrompt} /></div> : <div className="assistant-row" ref={latestRef}>
             <span className="assistant-avatar" aria-hidden="true">♥</span>
             <div className="assistant-bubble"><strong>{currentPrompt}</strong></div>
           </div>
         ) : null}
 
         {["need", "interests", "offers"].includes(state.step) ? (
-          <form className="assistant-composer" onSubmit={answerText}>
-            <label className="sr-only" htmlFor="assistant-answer">Your answer</label>
-            <textarea
-              id="assistant-answer"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={state.step === "need" ? "For example: I would enjoy company over lunch…" : "Type your answer…"}
-              rows={3}
-              autoFocus
-            />
+          <ChatComposer
+            multiline
+            id="assistant-answer"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder={state.step === "need" ? "For example: I would enjoy company over lunch…" : "Type your answer…"}
+            autoFocus
+            onSubmit={answerText}
+          >
             <div className="assistant-composer-actions">
               {state.step !== "need" ? <button className="text-button" type="button" onClick={() => dispatch({ type: "skip_text" })}>Skip for now</button> : <span />}
               <button className="primary-button" type="submit" disabled={!text.trim()}>Continue</button>
             </div>
-          </form>
+          </ChatComposer>
         ) : null}
 
         {state.step === "availability" ? (

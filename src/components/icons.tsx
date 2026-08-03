@@ -33,7 +33,8 @@ export type IconName =
   | "check"
   | "lock"
   | "eye"
-  | "eye-off";
+  | "eye-off"
+  | "refresh";
 
 type IconProps = SVGProps<SVGSVGElement> & {
   name: IconName;
@@ -122,5 +123,7 @@ export function Icon({ name, size = 24, strokeWidth = 1.8, ...props }: IconProps
       return <svg {...common}><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg>;
     case "eye-off":
       return <svg {...common}><path d="m3 3 18 18M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.5 16.5 0 0 1-3.2 3.7M6.2 6.2C3.8 7.8 2.5 12 2.5 12s3.5 6 9.5 6c1 0 1.9-.2 2.7-.5"/></svg>;
+    case "refresh":
+      return <svg {...common}><path d="M20 11a8 8 0 1 0 1 4"/><path d="M20 4v7h-7"/></svg>;
   }
 }

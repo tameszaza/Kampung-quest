@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Icon, type IconName } from "@/components/icons";
 import type { UserPreferences } from "@/server/identity/types";
 
 type PrivacyPreferences = Pick<UserPreferences, "profileVisibility" | "messagePrivacy" | "showOnlineStatus">;
@@ -45,6 +46,10 @@ function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Recently active";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function SecurityHeading({ id, icon, title, detail }: { id: string; icon: IconName; title: string; detail?: string }) {
+  return <header className="security-heading"><span className="security-heading-icon" aria-hidden="true"><Icon name={icon} size={22} /></span><span><h4 id={id}>{title}</h4>{detail ? <p>{detail}</p> : null}</span></header>;
 }
 
 export function SecuritySettings({ email, preferences, onPrivacyChange, onSavePrivacy, savingPrivacy }: SecuritySettingsProps) {
@@ -168,21 +173,28 @@ export function SecuritySettings({ email, preferences, onPrivacyChange, onSavePr
   return (
     <section className="security-settings" aria-label="Privacy and password security">
       <div className="security-intro">
-        <h3>Your privacy and security</h3>
-        <p>Choose who can find you and keep control of where your account is signed in. Your password is stored securely as a one-way hash.</p>
-        {email ? <small>Sign-in email: <strong>{email}</strong></small> : null}
+        <span className="security-intro-icon" aria-hidden="true"><Icon name="shield" size={28} /></span>
+        <div className="security-intro-copy">
+          <div className="security-kicker"><span>Account</span><b className="security-status"><Icon name="check" size={14} /> Protected</b></div>
+          <h3>Privacy &amp; security</h3>
+          <p>Control your profile, messages, password, and devices.</p>
+        </div>
+        {email ? <div className="security-email"><Icon name="lock" size={18} /><span><small>Sign-in email</small><strong>{email}</strong></span></div> : null}
       </div>
 
       <section className="security-section" aria-labelledby="privacy-heading">
-        <header><h4 id="privacy-heading">Privacy controls</h4><p>These choices affect new searches and conversations. Existing chat history is kept.</p></header>
-        <label className="security-field"><span>Who can find me?</span><select value={preferences.profileVisibility} onChange={(event) => onPrivacyChange({ profileVisibility: event.target.value as PrivacyPreferences["profileVisibility"] })}><option value="community">Everyone in Senior Quest</option><option value="connections">People I already chat with</option><option value="private">Nobody — hide me from search</option></select><small>Private hides your profile from new contact searches.</small></label>
-        <label className="security-field"><span>Who can start a direct chat?</span><select value={preferences.messagePrivacy} onChange={(event) => onPrivacyChange({ messagePrivacy: event.target.value as PrivacyPreferences["messagePrivacy"] })}><option value="everyone">Anyone in Senior Quest</option><option value="connections">Existing connections only</option><option value="nobody">Nobody new</option></select><small>Blocking someone always takes priority.</small></label>
-        <SwitchSetting label="Show when I’m online" help="Let people see that you are active" checked={preferences.showOnlineStatus} onChange={(checked) => onPrivacyChange({ showOnlineStatus: checked })} />
-        <button className="primary-button security-save" type="button" onClick={() => void onSavePrivacy()} disabled={savingPrivacy}>{savingPrivacy ? "Saving privacy choices…" : "Save privacy choices"}</button>
+        <SecurityHeading id="privacy-heading" icon="privacy" title="Privacy" detail="Choose who can see and contact you." />
+        <div className="security-choice-list">
+          <label className="security-choice"><span className="security-choice-icon" aria-hidden="true"><Icon name="profile" size={20} /></span><span className="security-choice-copy"><strong>Profile visibility</strong><small>Who can find you</small></span><select aria-label="Profile visibility" value={preferences.profileVisibility} onChange={(event) => onPrivacyChange({ profileVisibility: event.target.value as PrivacyPreferences["profileVisibility"] })}><option value="community">Everyone</option><option value="connections">Connections</option><option value="private">Nobody</option></select></label>
+          <label className="security-choice"><span className="security-choice-icon" aria-hidden="true"><Icon name="message" size={20} /></span><span className="security-choice-copy"><strong>New messages</strong><small>Who can start a chat</small></span><select aria-label="Who can start a direct chat" value={preferences.messagePrivacy} onChange={(event) => onPrivacyChange({ messagePrivacy: event.target.value as PrivacyPreferences["messagePrivacy"] })}><option value="everyone">Everyone</option><option value="connections">Connections</option><option value="nobody">Nobody new</option></select></label>
+          <SwitchSetting icon="profile" label="Online status" help="Let people see when you are active" checked={preferences.showOnlineStatus} onChange={(checked) => onPrivacyChange({ showOnlineStatus: checked })} />
+        </div>
+        <button className="primary-button security-save" type="button" onClick={() => void onSavePrivacy()} disabled={savingPrivacy}><Icon name="check" size={18} />{savingPrivacy ? "Saving…" : "Save choices"}</button>
       </section>
 
       <section className="security-section" aria-labelledby="password-heading">
-        <header><h4 id="password-heading">{hasPassword ? "Change password" : "Add a password"}</h4><p>{hasPassword ? "Use a unique password you do not use on another website." : "You currently sign in with a connected provider. Add a password so you have another secure way to sign in."}</p></header>
+        <SecurityHeading id="password-heading" icon="lock" title="Password" detail={hasPassword ? "Change your sign-in password." : "Add a password for another way to sign in."} />
+        <div className={`security-password-status ${hasPassword ? "is-set" : "is-missing"}`}><Icon name={hasPassword ? "check" : "shield"} size={18} /><strong>{hasPassword ? "Password protected" : "No password set"}</strong></div>
         <form className="security-password-form" onSubmit={changePassword}>
           {hasPassword ? <PasswordInput label="Current password" value={currentPassword} visible={showCurrentPassword} onChange={setCurrentPassword} onToggle={() => setShowCurrentPassword((value) => !value)} autoComplete="current-password" /> : null}
           <PasswordInput label="New password" value={newPassword} visible={showNewPassword} onChange={setNewPassword} onToggle={() => setShowNewPassword((value) => !value)} autoComplete="new-password" />
@@ -191,19 +203,19 @@ export function SecuritySettings({ email, preferences, onPrivacyChange, onSavePr
           <SwitchSetting label="Sign out other devices" help="Recommended after changing a password" checked={revokeOtherSessions} onChange={setRevokeOtherSessions} />
           {passwordError ? <p className="security-alert" role="alert">{passwordError}</p> : null}
           {passwordMessage ? <p className="security-success" role="status">{passwordMessage}</p> : null}
-          <button className="primary-button security-save" type="submit" disabled={passwordBusy || !passwordReady || (hasPassword && !currentPassword)}>{passwordBusy ? "Updating password…" : hasPassword ? "Change password" : "Add password"}</button>
+          <button className="primary-button security-save" type="submit" disabled={passwordBusy || !passwordReady || (hasPassword && !currentPassword)}><Icon name="lock" size={18} />{passwordBusy ? "Updating…" : hasPassword ? "Change password" : "Add password"}</button>
         </form>
       </section>
 
       <section className="security-section" aria-labelledby="sessions-heading">
-        <header className="security-section-heading"><div><h4 id="sessions-heading">Where you’re signed in</h4><p>Sign out any device you do not recognize.</p></div><button className="quiet-button" type="button" onClick={() => void loadSecurity()} disabled={loading}>Refresh</button></header>
+        <div className="security-section-heading"><SecurityHeading id="sessions-heading" icon="settings" title="Signed-in devices" detail="Review where your account is open." /><button className="quiet-button" type="button" onClick={() => void loadSecurity()} disabled={loading} aria-label="Refresh signed-in devices"><Icon name="settings" size={17} />Refresh</button></div>
         {sessionError ? <p className="security-alert" role="alert">{sessionError}</p> : null}
         {sessionMessage ? <p className="security-success" role="status">{sessionMessage}</p> : null}
         {loading ? <p className="security-muted" role="status">Loading your signed-in devices…</p> : loadingError ? <div className="security-alert" role="alert">{loadingError}<button className="text-button" type="button" onClick={() => void loadSecurity()}>Try again</button></div> : sessions.length === 0 ? <p className="security-muted">No active sessions were found. Your current session may need refreshing.</p> : <div className="session-list">{sessions.map((session) => <div className="session-row" key={session.id}><span className="session-icon" aria-hidden="true">{session.current ? "✓" : "⌁"}</span><span><strong>{session.current ? "This device" : deviceName(session.userAgent)}</strong><small>{session.current ? "Currently active" : `Last active ${formatDate(session.updatedAt)}`}</small></span>{session.current ? <b className="session-current">Current</b> : confirmSessionId === session.id ? <span className="session-confirm"><button className="text-button" type="button" onClick={() => setConfirmSessionId(null)} disabled={Boolean(sessionBusy)}>Keep</button><button className="danger-text-button" type="button" onClick={() => void revokeSession(session.id)} disabled={Boolean(sessionBusy)}>{sessionBusy === session.id ? "Signing out…" : "Sign out"}</button></span> : <button className="quiet-button" type="button" onClick={() => setConfirmSessionId(session.id)}>Sign out</button>}</div>)}</div>}
         {!loading && !loadingError && otherSessions.length > 0 ? confirmOtherSessions ? <div className="security-confirm"><span>Sign out all other devices?</span><button className="text-button" type="button" onClick={() => setConfirmOtherSessions(false)} disabled={Boolean(sessionBusy)}>Keep them</button><button className="danger-text-button" type="button" onClick={() => void revokeOthers()} disabled={Boolean(sessionBusy)}>{sessionBusy === "others" ? "Signing out…" : "Sign out others"}</button></div> : <button className="secondary-button security-wide-action" type="button" onClick={() => setConfirmOtherSessions(true)}>Sign out all other devices</button> : null}
       </section>
 
-      {providers.length > 0 ? <p className="security-muted security-provider-note">Connected sign-in methods: {providers.map((provider) => provider === "credential" ? "Password" : provider === "google" ? "Google" : provider).join(" and ")}.</p> : null}
+      {providers.length > 0 ? <div className="security-provider-note"><span>Sign-in methods</span><div>{providers.map((provider) => <b key={provider}>{provider === "credential" ? "Password" : provider === "google" ? "Google" : provider}</b>)}</div></div> : null}
     </section>
   );
 }
@@ -212,6 +224,6 @@ function PasswordInput({ label, value, visible, onChange, onToggle, autoComplete
   return <label className="security-field"><span>{label}</span><span className="security-password-input"><input type={visible ? "text" : "password"} value={value} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} /><button type="button" onClick={onToggle} aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}>{visible ? "Hide" : "Show"}</button></span></label>;
 }
 
-function SwitchSetting({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <div className="switch-setting"><span><strong>{label}</strong><small>{help}</small></span><button className={checked ? "on" : ""} type="button" role="switch" aria-label={label} aria-checked={checked} onClick={() => onChange(!checked)}><i /></button></div>;
+function SwitchSetting({ icon = "shield", label, help, checked, onChange }: { icon?: IconName; label: string; help: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <div className="switch-setting security-switch-setting"><span className="security-choice-icon" aria-hidden="true"><Icon name={icon} size={20} /></span><span><strong>{label}</strong><small>{help}</small></span><button className={checked ? "on" : ""} type="button" role="switch" aria-label={label} aria-checked={checked} onClick={() => onChange(!checked)}><i /></button></div>;
 }
