@@ -7,6 +7,9 @@ export type UserPreferences = {
   highContrast: boolean;
   messageNotifications: boolean;
   questNotifications: boolean;
+  profileVisibility: "community" | "connections" | "private";
+  messagePrivacy: "everyone" | "connections" | "nobody";
+  showOnlineStatus: boolean;
 };
 
 export type UserProfile = {
@@ -70,6 +73,9 @@ export const defaultPreferences: UserPreferences = {
   highContrast: false,
   messageNotifications: true,
   questNotifications: true,
+  profileVisibility: "community",
+  messagePrivacy: "everyone",
+  showOnlineStatus: true,
 };
 
 export function publicUser(user: StoredUser): UserProfile {

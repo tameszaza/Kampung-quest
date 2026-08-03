@@ -31,6 +31,7 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
+    revokeSessionsOnPasswordReset: true,
   },
   socialProviders: googleEnabled ? {
     google: {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAppState } from "@/components/app-state";
 import { MenuRow } from "@/components/menu-row";
 import { PageHeader } from "@/components/page-header";
+import { SecuritySettings } from "@/components/security-settings";
 import { useUser } from "@/components/user-context";
 import { authClient } from "@/lib/auth-client";
 import type { ChatContact, UserPreferences, UserProfile } from "@/server/identity/types";
@@ -20,9 +21,14 @@ export default function SettingsPage() {
   const [blockedUsers, setBlockedUsers] = useState<ChatContact[]>([]);
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
   const [blockedLoading, setBlockedLoading] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   function update<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) {
     setPreferences((current) => ({ ...current, [key]: value }));
+  }
+
+  function updatePrivacy(changes: Partial<Pick<UserPreferences, "profileVisibility" | "messagePrivacy" | "showOnlineStatus">>) {
+    setPreferences((current) => ({ ...current, ...changes }));
   }
 
   async function savePreferences() {
@@ -88,8 +94,15 @@ export default function SettingsPage() {
       <PageHeader title="Settings & Safety" back />
       <h2 className="settings-group-title">Account</h2>
       <section className="menu-card">
-        <MenuRow icon="privacy" label="Privacy & Password Security" onClick={() => showToast("Your password is hashed and your sign-in session is protected")} />
+        <MenuRow icon="privacy" label="Privacy & Password Security" ariaExpanded={securityOpen} onClick={() => setSecurityOpen((open) => !open)} />
       </section>
+      {securityOpen ? <SecuritySettings
+        email={user.email}
+        preferences={preferences}
+        onPrivacyChange={updatePrivacy}
+        onSavePrivacy={savePreferences}
+        savingPrivacy={saving}
+      /> : null}
 
       <h2 className="settings-group-title">My Preferences</h2>
       <section className="preference-card">
@@ -118,5 +131,5 @@ export default function SettingsPage() {
 }
 
 function SwitchSetting({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <div className="switch-setting"><span><strong>{label}</strong><small>{help}</small></span><button className={checked ? "on" : ""} type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}><i /></button></div>;
+  return <div className="switch-setting"><span><strong>{label}</strong><small>{help}</small></span><button className={checked ? "on" : ""} type="button" role="switch" aria-label={label} aria-checked={checked} onClick={() => onChange(!checked)}><i /></button></div>;
 }

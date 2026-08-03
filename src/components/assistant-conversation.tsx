@@ -265,6 +265,7 @@ export function AssistantConversation({ embedded = false }: { embedded?: boolean
           <span>Tell me what would feel helpful or enjoyable today.</span>
           <button className="assistant-reset" type="button" onClick={startAgain}>Start over</button>
         </div> : null}
+        {embedded ? <div className="assistant-chat-day-label">Today</div> : null}
         <div className="assistant-welcome">
           <span className="assistant-avatar" aria-hidden="true">♥</span>
           <div className="assistant-bubble">
