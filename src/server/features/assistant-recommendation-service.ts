@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { AgentProviderName } from "@/server/agents/provider-configuration";
 import { KampungQuestEngine, type QuestPipelineEvent } from "@/server/core/kampung-quest-engine";
 import type {
@@ -27,7 +28,7 @@ export type AssistantRecommendationObserver = (event: QuestPipelineEvent | {
   stage: "memory";
   status: "started" | "completed" | "failed";
   message: string;
-  kind: "agent";
+  kind: "agent" | "system";
 }) => Promise<void> | void;
 
 const DEMO_NEIGHBOURS = [
@@ -147,11 +148,17 @@ export class AssistantRecommendationService {
       existingQuest = await this.dependencies.store.findQuestByIdempotencyKey(idempotencyKey);
     }
     const currentMemory = await this.dependencies.store.findMemory(command.candidateId);
-    await observe?.({ stage: "memory", status: "started", message: "Memory Keeper is updating the active request", kind: "agent" });
+    const reuseActiveMemory = failedAttempts > 0 && currentMemory !== null;
+    await observe?.({
+      stage: "memory",
+      status: "started",
+      message: reuseActiveMemory ? "Reusing the persisted active request for retry" : "Memory Keeper is updating the active request",
+      kind: reuseActiveMemory ? "system" : "agent",
+    });
     let memory: MemoryCard;
     try {
-      memory = failedAttempts > 0 && currentMemory
-        ? currentMemory
+      memory = reuseActiveMemory
+        ? currentMemory!
         : await this.dependencies.engine.recordMemory({
             profile: this.profile({
               candidateId: command.candidateId,
@@ -174,7 +181,12 @@ export class AssistantRecommendationService {
       await observe?.({ stage: "memory", status: "failed", message: "Memory Keeper could not update the active request", kind: "agent" });
       throw error;
     }
-    await observe?.({ stage: "memory", status: "completed", message: "Active request and preferences are ready", kind: "agent" });
+    await observe?.({
+      stage: "memory",
+      status: "completed",
+      message: "Active request and preferences are ready",
+      kind: reuseActiveMemory ? "system" : "agent",
+    });
     let seededCandidateCount = 0;
     try {
       seededCandidateCount = this.dependencies.demoSeedEnabled
@@ -225,7 +237,7 @@ export class AssistantRecommendationService {
       if (
         current
         && current.profile.source === "demo"
-        && JSON.stringify(current.profile.constraints) === JSON.stringify(profile.constraints)
+        && isDeepStrictEqual(current.profile.constraints, profile.constraints)
         && current.profile.distanceFromInitiatorM === profile.distanceFromInitiatorM
       ) continue;
       const narrative = `${neighbour.need}. ${neighbour.offers[0]}.`;

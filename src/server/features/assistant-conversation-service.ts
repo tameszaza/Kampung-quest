@@ -9,6 +9,7 @@ import {
   type AssistantBriefField,
   type AssistantConversationMessage,
   type AssistantConversationSnapshot,
+  type AssistantRecommendationCommand,
   type AssistantWorkflowEvent,
   type QuestBriefDraft,
 } from "@/server/domain/schemas";
@@ -191,7 +192,7 @@ export class AssistantConversationService {
     }
 
     try {
-      const result = await recommendationService.recommend({
+      const recommendationCommand: AssistantRecommendationCommand = {
         conversationId: current.conversationId,
         requestKey: `${current.conversationId}:${createHash("sha256").update(JSON.stringify(brief)).digest("hex").slice(0, 12)}`,
         candidateId: current.candidateId,
@@ -210,13 +211,34 @@ export class AssistantConversationService {
           verified: true,
           invitationConsent: brief.invitationConsent,
         },
-      }, async (event) => {
+      };
+      const observeRecommendation = async (event: Omit<AssistantWorkflowEvent, "sequence" | "createdAt">) => {
         current = await this.saveWithEvent({
           ...current,
           revision: current.revision + 1,
           updatedAt: new Date().toISOString(),
         }, current.revision, event, onEvent);
-      });
+      };
+      let result;
+      try {
+        result = await recommendationService.recommend(recommendationCommand, observeRecommendation);
+      } catch (error) {
+        const failedEvent = current.events.at(-1);
+        const retryableStage = failedEvent?.status === "failed"
+          && (failedEvent.stage === "synthesis" || failedEvent.stage === "safety");
+        if (!retryableStage || !this.isTransientProviderFailure(error)) throw error;
+        current = await this.saveWithEvent({
+          ...current,
+          revision: current.revision + 1,
+          updatedAt: new Date().toISOString(),
+        }, current.revision, {
+          stage: failedEvent.stage,
+          status: "started",
+          message: `${failedEvent.stage === "safety" ? "Safety Guardian" : "Matchmaker"} timed out; retrying once`,
+          kind: "agent",
+        }, onEvent);
+        result = await recommendationService.recommend(recommendationCommand, observeRecommendation);
+      }
       const finalStatus = result.quest.status === "no_match" ? "no_match" : "complete";
       const completed: AssistantConversationSnapshot = {
         ...current,
@@ -334,5 +356,11 @@ export class AssistantConversationService {
       content,
       createdAt: new Date().toISOString(),
     };
+  }
+
+  private isTransientProviderFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    if (/quota|rate limit|too many requests|daily limit|429/.test(message)) return false;
+    return /timed? out|timeout|connection reset|econnreset|fetch failed|service unavailable|\b503\b/.test(message);
   }
 }

@@ -224,6 +224,88 @@ describe("Senior Quest AI conversation", () => {
     expect(new Set(confirmations.map((item) => item.questRunId).filter(Boolean)).size).toBeLessThanOrEqual(1);
   });
 
+  it("recovers automatically from one transient Gemini timeout during quest creation", async () => {
+    class TimeoutOnceRuntime extends DeterministicAgentRuntime {
+      synthesisCalls = 0;
+
+      override async synthesizeQuest(
+        input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        this.synthesisCalls += 1;
+        if (this.synthesisCalls === 1) {
+          throw new Error("gemini provider unavailable: Request timed out.");
+        }
+        return super.synthesizeQuest(input);
+      }
+    }
+    const store = new InMemoryKampungStore();
+    const agents = new TimeoutOnceRuntime();
+    const engine = new KampungQuestEngine({
+      store,
+      agents,
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    const service = new AssistantConversationService({
+      store,
+      agents,
+      recommendations: new AssistantRecommendationService({
+        store,
+        engine,
+        provider: "gemini",
+        demoSeedEnabled: true,
+      }),
+    });
+    const ready = await readyConversation(service);
+
+    const completed = await service.confirm(ready.conversationId, { revision: ready.revision });
+
+    expect(completed.status).toBe("complete");
+    expect(completed.error).toBeNull();
+    expect(agents.synthesisCalls).toBe(2);
+    expect(completed.events.some((event) => event.message.includes("retrying"))).toBe(true);
+    expect(completed.events).toContainEqual(expect.objectContaining({
+      stage: "memory",
+      kind: "system",
+      message: "Reusing the persisted active request for retry",
+    }));
+  });
+
+  it("does not automatically retry a Gemini quota failure", async () => {
+    class QuotaRuntime extends DeterministicAgentRuntime {
+      synthesisCalls = 0;
+
+      override async synthesizeQuest(): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        this.synthesisCalls += 1;
+        throw new Error("Gemini request quota is temporarily exhausted. Please try again later.");
+      }
+    }
+    const store = new InMemoryKampungStore();
+    const agents = new QuotaRuntime();
+    const engine = new KampungQuestEngine({
+      store,
+      agents,
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    const service = new AssistantConversationService({
+      store,
+      agents,
+      recommendations: new AssistantRecommendationService({
+        store,
+        engine,
+        provider: "gemini",
+        demoSeedEnabled: true,
+      }),
+    });
+    const ready = await readyConversation(service);
+
+    const failed = await service.confirm(ready.conversationId, { revision: ready.revision });
+
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toContain("quota");
+    expect(agents.synthesisCalls).toBe(1);
+    expect(failed.events.some((event) => event.message.includes("retrying"))).toBe(false);
+  });
+
   it("returns no_match instead of forcing a quest without eligible neighbours", async () => {
     const service = orchestrated(false);
     const ready = await readyConversation(service);
