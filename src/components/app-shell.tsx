@@ -72,7 +72,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <button className="desktop-create" type="button" onClick={() => router.push("/assistant")} aria-label="Talk to Senior Quest" title="Talk to Senior Quest">
+          <button className="desktop-create" type="button" onClick={() => router.push("/messages?assistant=1")} aria-label="Talk to Senior Quest" title="Talk to Senior Quest">
             <Icon name="plus" size={22} />
             <span className="desktop-create-label">Talk to Senior Quest</span>
           </button>
@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>{item.label}</span>
           </Link>
         ))}
-        <button className="mobile-create" type="button" onClick={() => router.push("/assistant")} aria-label="Talk to Senior Quest">
+        <button className="mobile-create" type="button" onClick={() => router.push("/messages?assistant=1")} aria-label="Talk to Senior Quest">
           <Icon name="plus" size={28} />
         </button>
         {navItems.slice(2).map((item) => (

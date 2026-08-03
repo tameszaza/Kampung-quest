@@ -109,7 +109,7 @@ function friendlyRole(role: string) {
   return role.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
-export function AssistantConversation() {
+export function AssistantConversation({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useUser();
   const [state, dispatch] = useReducer(
     assistantConversationReducer,
@@ -247,22 +247,28 @@ export function AssistantConversation() {
     ? prompts[state.step]
     : null;
 
+  const firstName = user.fullName.split(/\s+/)[0] || user.fullName;
+
   return (
-    <div className="assistant-page">
-      <header className="assistant-header">
+    <div className={`assistant-page${embedded ? " assistant-embedded" : ""}`}>
+      {!embedded ? <header className="assistant-header">
         <Link className="icon-button" href="/home" aria-label="Back to home"><Icon name="back" /></Link>
         <div className="assistant-identity">
           <span className="assistant-mark" aria-hidden="true">♥</span>
           <span><strong>Senior Quest</strong><small>Your friendly community helper</small></span>
         </div>
         <button className="assistant-reset" type="button" onClick={startAgain}>Start over</button>
-      </header>
+      </header> : null}
 
       <main className="assistant-thread" aria-live="polite">
+        {embedded ? <div className="assistant-inline-tools">
+          <span>Tell me what would feel helpful or enjoyable today.</span>
+          <button className="assistant-reset" type="button" onClick={startAgain}>Start over</button>
+        </div> : null}
         <div className="assistant-welcome">
           <span className="assistant-avatar" aria-hidden="true">♥</span>
           <div className="assistant-bubble">
-            <strong>Hello Maria, I&apos;m here to help.</strong>
+            <strong>Hello {firstName}, I&apos;m here to help.</strong>
             <p>Tell me what would feel helpful or enjoyable, and I&apos;ll look for a safe activity with nearby neighbours.</p>
           </div>
         </div>

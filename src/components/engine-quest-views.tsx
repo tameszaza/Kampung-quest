@@ -53,7 +53,7 @@ export function LatestEngineQuest() {
 
   if (state.status === "loading") return <ConnectedLoading label="Checking for a recommendation…" />;
   if (state.status === "error" || !state.value) {
-    return <div className="home-assistant-empty"><span aria-hidden="true">♥</span><div><strong>Ready when you are, {user.fullName.split(/\s+/)[0]}</strong><p>Tell Senior Quest what would feel helpful or enjoyable today.</p></div><Link className="primary-button" href="/assistant">Start a conversation</Link></div>;
+    return <div className="home-assistant-empty"><span aria-hidden="true">♥</span><div><strong>Ready when you are, {user.fullName.split(/\s+/)[0]}</strong><p>Tell Senior Quest what would feel helpful or enjoyable today.</p></div><Link className="primary-button" href="/messages?assistant=1">Start a conversation</Link></div>;
   }
   return <EngineQuestCard run={state.value} compact />;
 }
@@ -119,5 +119,5 @@ function ConnectedLoading({ label }: { label: string }) {
 }
 
 function ConnectedError({ message }: { message: string }) {
-  return <div className="connected-state error" role="alert"><Icon name="shield" /><strong>{message}</strong><Link href="/assistant">Talk to Senior Quest</Link></div>;
+  return <div className="connected-state error" role="alert"><Icon name="shield" /><strong>{message}</strong><Link href="/messages?assistant=1">Talk to Senior Quest</Link></div>;
 }

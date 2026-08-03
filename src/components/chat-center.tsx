@@ -2,14 +2,28 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AssistantConversation } from "@/components/assistant-conversation";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
 import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
 
-export function ChatCenter() {
+export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
+
+const assistantConversation: ConversationSummary = {
+  id: ASSISTANT_CONVERSATION_ID,
+  type: "direct",
+  title: "Senior Quest",
+  imageUrl: null,
+  preview: "Your friendly community helper",
+  lastMessageAt: new Date().toISOString(),
+  unreadCount: 0,
+  memberCount: 1,
+};
+
+export function ChatCenter({ initialConversation }: { initialConversation?: "assistant" }) {
   const { showToast } = useAppState();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -22,11 +36,14 @@ export function ChatCenter() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
+  const assistantSelected = selectedId === ASSISTANT_CONVERSATION_ID;
+  const activeConversation = assistantSelected ? assistantConversation : selected;
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
+    const items = [assistantConversation, ...conversations];
     return value
-      ? conversations.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
-      : conversations;
+      ? items.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
+      : items;
   }, [conversations, query]);
 
   const loadConversations = useCallback(async () => {
@@ -36,7 +53,7 @@ export function ChatCenter() {
       if (!response.ok) throw new Error(result.error ?? "Could not load conversations");
       const nextConversations = result.conversations ?? [];
       setConversations(nextConversations);
-      setSelectedId((current) => current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? null : null));
+      setSelectedId((current) => current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null));
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load conversations");
@@ -64,18 +81,19 @@ export function ChatCenter() {
    * chat view to remote conversation state; state updates occur after fetches resolve. */
   useEffect(() => { void loadConversations(); }, [loadConversations]);
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || assistantSelected) return;
     void loadMessages(selectedId);
     const timer = window.setInterval(() => {
       void loadMessages(selectedId, true);
       void loadConversations();
     }, 4_000);
     return () => window.clearInterval(timer);
-  }, [loadConversations, loadMessages, selectedId]);
+  }, [assistantSelected, loadConversations, loadMessages, selectedId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function openConversation(id: string) {
     setSelectedId(id);
+    if (id === ASSISTANT_CONVERSATION_ID) setMessages([]);
     setMenuOpen(false);
     setConfirmAction(null);
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
@@ -83,7 +101,7 @@ export function ChatCenter() {
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedId || selected?.blocked) return;
+    if (!selectedId || assistantSelected || selected?.blocked) return;
     const form = event.currentTarget;
     const input = form.elements.namedItem("message") as HTMLInputElement;
     const body = input.value.trim();
@@ -162,7 +180,7 @@ export function ChatCenter() {
         <div className="conversation-list">
           {filtered.map((conversation) => (
             <button className={`conversation-row${selectedId === conversation.id ? " selected" : ""}`} type="button" key={conversation.id} onClick={() => openConversation(conversation.id)}>
-              <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={conversation.type === "group"} />
+              {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={conversation.type === "group"} />}
               <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.type === "group" ? `${conversation.memberCount} members · ` : ""}{conversation.preview}</small></span>
               {conversation.unreadCount ? <b className="unread-badge" aria-label={`${conversation.unreadCount} unread messages`}>{conversation.unreadCount}</b> : null}
             </button>
@@ -170,16 +188,16 @@ export function ChatCenter() {
         </div>
       </section>
 
-      <section className="chat-panel" aria-label={selected ? `Conversation with ${selected.title}` : "Selected conversation"}>
-        {selected ? (
+      <section className="chat-panel" aria-label={activeConversation ? `Conversation with ${activeConversation.title}` : "Selected conversation"}>
+        {activeConversation ? (
           <>
             <div className="chat-header-stack">
               <header className="chat-header">
                 <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
-                <Avatar src={selected.imageUrl} name={selected.title} size={48} group={selected.type === "group"} />
-                <span><h2>{selected.title}</h2><p>{selected.type === "group" ? `${selected.memberCount} members` : "Community member"}</p></span>
+                {assistantSelected ? <AssistantAvatar size={48} /> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group={activeConversation.type === "group"} />}
+                <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "group" ? `${activeConversation.memberCount} members` : "Community member"}</p></span>
                 <div className="chat-header-actions">
-                  <button
+                  {!assistantSelected ? <button
                     className="chat-more-button"
                     type="button"
                     onClick={() => { setMenuOpen((open) => !open); setConfirmAction(null); }}
@@ -187,26 +205,27 @@ export function ChatCenter() {
                     aria-expanded={menuOpen}
                   >
                     <span aria-hidden="true">⋮</span>
-                  </button>
+                  </button> : null}
                 </div>
               </header>
-              {menuOpen ? <div className="chat-options-menu" role="menu" aria-label="Chat options">
-                {selected.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : <button type="button" role="menuitem" disabled={selected.blocked} onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> {selected.blocked ? "User already blocked" : "Block user"}</button>}
+              {!assistantSelected && menuOpen ? <div className="chat-options-menu" role="menu" aria-label="Chat options">
+                {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : <button type="button" role="menuitem" disabled={activeConversation.blocked} onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> {activeConversation.blocked ? "User already blocked" : "Block user"}</button>}
                 <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
               </div> : null}
-              {confirmAction ? (
+              {!assistantSelected && confirmAction ? (
                 <div className="chat-action-confirm" role="alertdialog" aria-label={`${confirmAction} confirmation`}>
-                  <div><strong>{confirmAction === "leave" ? `Leave ${selected.title}?` : confirmAction === "delete" ? "Delete this chat?" : `Block ${selected.title}?`}</strong><p>{confirmAction === "leave" ? "You will no longer receive messages from this group." : confirmAction === "delete" ? "This removes the chat from your list. Other people keep their history." : "Your current chat history stays here. New messages will be blocked."}</p></div>
+                  <div><strong>{confirmAction === "leave" ? `Leave ${activeConversation.title}?` : confirmAction === "delete" ? "Delete this chat?" : `Block ${activeConversation.title}?`}</strong><p>{confirmAction === "leave" ? "You will no longer receive messages from this group." : confirmAction === "delete" ? "This removes the chat from your list. Other people keep their history." : "Your current chat history stays here. New messages will be blocked."}</p></div>
                   <div className="chat-action-confirm-buttons"><button type="button" className="quiet-button" onClick={() => setConfirmAction(null)} disabled={actionBusy}>Keep chat</button><button type="button" className="danger-button" onClick={() => void completeChatAction()} disabled={actionBusy}>{actionBusy ? "Please wait…" : confirmAction === "leave" ? "Leave group" : confirmAction === "delete" ? "Delete chat" : "Block user"}</button></div>
                 </div>
               ) : null}
             </div>
+            {assistantSelected ? <AssistantConversation embedded /> : <>
             <div className="message-history" aria-live="polite" aria-busy={messageLoading}>
               <div className="chat-day-label">Today</div>
               {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}
               {!messageLoading && messages.length === 0 ? <div className="empty-conversation"><span>👋</span><p>Say hello and start the conversation.</p></div> : null}
               {messages.map((message, index) => {
-                const showName = selected.type === "group" && !message.mine && messages[index - 1]?.senderId !== message.senderId;
+                const showName = activeConversation.type === "group" && !message.mine && messages[index - 1]?.senderId !== message.senderId;
                 return (
                   <div className={`message-bubble-row${message.mine ? " mine" : ""}`} key={message.id}>
                     <div className="message-bubble">
@@ -220,9 +239,10 @@ export function ChatCenter() {
               <div ref={bottomRef} />
             </div>
             <form className="message-composer" onSubmit={sendMessage}>
-              <label><span className="sr-only">Type a message</span><input name="message" autoComplete="off" maxLength={2000} disabled={selected.blocked} placeholder={selected.blocked ? "Chat blocked — unblock in Settings to message" : "Type a message…"} /></label>
-              <button type="submit" aria-label="Send message" disabled={selected.blocked}><span aria-hidden="true">➤</span></button>
+              <label><span className="sr-only">Type a message</span><input name="message" autoComplete="off" maxLength={2000} disabled={activeConversation.blocked} placeholder={activeConversation.blocked ? "Chat blocked — unblock in Settings to message" : "Type a message…"} /></label>
+              <button type="submit" aria-label="Send message" disabled={activeConversation.blocked}><span aria-hidden="true">➤</span></button>
             </form>
+            </>}
           </>
         ) : (
           <div className="chat-placeholder"><span aria-hidden="true">💚</span><h2>Your messages, all in one place</h2><p>Choose a conversation to read and reply.</p></div>
@@ -301,6 +321,10 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
       </form>
     </div>
   );
+}
+
+function AssistantAvatar({ size }: { size: number }) {
+  return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true">♥</span>;
 }
 
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {

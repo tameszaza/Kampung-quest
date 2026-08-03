@@ -33,7 +33,7 @@ export default function HomePage() {
             <Link href="/quests"><span>New Matches</span><strong>3</strong><small>Activities for you</small></Link>
             <Link href="/quests?tab=Invited"><span>Invites</span><strong>2</strong><small>Pending invitations</small></Link>
           </section>
-          <Link className="assistant-home-callout" href="/assistant">
+          <Link className="assistant-home-callout" href="/messages?assistant=1">
             <span aria-hidden="true">♥</span>
             <div><strong>What would feel good today?</strong><small>Talk with Senior Quest and I&apos;ll find a safe activity with neighbours.</small></div>
             <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
