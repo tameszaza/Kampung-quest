@@ -7,12 +7,14 @@ export function MenuRow({
   href,
   danger = false,
   onClick,
+  ariaExpanded,
 }: {
   icon: IconName;
   label: string;
   href?: string;
   danger?: boolean;
   onClick?: () => void;
+  ariaExpanded?: boolean;
 }) {
   const className = `menu-row${danger ? " danger" : ""}`;
   const content = (
@@ -24,5 +26,5 @@ export function MenuRow({
   );
 
   if (href) return <Link className={className} href={href}>{content}</Link>;
-  return <button className={className} type="button" onClick={onClick}>{content}</button>;
+  return <button className={className} type="button" onClick={onClick} aria-expanded={ariaExpanded}>{content}</button>;
 }

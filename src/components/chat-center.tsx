@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
+import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
 import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
@@ -31,6 +32,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assistantResetToken, setAssistantResetToken] = useState(0);
   const [confirmAction, setConfirmAction] = useState<"leave" | "block" | "delete" | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -126,9 +128,10 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
     }
   }
 
-  async function completeChatAction() {
-    if (!selected || !confirmAction || actionBusy) return;
-    const action = confirmAction;
+  async function completeChatAction(actionOverride?: "unblock") {
+    if (!selected || actionBusy) return;
+    const action = actionOverride ?? confirmAction;
+    if (!action) return;
     setActionBusy(true);
     try {
       const response = action === "block"
@@ -139,6 +142,14 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
             body: JSON.stringify({ userId: selected.otherUserId }),
           })
           : null)
+        : action === "unblock"
+          ? (selected.otherUserId
+            ? await fetch("/api/chat/blocks", {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ userId: selected.otherUserId }),
+            })
+            : null)
         : await fetch(`/api/chat/conversations/${selected.id}`, {
           method: "DELETE",
           headers: { "content-type": "application/json" },
@@ -147,8 +158,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
       if (!response) throw new Error("This conversation is missing its contact details");
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "That action could not be completed");
-      if (action === "block") {
-        setConversations((items) => items.map((item) => item.id === selected.id ? { ...item, blocked: true } : item));
+      if (action === "block" || action === "unblock") {
+        setConversations((items) => items.map((item) => item.id === selected.id ? { ...item, blocked: action === "block" } : item));
       } else {
         setConversations((items) => items.filter((item) => item.id !== selected.id));
         setSelectedId(null);
@@ -156,7 +167,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
       }
       setConfirmAction(null);
       setMenuOpen(false);
-      showToast(action === "leave" ? "You left the group" : action === "delete" ? "Chat deleted for you" : "User blocked. Your chat history is preserved");
+      showToast(action === "leave" ? "You left the group" : action === "delete" ? "Chat deleted for you" : action === "unblock" ? "User unblocked. You can message again" : "User blocked. Your chat history is preserved");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "That action could not be completed");
     } finally {
@@ -197,7 +208,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
                 {assistantSelected ? <AssistantAvatar size={48} /> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group={activeConversation.type === "group"} />}
                 <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "group" ? `${activeConversation.memberCount} members` : "Community member"}</p></span>
                 <div className="chat-header-actions">
-                  {!assistantSelected ? <button
+                  <button
                     className="chat-more-button"
                     type="button"
                     onClick={() => { setMenuOpen((open) => !open); setConfirmAction(null); }}
@@ -205,12 +216,14 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
                     aria-expanded={menuOpen}
                   >
                     <span aria-hidden="true">⋮</span>
-                  </button> : null}
+                  </button>
                 </div>
               </header>
-              {!assistantSelected && menuOpen ? <div className="chat-options-menu" role="menu" aria-label="Chat options">
-                {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : <button type="button" role="menuitem" disabled={activeConversation.blocked} onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> {activeConversation.blocked ? "User already blocked" : "Block user"}</button>}
-                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
+              {menuOpen ? <div className="chat-options-menu" role="menu" aria-label={assistantSelected ? "Senior Quest options" : "Chat options"}>
+                {assistantSelected ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setAssistantResetToken((value) => value + 1); }}><Icon name="refresh" size={18} /> Start over</button> : <>
+                  {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : activeConversation.blocked ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); void completeChatAction("unblock"); }}><Icon name="blocked" size={18} /> Unblock user</button> : <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> Block user</button>}
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
+                </>}
               </div> : null}
               {!assistantSelected && confirmAction ? (
                 <div className="chat-action-confirm" role="alertdialog" aria-label={`${confirmAction} confirmation`}>
@@ -219,29 +232,29 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
                 </div>
               ) : null}
             </div>
-            {assistantSelected ? <AssistantConversation embedded /> : <>
+            {assistantSelected ? <AssistantConversation embedded resetToken={assistantResetToken} /> : <>
             <div className="message-history" aria-live="polite" aria-busy={messageLoading}>
-              <div className="chat-day-label">Today</div>
+              <ChatDayLabel />
               {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}
               {!messageLoading && messages.length === 0 ? <div className="empty-conversation"><span>👋</span><p>Say hello and start the conversation.</p></div> : null}
               {messages.map((message, index) => {
                 const showName = activeConversation.type === "group" && !message.mine && messages[index - 1]?.senderId !== message.senderId;
-                return (
-                  <div className={`message-bubble-row${message.mine ? " mine" : ""}`} key={message.id}>
-                    <div className="message-bubble">
-                      {showName ? <strong>{message.senderName}</strong> : null}
-                      <p>{message.body}</p>
-                      <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}{message.mine ? "  ✓✓" : ""}</time>
-                    </div>
-                  </div>
-                );
+                return <ChatMessageBubble
+                  key={message.id}
+                  body={message.body}
+                  mine={message.mine}
+                  heading={showName ? message.senderName : undefined}
+                  time={`${formatMessageTime(message.createdAt)}${message.mine ? "  ✓✓" : ""}`}
+                />;
               })}
               <div ref={bottomRef} />
             </div>
-            <form className="message-composer" onSubmit={sendMessage}>
-              <label><span className="sr-only">Type a message</span><input name="message" autoComplete="off" maxLength={2000} disabled={activeConversation.blocked} placeholder={activeConversation.blocked ? "Chat blocked — unblock in Settings to message" : "Type a message…"} /></label>
-              <button type="submit" aria-label="Send message" disabled={activeConversation.blocked}><span aria-hidden="true">➤</span></button>
-            </form>
+            <ChatComposer
+              onSubmit={sendMessage}
+              maxLength={2000}
+              disabled={activeConversation.blocked}
+              placeholder={activeConversation.blocked ? "Chat blocked — unblock in Settings to message" : "Type a message…"}
+            />
             </>}
           </>
         ) : (

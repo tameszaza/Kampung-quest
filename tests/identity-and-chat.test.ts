@@ -82,6 +82,26 @@ describe("member preferences and chat", () => {
     expect(history.at(-1)).toMatchObject({ body: "Shall we meet on Friday?", mine: false });
   });
 
+  it("honors privacy choices when discovering people and starting chats", async () => {
+    const store = new InMemoryIdentityStore();
+    const maria = await store.createUser(member("maria-privacy@example.com"));
+    const lee = await store.createUser({ ...member("lee-privacy@example.com"), fullName: "Lee Privacy" });
+
+    await store.updatePreferences(lee.id, { profileVisibility: "private", messagePrivacy: "nobody" });
+    expect((await store.listContacts(maria.id, "lee privacy")).some((contact) => contact.id === lee.id)).toBe(false);
+    await expect(store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] })).rejects.toThrow("not accepting");
+
+    await store.updatePreferences(lee.id, { profileVisibility: "community", messagePrivacy: "nobody" });
+    expect((await store.listContacts(maria.id, "lee privacy")).some((contact) => contact.id === lee.id)).toBe(true);
+    await expect(store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] })).rejects.toThrow("not accepting");
+
+    await store.updatePreferences(lee.id, { messagePrivacy: "connections" });
+    await expect(store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] })).rejects.toThrow("not accepting");
+    await store.createConversation(maria.id, { type: "group", participantIds: [lee.id], title: "Privacy Friends" });
+    const direct = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    expect(direct.type).toBe("direct");
+  });
+
   it("does not expose conversations to non-members", async () => {
     const store = new InMemoryIdentityStore();
     const maria = await store.createUser(member("maria@example.com"));

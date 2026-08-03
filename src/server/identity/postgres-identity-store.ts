@@ -35,13 +35,17 @@ type UserRow = {
   high_contrast: boolean | null;
   message_notifications: boolean | null;
   quest_notifications: boolean | null;
+  profile_visibility: UserPreferences["profileVisibility"] | null;
+  message_privacy: UserPreferences["messagePrivacy"] | null;
+  show_online_status: boolean | null;
 };
 
 const userSelect = `
   SELECT u.user_id, u.full_name, u.username, u.email, u.phone, u.password_hash, u.date_of_birth,
          u.gender, u.preferred_language, u.area, u.photo_url, u.account_type, u.onboarding_complete,
          p.interests, p.group_size, p.activity_level, p.accessibility_needs,
-         p.text_size, p.high_contrast, p.message_notifications, p.quest_notifications
+         p.text_size, p.high_contrast, p.message_notifications, p.quest_notifications,
+         p.profile_visibility, p.message_privacy, p.show_online_status
   FROM identity.users u
   LEFT JOIN identity.user_preferences p ON p.user_id = u.user_id`;
 
@@ -229,12 +233,16 @@ export class PostgresIdentityStore implements IdentityStore {
            high_contrast = COALESCE($7, high_contrast),
            message_notifications = COALESCE($8, message_notifications),
            quest_notifications = COALESCE($9, quest_notifications),
+           profile_visibility = COALESCE($10, profile_visibility),
+           message_privacy = COALESCE($11, message_privacy),
+           show_online_status = COALESCE($12, show_online_status),
            updated_at = now()
          WHERE user_id = $1`,
         [
           userId, input.interests ?? null, input.groupSize ?? null, input.activityLevel ?? null,
           input.accessibilityNeeds ?? null, input.textSize ?? null, input.highContrast ?? null,
           input.messageNotifications ?? null, input.questNotifications ?? null,
+          input.profileVisibility ?? null, input.messagePrivacy ?? null, input.showOnlineStatus ?? null,
         ],
       );
       const result = await client.query<UserRow>(`${userSelect} WHERE u.user_id = $1`, [userId]);
@@ -254,15 +262,28 @@ export class PostgresIdentityStore implements IdentityStore {
     const normalizedQuery = query.trim().toLowerCase();
     const usernameQuery = normalizeUsername(query);
     const result = await this.pool.query<{ user_id: string; full_name: string; username: string | null; photo_url: string | null }>(
-      `SELECT user_id, full_name, username, photo_url FROM identity.users
-       WHERE user_id <> $1 AND onboarding_complete = true
+      `SELECT candidate.user_id, candidate.full_name, candidate.username, candidate.photo_url FROM identity.users candidate
+       LEFT JOIN identity.user_preferences privacy ON privacy.user_id = candidate.user_id
+       WHERE candidate.user_id <> $1 AND candidate.onboarding_complete = true
+         AND (
+           COALESCE(privacy.profile_visibility, 'community') = 'community'
+           OR (
+             COALESCE(privacy.profile_visibility, 'community') = 'connections'
+             AND EXISTS (
+               SELECT 1
+               FROM chat.conversation_members mine
+               JOIN chat.conversation_members theirs ON theirs.conversation_id = mine.conversation_id
+               WHERE mine.user_id = $1 AND theirs.user_id = candidate.user_id
+             )
+           )
+         )
          AND NOT EXISTS (
            SELECT 1 FROM chat.user_blocks block
-           WHERE (block.blocker_id = $1 AND block.blocked_id = identity.users.user_id)
-              OR (block.blocker_id = identity.users.user_id AND block.blocked_id = $1)
+           WHERE (block.blocker_id = $1 AND block.blocked_id = candidate.user_id)
+              OR (block.blocker_id = candidate.user_id AND block.blocked_id = $1)
          )
-         AND ($2 = '' OR lower(full_name) LIKE '%' || $2 || '%' OR lower(COALESCE(username, '')) LIKE '%' || $3 || '%')
-       ORDER BY CASE WHEN account_type = 'community' THEN 0 ELSE 1 END, full_name`,
+         AND ($2 = '' OR lower(candidate.full_name) LIKE '%' || $2 || '%' OR lower(COALESCE(candidate.username, '')) LIKE '%' || $3 || '%')
+       ORDER BY CASE WHEN candidate.account_type = 'community' THEN 0 ELSE 1 END, candidate.full_name`,
       [userId, normalizedQuery, usernameQuery],
     );
     return result.rows.map((row) => ({ id: row.user_id, fullName: row.full_name, username: row.username, photoUrl: row.photo_url }));
@@ -364,6 +385,26 @@ export class PostgresIdentityStore implements IdentityStore {
       let conversationId: string;
       if (input.type === "direct") {
         const directKey = [...memberIds].sort().join(":");
+        const existing = await client.query<{ conversation_id: string }>(
+          "SELECT conversation_id FROM chat.conversations WHERE direct_key = $1",
+          [directKey],
+        );
+        if (!existing.rowCount) {
+          const privacy = await client.query<{ profile_visibility: UserPreferences["profileVisibility"] | null; message_privacy: UserPreferences["messagePrivacy"] | null }>(
+            `SELECT COALESCE(p.profile_visibility, 'community') AS profile_visibility,
+                    COALESCE(p.message_privacy, 'everyone') AS message_privacy
+             FROM identity.user_preferences p
+             WHERE p.user_id = $1`,
+            [participantIds[0]],
+          );
+          const target = privacy.rows[0];
+          if (target?.profile_visibility === "private" || target?.message_privacy === "nobody") {
+            throw new Error("This person is not accepting new direct messages");
+          }
+          if (target?.profile_visibility === "connections" || target?.message_privacy === "connections") {
+            throw new Error("You can message this person after you have an existing connection");
+          }
+        }
         const created = await client.query<{ conversation_id: string }>(
           `INSERT INTO chat.conversations
              (conversation_id, conversation_type, direct_key, created_by)
@@ -633,6 +674,9 @@ export class PostgresIdentityStore implements IdentityStore {
         highContrast: row.high_contrast ?? false,
         messageNotifications: row.message_notifications ?? true,
         questNotifications: row.quest_notifications ?? true,
+        profileVisibility: row.profile_visibility ?? defaultPreferences.profileVisibility,
+        messagePrivacy: row.message_privacy ?? defaultPreferences.messagePrivacy,
+        showOnlineStatus: row.show_online_status ?? defaultPreferences.showOnlineStatus,
       },
     };
   }

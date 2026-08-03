@@ -220,6 +220,7 @@ export class InMemoryIdentityStore implements IdentityStore {
     const usernameQuery = normalizeUsername(query);
     return [...this.users.values()]
       .filter((user) => user.id !== userId && user.onboardingComplete)
+      .filter((user) => this.canDiscover(userId, user.id))
       .filter((user) => !this.isBlockedEitherWay(userId, user.id))
       .filter((user) => !normalizedQuery || user.fullName.toLowerCase().includes(normalizedQuery) || user.username?.includes(usernameQuery))
       .map((user) => ({ id: user.id, fullName: user.fullName, username: user.username, photoUrl: user.photoUrl }))
@@ -259,6 +260,9 @@ export class InMemoryIdentityStore implements IdentityStore {
     if (existing) {
       this.deletedConversations.delete(deletionKey(userId, existing.id));
       return this.toSummary(userId, existing);
+    }
+    if (input.type === "direct" && !this.canStartDirectMessage(userId, participantIds[0])) {
+      throw new Error("This person is not accepting new direct messages");
     }
     const now = new Date().toISOString();
     const conversation: MemoryConversation = {
@@ -398,6 +402,24 @@ export class InMemoryIdentityStore implements IdentityStore {
 
   private isBlockedEitherWay(userId: string, otherUserId: string) {
     return this.blockedPairs.has(blockKey(userId, otherUserId)) || this.blockedPairs.has(blockKey(otherUserId, userId));
+  }
+
+  private canDiscover(userId: string, otherUserId: string) {
+    const other = this.requireUser(otherUserId);
+    return other.preferences.profileVisibility === "community"
+      || (other.preferences.profileVisibility === "connections" && this.hasConnection(userId, otherUserId));
+  }
+
+  private canStartDirectMessage(userId: string, otherUserId: string | undefined) {
+    if (!otherUserId) return false;
+    const other = this.requireUser(otherUserId);
+    if (other.preferences.profileVisibility === "private" || other.preferences.messagePrivacy === "nobody") return false;
+    if (other.preferences.profileVisibility === "connections" || other.preferences.messagePrivacy === "connections") return this.hasConnection(userId, otherUserId);
+    return true;
+  }
+
+  private hasConnection(userId: string, otherUserId: string) {
+    return [...this.conversations.values()].some((conversation) => conversation.memberIds.includes(userId) && conversation.memberIds.includes(otherUserId));
   }
 }
 

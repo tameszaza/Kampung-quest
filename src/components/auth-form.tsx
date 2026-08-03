@@ -44,7 +44,6 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
       const result = await response.json() as { available?: boolean };
       if (!result.available) {
         setUsernameAvailability("taken");
-        setError("That display name is already taken. Please choose another one.");
         return;
       }
       setUsernameAvailability("available");
@@ -181,7 +180,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
       <section className={step === 1 ? "form-step active" : "form-step"} aria-hidden={step !== 1}>
         <div className="two-field-row">
           <label><span>Full name</span><input name="fullName" autoComplete="name" placeholder="Enter your full name" required={step === 1} /></label>
-          <label><span>Unique display name</span><input name="username" autoComplete="username" placeholder="For example, Maria Santos" required={step === 1} onChange={() => setUsernameAvailability("idle")} /><small className={`availability ${usernameAvailability}`}>{availabilityCopy(usernameAvailability)}</small></label>
+          <label><span>Unique display name</span><input name="username" autoComplete="username" placeholder="For example, Maria Santos" required={step === 1} onChange={() => setUsernameAvailability("idle")} />{usernameAvailability === "taken" ? <small className="availability taken" role="alert">That display name is already taken.</small> : null}</label>
         </div>
         <div className="two-field-row">
           <label><span>Email</span><input name="email" type="email" autoComplete="email" placeholder="you@example.com" required={step === 1} /></label>
@@ -253,11 +252,4 @@ function friendlyAuthError(message?: string) {
   if (/invalid.*password|invalid.*email|credential/i.test(message)) return "The email, display name, or password is incorrect.";
   if (/user.*exist/i.test(message)) return "An account already exists for that email.";
   return message;
-}
-
-function availabilityCopy(state: Availability) {
-  if (state === "checking") return "Checking availability…";
-  if (state === "available") return "Display name is available ✓";
-  if (state === "taken") return "That display name is already taken";
-  return "Friends can search for this name to message you.";
 }

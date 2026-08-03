@@ -37,6 +37,9 @@ export const preferenceUpdateSchema = z.object({
   highContrast: z.boolean().optional(),
   messageNotifications: z.boolean().optional(),
   questNotifications: z.boolean().optional(),
+  profileVisibility: z.enum(["community", "connections", "private"]).optional(),
+  messagePrivacy: z.enum(["everyone", "connections", "nobody"]).optional(),
+  showOnlineStatus: z.boolean().optional(),
 });
 
 export const profileCompletionSchema = z.object({

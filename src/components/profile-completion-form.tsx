@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ProfilePhotoPicker } from "@/components/auth-form";
+import { authClient } from "@/lib/auth-client";
 import type { UserProfile } from "@/server/identity/types";
 
 const interests = ["Cooking", "Gentle exercise", "Learning", "Games", "Gardening", "Conversation"];
@@ -19,6 +20,19 @@ export function ProfileCompletionForm({ user }: { user: UserProfile }) {
 
   useEffect(() => () => { if (localPreview) URL.revokeObjectURL(localPreview); }, [localPreview]);
 
+  async function backToLogin() {
+    setBusy(true);
+    setError("");
+    try {
+      await authClient.signOut();
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      setBusy(false);
+      setError("Could not return to the login page. Please try again.");
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -31,7 +45,7 @@ export function ProfileCompletionForm({ user }: { user: UserProfile }) {
       const checkResult = await check.json() as { available?: boolean; current?: boolean };
       if (!checkResult.available && !checkResult.current) {
         setAvailable("taken");
-        throw new Error("That display name is already taken. Please choose another one.");
+        return;
       }
       setAvailable("available");
 
@@ -67,14 +81,17 @@ export function ProfileCompletionForm({ user }: { user: UserProfile }) {
 
   return (
     <form className="auth-form register-form completion-form" onSubmit={submit}>
-      <header><p className="step-eyebrow">One last step</p><h2>Complete your profile</h2><p>Check the details from Google, then add what helps us personalize Senior Quest.</p></header>
+      <header>
+        <button className="auth-back-link" type="button" onClick={backToLogin} disabled={busy}>← Back to log in</button>
+        <p className="step-eyebrow">One last step</p><h2>Complete your profile</h2><p>Check the details from Google, then add what helps us personalize Senior Quest.</p>
+      </header>
       {error ? <div className="form-alert" role="alert">{error}</div> : null}
       <div className="two-field-row">
         <label><span>Full name</span><input name="fullName" defaultValue={user.fullName} autoComplete="name" minLength={2} maxLength={100} required autoFocus /></label>
-        <label><span>Unique display name</span><input name="username" defaultValue={user.username ?? user.fullName} minLength={3} maxLength={40} required onChange={() => setAvailable("idle")} /><small className={`availability ${available}`}>{available === "checking" ? "Checking…" : available === "available" ? "Available ✓" : available === "taken" ? "Already taken" : "Friends use this name to find and message you."}</small></label>
+        <label><span>Unique display name</span><input name="username" defaultValue={user.username ?? user.fullName} minLength={3} maxLength={40} required onChange={() => setAvailable("idle")} />{available === "taken" ? <small className="availability taken" role="alert">That display name is already taken.</small> : null}</label>
       </div>
       <div className="two-field-row">
-        <label><span>Email from Google</span><input value={user.email ?? ""} readOnly aria-readonly="true" /><small>Your verified sign-in email cannot be changed here.</small></label>
+        <label><span>Email from Google</span><input className="email-locked" value={user.email ?? ""} readOnly aria-readonly="true" /></label>
         <label><span>Phone number (optional)</span><input name="phone" type="tel" defaultValue={user.phone ?? ""} autoComplete="tel" placeholder="+65 9123 4567" /></label>
       </div>
       <div className="two-field-row">
