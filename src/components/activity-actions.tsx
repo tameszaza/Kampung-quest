@@ -3,7 +3,7 @@
 import { useAppState } from "@/components/app-state";
 import { Icon } from "@/components/icons";
 
-export function ActivityActions({ activityId }: { activityId: string }) {
+export function ActivityActions({ activityId, acceptOnly = false }: { activityId: string; acceptOnly?: boolean }) {
   const { activityDecisions, decideActivity } = useAppState();
   const decision = activityDecisions[activityId];
 
@@ -11,8 +11,8 @@ export function ActivityActions({ activityId }: { activityId: string }) {
     return <div className={`decision-message ${decision}`}><Icon name={decision === "accepted" ? "check" : "close"} size={19} />{decision === "accepted" ? "Activity accepted" : "Activity rejected"}</div>;
   }
 
-  return <div className="activity-actions">
-    <button className="secondary-button" type="button" onClick={() => decideActivity(activityId, "declined")}>Reject</button>
+  return <div className={`activity-actions${acceptOnly ? " accept-only" : ""}`}>
+    {!acceptOnly ? <button className="secondary-button" type="button" onClick={() => decideActivity(activityId, "declined")}>Reject</button> : null}
     <button className="primary-button" type="button" onClick={() => decideActivity(activityId, "accepted")}>Accept</button>
   </div>;
 }
