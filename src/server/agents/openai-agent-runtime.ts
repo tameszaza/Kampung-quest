@@ -19,18 +19,79 @@ import {
   type QuestProposal,
 } from "@/server/domain/schemas";
 
-const retrySettings: ModelRetrySettings = {
-  maxRetries: 2,
-  backoff: { initialDelayMs: 250, maxDelayMs: 1_000, multiplier: 2, jitter: true },
-  policy: ({ normalized }) =>
-    normalized.isNetworkError || normalized.statusCode === 429 || (normalized.statusCode ?? 0) >= 500,
-};
+export function hostedRetrySettings(
+  provider: Exclude<AgentProviderName, "deterministic">,
+): ModelRetrySettings {
+  return {
+    maxRetries: provider === "gemini" ? 1 : 2,
+    backoff: { initialDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2, jitter: true },
+    policy: ({ normalized, providerAdvice }) => {
+      if (provider === "gemini" && normalized.statusCode === 429) {
+        const retryAfterMs = normalized.retryAfterMs ?? providerAdvice?.retryAfterMs;
+        if (retryAfterMs === undefined || retryAfterMs > 60_000) return false;
+        return {
+          retry: true,
+          delayMs: retryAfterMs + 250,
+          reason: "Gemini requested a quota backoff",
+        };
+      }
+      return normalized.isNetworkError
+        || normalized.statusCode === 429
+        || (normalized.statusCode ?? 0) >= 500;
+    },
+  };
+}
+
+export function hostedProviderErrorMessage(
+  provider: Exclude<AgentProviderName, "deterministic">,
+  error: unknown,
+): string {
+  if (provider === "gemini" && error && typeof error === "object" && "status" in error) {
+    const status = error.status;
+    if (status === 429) {
+      const headers = "headers" in error ? error.headers : null;
+      const getHeader = headers && typeof headers === "object" && "get" in headers
+        && typeof headers.get === "function"
+        ? (name: string) => (headers as { get(headerName: string): string | null }).get(name)
+        : () => null;
+      if (getHeader("x-gemini-quota-period") === "day") {
+        return "Gemini's daily request quota for this model is exhausted. It resets at midnight Pacific time.";
+      }
+      const retryAfter = getHeader("retry-after");
+      const retrySeconds = retryAfter ? Number.parseInt(String(retryAfter), 10) : Number.NaN;
+      return Number.isFinite(retrySeconds)
+        ? `Gemini request quota is temporarily exhausted. Please try again in about ${retrySeconds} seconds.`
+        : "Gemini request quota is temporarily exhausted. Please try again later.";
+    }
+  }
+  const message = error instanceof Error ? error.message : "Unknown hosted model error";
+  return `${provider} provider unavailable: ${message}`;
+}
 
 interface HostedAgentRuntimeOptions {
   provider: Exclude<AgentProviderName, "deterministic">;
   models: Omit<HostedModelConfiguration, "embedding">;
   modelProvider: ModelProvider;
   auditSink?: AgentAuditSink;
+}
+
+export function normalizeGeminiVenueRequirements(requirements: string[]): string[] {
+  const canonical = new Set(requirements);
+  const normalized = requirements.map((requirement) =>
+    requirement.toLowerCase().replaceAll("_", " ").replaceAll("-", " ")
+  );
+  if (normalized.some((requirement) =>
+    requirement === "approved public location"
+    || (/\bpublic\b/.test(requirement)
+      && /\b(location|venue|community center|community centre|lounge|room)\b/.test(requirement))
+  )) canonical.add("approved_public_location");
+  if (normalized.some((requirement) => /\bindoor\b/.test(requirement))) {
+    canonical.add("indoor");
+  }
+  if (normalized.some((requirement) =>
+    /\b(no stairs|stair free|step free|no steps|without stairs)\b/.test(requirement)
+  )) canonical.add("no_stairs");
+  return [...canonical];
 }
 
 export class HostedAgentRuntime implements AgentRuntime {
@@ -44,6 +105,7 @@ export class HostedAgentRuntime implements AgentRuntime {
     setTracingDisabled(true);
     this.runner = new Runner({ modelProvider: options.modelProvider });
     const persistenceSetting = options.provider === "openai" ? { store: false as const } : {};
+    const retrySettings = hostedRetrySettings(options.provider);
     this.memoryAgent = new Agent({
       name: "Kampung personal memory",
       model: options.models.memory,
@@ -63,6 +125,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         "Use only participant aliases, stated needs, and stated contributions from the input.",
         "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
         "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
+        "In venueRequirements, always use the exact token approved_public_location; also use indoor or no_stairs exactly when participant constraints require them.",
         "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
         "When validation errors are supplied, correct only those errors.",
       ].join(" "),
@@ -142,7 +205,13 @@ export class HostedAgentRuntime implements AgentRuntime {
         peerToPeerMoneyAllowed: false,
       },
     }));
-    return this.restoreProposalReferences(proposal, reverse, profiles);
+    return this.restoreProposalReferences({
+      ...proposal,
+      quest: {
+        ...proposal.quest,
+        venueRequirements: normalizeGeminiVenueRequirements(proposal.quest.venueRequirements),
+      },
+    }, reverse, profiles);
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
@@ -217,8 +286,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         outputTokens: null,
         metadata: { provider: this.options.provider },
       });
-      const message = error instanceof Error ? error.message : "Unknown hosted model error";
-      throw new Error(`${this.options.provider} provider unavailable: ${message}`, { cause: error });
+      throw new Error(hostedProviderErrorMessage(this.options.provider, error), { cause: error });
     }
   }
 

@@ -3,6 +3,7 @@ import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import type {
   AssistantRecommendationCommand,
   CandidateProfile,
+  MemoryAgentOutput,
   MemoryCard,
   QuestRun,
 } from "@/server/domain/schemas";
@@ -133,13 +134,44 @@ export class AssistantRecommendationService {
         && JSON.stringify(current.profile.constraints) === JSON.stringify(profile.constraints)
         && current.profile.distanceFromInitiatorM === profile.distanceFromInitiatorM
       ) continue;
-      await this.dependencies.engine.recordMemory({
-        profile,
-        narrative: `${neighbour.need}. ${neighbour.offers[0]}.`,
-      });
+      const narrative = `${neighbour.need}. ${neighbour.offers[0]}.`;
+      await this.dependencies.engine.recordPreparedMemory(
+        { profile, narrative },
+        this.demoMemory(profile, narrative),
+      );
       seeded += 1;
     }
     return seeded;
+  }
+
+  private demoMemory(profile: CandidateProfile, narrative: string): MemoryAgentOutput {
+    return {
+      need: profile.need,
+      interests: profile.interests,
+      offers: profile.offers,
+      markdown: [
+        "---",
+        `senior_id: ${profile.candidateId}`,
+        `status: ${profile.memoryStatus}`,
+        "---",
+        "",
+        "# Current need",
+        "",
+        profile.need,
+        "",
+        "# Latest context",
+        "",
+        narrative,
+        "",
+        "# Interests",
+        "",
+        ...profile.interests.map((item) => `- ${item}`),
+        "",
+        "# What the senior can contribute",
+        "",
+        ...profile.offers.map((item) => `- ${item}`),
+      ].join("\n"),
+    };
   }
 
   private profile(input: Pick<CandidateProfile,
