@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { stableFactRef } from "@/server/agents/provider-privacy";
 import type {
+  AssistantConversationSnapshot,
+  AssistantWorkflowEvent,
   CandidateEmbedding,
   AgentRunAudit,
   CoordinationEventRecord,
@@ -29,6 +31,185 @@ export class PostgresKampungStore implements KampungStore {
 
   constructor(connectionString: string, pool?: Pool) {
     this.pool = pool ?? new Pool({ connectionString, max: 10 });
+  }
+
+  async createAssistantConversation(
+    conversation: AssistantConversationSnapshot,
+  ): Promise<AssistantConversationSnapshot> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.insertConversation(client, conversation);
+      await this.insertConversationChildren(client, conversation);
+      await client.query("COMMIT");
+      return structuredClone(conversation);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null> {
+    const conversation = await this.pool.query<{
+      conversation_id: string;
+      candidate_id: string;
+      status: AssistantConversationSnapshot["status"];
+      revision: number;
+      brief: AssistantConversationSnapshot["brief"];
+      next_field: AssistantConversationSnapshot["nextField"];
+      suggested_replies: string[];
+      quest_run_id: string | null;
+      error_message: string | null;
+      created_at: Date | string;
+      updated_at: Date | string;
+    }>("SELECT * FROM assistant.conversations WHERE conversation_id = $1", [conversationId]);
+    const row = conversation.rows[0];
+    if (!row) return null;
+    const [messages, events] = await Promise.all([
+      this.pool.query<{
+        message_id: string;
+        role: "user" | "assistant";
+        content: string;
+        created_at: Date | string;
+      }>(
+        `SELECT message_id, role, content, created_at FROM assistant.messages
+         WHERE conversation_id = $1 ORDER BY position`,
+        [conversationId],
+      ),
+      this.pool.query<{
+        sequence: number;
+        stage: AssistantWorkflowEvent["stage"];
+        status: AssistantWorkflowEvent["status"];
+        message: string;
+        kind: AssistantWorkflowEvent["kind"];
+        created_at: Date | string;
+      }>(
+        `SELECT sequence, stage, status, message, kind, created_at FROM assistant.workflow_events
+         WHERE conversation_id = $1 ORDER BY sequence`,
+        [conversationId],
+      ),
+    ]);
+    return {
+      conversationId: row.conversation_id,
+      candidateId: row.candidate_id,
+      status: row.status,
+      revision: Number(row.revision),
+      brief: row.brief,
+      nextField: row.next_field,
+      suggestedReplies: row.suggested_replies,
+      questRunId: row.quest_run_id,
+      error: row.error_message,
+      messages: messages.rows.map((message) => ({
+        messageId: message.message_id,
+        role: message.role,
+        content: message.content,
+        createdAt: new Date(message.created_at).toISOString(),
+      })),
+      events: events.rows.map((event) => ({
+        sequence: Number(event.sequence),
+        stage: event.stage,
+        status: event.status,
+        message: event.message,
+        kind: event.kind,
+        createdAt: new Date(event.created_at).toISOString(),
+      })),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+    };
+  }
+
+  async saveAssistantConversation(
+    conversation: AssistantConversationSnapshot,
+    expectedRevision: number,
+  ): Promise<AssistantConversationSnapshot> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query(
+        `UPDATE assistant.conversations
+         SET status = $2, revision = $3, brief = $4::jsonb, next_field = $5,
+             suggested_replies = $6::jsonb, quest_run_id = $7, error_message = $8, updated_at = $9
+         WHERE conversation_id = $1 AND revision = $10`,
+        [
+          conversation.conversationId,
+          conversation.status,
+          conversation.revision,
+          JSON.stringify(conversation.brief),
+          conversation.nextField,
+          JSON.stringify(conversation.suggestedReplies),
+          conversation.questRunId,
+          conversation.error,
+          conversation.updatedAt,
+          expectedRevision,
+        ],
+      );
+      if (updated.rowCount !== 1) throw new Error("Assistant conversation conflict; reload and retry");
+      await this.insertConversationChildren(client, conversation);
+      await client.query("COMMIT");
+      return structuredClone(conversation);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async insertConversation(
+    client: PoolClient,
+    conversation: AssistantConversationSnapshot,
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO assistant.conversations
+         (conversation_id, candidate_id, status, revision, brief, next_field,
+          suggested_replies, quest_run_id, error_message, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9, $10, $11)`,
+      [
+        conversation.conversationId,
+        conversation.candidateId,
+        conversation.status,
+        conversation.revision,
+        JSON.stringify(conversation.brief),
+        conversation.nextField,
+        JSON.stringify(conversation.suggestedReplies),
+        conversation.questRunId,
+        conversation.error,
+        conversation.createdAt,
+        conversation.updatedAt,
+      ],
+    );
+  }
+
+  private async insertConversationChildren(
+    client: PoolClient,
+    conversation: AssistantConversationSnapshot,
+  ): Promise<void> {
+    for (const [position, message] of conversation.messages.entries()) {
+      await client.query(
+        `INSERT INTO assistant.messages (message_id, conversation_id, position, role, content, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (message_id) DO NOTHING`,
+        [message.messageId, conversation.conversationId, position, message.role, message.content, message.createdAt],
+      );
+    }
+    for (const event of conversation.events) {
+      await client.query(
+        `INSERT INTO assistant.workflow_events
+           (conversation_id, sequence, stage, status, message, kind, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (conversation_id, sequence) DO NOTHING`,
+        [
+          conversation.conversationId,
+          event.sequence,
+          event.stage,
+          event.status,
+          event.message,
+          event.kind,
+          event.createdAt,
+        ],
+      );
+    }
   }
 
   async beginMemoryUpdate(command: MemoryUpdateCommand): Promise<MemoryUpdateAttempt> {

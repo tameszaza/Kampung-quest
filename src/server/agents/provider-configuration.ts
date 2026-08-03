@@ -26,7 +26,8 @@ export type ProviderConfiguration =
 export function resolveProviderConfiguration(
   environment: Readonly<Record<string, string | undefined>>,
 ): ProviderConfiguration {
-  const provider = environment.AGENT_PROVIDER || "deterministic";
+  const provider = environment.AGENT_PROVIDER
+    ?? (environment.NODE_ENV === "test" ? "deterministic" : "gemini");
   if (provider === "deterministic") return { provider, ready: true };
 
   if (provider === "openai") {

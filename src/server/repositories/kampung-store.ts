@@ -1,4 +1,5 @@
 import type {
+  AssistantConversationSnapshot,
   CandidateEmbedding,
   AgentRunAudit,
   CoordinationEventRecord,
@@ -22,6 +23,12 @@ export interface MemoryUpdateAttempt {
 }
 
 export interface KampungStore {
+  createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
+  findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null>;
+  saveAssistantConversation(
+    conversation: AssistantConversationSnapshot,
+    expectedRevision: number,
+  ): Promise<AssistantConversationSnapshot>;
   beginMemoryUpdate(command: MemoryUpdateCommand): Promise<MemoryUpdateAttempt>;
   activateMemory(input: ActivateMemoryInput): Promise<MemoryCard>;
   failMemoryUpdate(attemptId: string, error: string): Promise<void>;
@@ -51,12 +58,40 @@ export interface KampungStore {
 }
 
 export class InMemoryKampungStore implements KampungStore {
+  private readonly assistantConversations = new Map<string, AssistantConversationSnapshot>();
   private readonly memories = new Map<string, MemoryCard>();
   private readonly embeddings = new Map<string, CandidateEmbedding[]>();
   private readonly questRuns = new Map<string, QuestRun>();
   private readonly coordinationEvents: CoordinationEventRecord[] = [];
   private readonly memoryAttempts = new Map<string, MemoryUpdateCommand>();
   private readonly agentRuns: AgentRunAudit[] = [];
+
+  async createAssistantConversation(
+    conversation: AssistantConversationSnapshot,
+  ): Promise<AssistantConversationSnapshot> {
+    if (this.assistantConversations.has(conversation.conversationId)) {
+      throw new Error("Assistant conversation already exists");
+    }
+    this.assistantConversations.set(conversation.conversationId, structuredClone(conversation));
+    return structuredClone(conversation);
+  }
+
+  async findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null> {
+    const conversation = this.assistantConversations.get(conversationId);
+    return conversation ? structuredClone(conversation) : null;
+  }
+
+  async saveAssistantConversation(
+    conversation: AssistantConversationSnapshot,
+    expectedRevision: number,
+  ): Promise<AssistantConversationSnapshot> {
+    const current = this.assistantConversations.get(conversation.conversationId);
+    if (!current || current.revision !== expectedRevision) {
+      throw new Error("Assistant conversation conflict; reload and retry");
+    }
+    this.assistantConversations.set(conversation.conversationId, structuredClone(conversation));
+    return structuredClone(conversation);
+  }
 
   async beginMemoryUpdate(command: MemoryUpdateCommand): Promise<MemoryUpdateAttempt> {
     const currentMemory = await this.findMemory(command.profile.candidateId);

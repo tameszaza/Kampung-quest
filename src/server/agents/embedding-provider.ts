@@ -71,9 +71,11 @@ export class HostedEmbeddingProvider implements EmbeddingProvider {
 
   async embedMemory(input: EmbedMemoryInput): Promise<CandidateEmbedding[]> {
     try {
+      const interests = input.memory.interests.join(" ").trim() || "No interests specified";
+      const offers = input.memory.offers.join(" ").trim() || "No offers specified";
       const response = await this.client.embeddings.create({
         model: this.options.model,
-        input: [input.memory.need, input.memory.interests.join(" "), input.memory.offers.join(" ")],
+        input: [input.memory.need, interests, offers],
         dimensions: this.options.dimensions,
         encoding_format: "float",
       });

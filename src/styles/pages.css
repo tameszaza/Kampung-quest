@@ -2609,6 +2609,16 @@
   text-overflow: ellipsis;
 }
 
+.ai-live-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--green-500);
+  display: inline-block;
+  box-shadow: 0 0 0 3px rgba(16, 157, 112, 0.12);
+}
+
 .assistant-mark,
 .assistant-avatar {
   flex: 0 0 auto;
@@ -2802,6 +2812,32 @@
   color: var(--ink-soft);
 }
 
+.assistant-thinking .assistant-bubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.thinking-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green-600);
+  animation: assistant-thinking 900ms ease-in-out infinite alternate;
+}
+
+.thinking-dots i:nth-child(2) { animation-delay: 150ms; }
+.thinking-dots i:nth-child(3) { animation-delay: 300ms; }
+
+@keyframes assistant-thinking {
+  to { opacity: 0.25; transform: translateY(-2px); }
+}
+
 .assistant-exchange {
   margin: 0 0 18px;
 }
@@ -2872,6 +2908,24 @@
 .assistant-choice-panel input:focus {
   border-color: var(--green-600);
   outline: 3px solid rgba(16, 157, 112, 0.14);
+}
+
+.assistant-suggestions {
+  margin: 10px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.assistant-suggestions button {
+  padding: 8px 11px;
+  border: 1px solid #bfe4d6;
+  border-radius: 999px;
+  background: var(--green-50);
+  color: var(--green-900);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .assistant-composer-actions,
@@ -3001,8 +3055,18 @@
   padding: 11px 2px;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: minmax(120px, 0.4fr) 1fr;
+  grid-template-columns: minmax(120px, 0.4fr) 1fr auto;
   gap: 14px;
+}
+
+.assistant-review dl button {
+  border: 0;
+  background: transparent;
+  color: var(--green-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
 }
 
 .assistant-review dt {
@@ -3063,6 +3127,25 @@
 
 .assistant-progress div.active span {
   background: var(--green-100);
+}
+
+.assistant-progress h2,
+.assistant-progress p {
+  margin: 0;
+}
+
+.assistant-progress div p {
+  display: grid;
+  gap: 2px;
+}
+
+.assistant-progress div small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots i { animation: none; }
 }
 
 .assistant-result {

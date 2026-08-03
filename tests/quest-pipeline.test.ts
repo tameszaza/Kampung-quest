@@ -23,6 +23,7 @@ const pipeline = new QuestPipeline(
 function profile(candidateId: string, need: string, offer: string): CandidateProfile {
   return {
     candidateId,
+    source: "real",
     need,
     interests: ["cooking", "healthy eating"],
     offers: [offer],
