@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EngineQuestCard, questDate, questImage } from "@/components/engine-quest-card";
+import { ActivityActions } from "@/components/activity-actions";
 import { Icon } from "@/components/icons";
 import { QuestCard } from "@/components/quest-card";
 import { getQuestRun, listUserQuests } from "@/features/assistant/client";
@@ -57,7 +58,7 @@ export function LatestEngineQuest() {
   return <EngineQuestCard run={state.value} compact />;
 }
 
-export function EngineQuestDetail({ runId }: { runId: string }) {
+export function EngineQuestDetail({ runId, showActivityActions = true }: { runId: string; showActivityActions?: boolean }) {
   const { user } = useUser();
   const [state, setState] = useState<LoadState<QuestRun | null>>({ status: "loading", value: null });
   useEffect(() => {
@@ -84,7 +85,7 @@ export function EngineQuestDetail({ runId }: { runId: string }) {
     : "Venue to be confirmed";
 
   return (
-    <div className="detail-page engine-detail-page">
+    <div className={`detail-page engine-detail-page${showActivityActions ? "" : " without-action"}`}>
       <div className="detail-header-wrap"><header className="page-header"><Link className="icon-button" href="/quests" aria-label="Back to quests"><Icon name="back" /></Link><h1>Quest Details</h1><span /></header></div>
       <div className="detail-layout">
         <div className="detail-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" /><span className="image-badge">{run.status === "human_review" ? "Needs review" : "Recommended"}</span></div>
@@ -106,6 +107,7 @@ export function EngineQuestDetail({ runId }: { runId: string }) {
             {run.safety?.conditions.length ? <ul>{run.safety.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : null}
           </section>
           {run.status === "human_review" ? <p className="assistant-note">A coordinator needs to review this match before any invitation is prepared.</p> : <p className="engine-safety"><Icon name="shield" size={20} /> Demo coordination only: safety approved and invitations prepared; no real messages were sent.</p>}
+          {showActivityActions ? <div className="detail-action"><ActivityActions activityId={run.runId} /></div> : null}
         </article>
       </div>
     </div>

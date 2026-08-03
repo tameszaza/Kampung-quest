@@ -29,6 +29,7 @@ export type IconName =
   | "shield"
   | "edit"
   | "close"
+  | "trash"
   | "check";
 
 type IconProps = SVGProps<SVGSVGElement> & {
@@ -108,6 +109,8 @@ export function Icon({ name, size = 24, strokeWidth = 1.8, ...props }: IconProps
       return <svg {...common}><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>;
     case "close":
       return <svg {...common}><path d="m6 6 12 12M18 6 6 18"/></svg>;
+    case "trash":
+      return <svg {...common}><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>;
     case "check":
       return <svg {...common}><path d="m5 12 4 4L19 6"/></svg>;
   }

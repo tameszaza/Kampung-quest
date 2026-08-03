@@ -16,7 +16,8 @@ export function ChatCenter() {
   const [messageLoading, setMessageLoading] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<"leave" | "block" | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"leave" | "block" | "delete" | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -75,12 +76,14 @@ export function ChatCenter() {
 
   function openConversation(id: string) {
     setSelectedId(id);
+    setMenuOpen(false);
+    setConfirmAction(null);
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedId) return;
+    if (!selectedId || selected?.blocked) return;
     const form = event.currentTarget;
     const input = form.elements.namedItem("message") as HTMLInputElement;
     const body = input.value.trim();
@@ -106,26 +109,36 @@ export function ChatCenter() {
   }
 
   async function completeChatAction() {
-    if (!selected || actionBusy) return;
+    if (!selected || !confirmAction || actionBusy) return;
+    const action = confirmAction;
     setActionBusy(true);
     try {
-      const response = selected.type === "group"
-        ? await fetch(`/api/chat/conversations/${selected.id}`, { method: "DELETE" })
-        : selected.otherUserId
+      const response = action === "block"
+        ? (selected.otherUserId
           ? await fetch("/api/chat/blocks", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ userId: selected.otherUserId }),
           })
-          : null;
+          : null)
+        : await fetch(`/api/chat/conversations/${selected.id}`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
       if (!response) throw new Error("This conversation is missing its contact details");
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "That action could not be completed");
-      setConversations((items) => items.filter((item) => item.id !== selected.id));
-      setSelectedId(null);
-      setMessages([]);
+      if (action === "block") {
+        setConversations((items) => items.map((item) => item.id === selected.id ? { ...item, blocked: true } : item));
+      } else {
+        setConversations((items) => items.filter((item) => item.id !== selected.id));
+        setSelectedId(null);
+        setMessages([]);
+      }
       setConfirmAction(null);
-      showToast(selected.type === "group" ? "You left the group" : "User blocked");
+      setMenuOpen(false);
+      showToast(action === "leave" ? "You left the group" : action === "delete" ? "Chat deleted for you" : "User blocked. Your chat history is preserved");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "That action could not be completed");
     } finally {
@@ -167,20 +180,24 @@ export function ChatCenter() {
                 <span><h2>{selected.title}</h2><p>{selected.type === "group" ? `${selected.memberCount} members` : "Community member"}</p></span>
                 <div className="chat-header-actions">
                   <button
-                    className="chat-action-button"
+                    className="chat-more-button"
                     type="button"
-                    onClick={() => setConfirmAction(selected.type === "group" ? "leave" : "block")}
-                    aria-label={selected.type === "group" ? "Leave group" : `Block ${selected.title}`}
+                    onClick={() => { setMenuOpen((open) => !open); setConfirmAction(null); }}
+                    aria-label="More chat options"
+                    aria-expanded={menuOpen}
                   >
-                    <Icon name={selected.type === "group" ? "close" : "blocked"} size={19} />
-                    <span>{selected.type === "group" ? "Leave" : "Block"}</span>
+                    <span aria-hidden="true">⋮</span>
                   </button>
                 </div>
               </header>
+              {menuOpen ? <div className="chat-options-menu" role="menu" aria-label="Chat options">
+                {selected.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : <button type="button" role="menuitem" disabled={selected.blocked} onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> {selected.blocked ? "User already blocked" : "Block user"}</button>}
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
+              </div> : null}
               {confirmAction ? (
-                <div className="chat-action-confirm" role="alertdialog" aria-label={confirmAction === "leave" ? "Leave group confirmation" : "Block user confirmation"}>
-                  <div><strong>{confirmAction === "leave" ? `Leave ${selected.title}?` : `Block ${selected.title}?`}</strong><p>{confirmAction === "leave" ? "You will no longer receive messages from this group." : "You will no longer receive direct messages from this person."}</p></div>
-                  <div className="chat-action-confirm-buttons"><button type="button" className="quiet-button" onClick={() => setConfirmAction(null)} disabled={actionBusy}>Keep chat</button><button type="button" className="danger-button" onClick={() => void completeChatAction()} disabled={actionBusy}>{actionBusy ? "Please wait…" : confirmAction === "leave" ? "Leave group" : "Block user"}</button></div>
+                <div className="chat-action-confirm" role="alertdialog" aria-label={`${confirmAction} confirmation`}>
+                  <div><strong>{confirmAction === "leave" ? `Leave ${selected.title}?` : confirmAction === "delete" ? "Delete this chat?" : `Block ${selected.title}?`}</strong><p>{confirmAction === "leave" ? "You will no longer receive messages from this group." : confirmAction === "delete" ? "This removes the chat from your list. Other people keep their history." : "Your current chat history stays here. New messages will be blocked."}</p></div>
+                  <div className="chat-action-confirm-buttons"><button type="button" className="quiet-button" onClick={() => setConfirmAction(null)} disabled={actionBusy}>Keep chat</button><button type="button" className="danger-button" onClick={() => void completeChatAction()} disabled={actionBusy}>{actionBusy ? "Please wait…" : confirmAction === "leave" ? "Leave group" : confirmAction === "delete" ? "Delete chat" : "Block user"}</button></div>
                 </div>
               ) : null}
             </div>
@@ -203,8 +220,8 @@ export function ChatCenter() {
               <div ref={bottomRef} />
             </div>
             <form className="message-composer" onSubmit={sendMessage}>
-              <label><span className="sr-only">Type a message</span><input name="message" autoComplete="off" maxLength={2000} placeholder="Type a message…" /></label>
-              <button type="submit" aria-label="Send message"><span aria-hidden="true">➤</span></button>
+              <label><span className="sr-only">Type a message</span><input name="message" autoComplete="off" maxLength={2000} disabled={selected.blocked} placeholder={selected.blocked ? "Chat blocked — unblock in Settings to message" : "Type a message…"} /></label>
+              <button type="submit" aria-label="Send message" disabled={selected.blocked}><span aria-hidden="true">➤</span></button>
             </form>
           </>
         ) : (

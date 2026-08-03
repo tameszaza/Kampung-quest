@@ -31,7 +31,7 @@ export default function HomePage() {
             <Link href="/my-quests"><span>Upcoming Activities</span><strong>2</strong><small>View your schedule</small></Link>
             <Link href="/messages"><span>New Messages</span><strong>2</strong><small>Unread messages</small></Link>
             <Link href="/quests"><span>New Matches</span><strong>3</strong><small>Activities for you</small></Link>
-            <Link href="/invites"><span>Invites</span><strong>2</strong><small>Pending invitations</small></Link>
+            <Link href="/quests?tab=Invited"><span>Invites</span><strong>2</strong><small>Pending invitations</small></Link>
           </section>
           <Link className="assistant-home-callout" href="/assistant">
             <span aria-hidden="true">♥</span>
@@ -39,7 +39,7 @@ export default function HomePage() {
             <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
           </Link>
 
-          <Link className="invite-banner" href="/invites">
+          <Link className="invite-banner" href="/quests?tab=Invited">
             <span className="invite-gift" aria-hidden="true">🎁</span>
             <span>
               <strong>2 demo quest invites</strong>
@@ -70,7 +70,7 @@ export default function HomePage() {
           <h2>Your Community</h2>
           <Link href="/needs"><Icon name="needs" /><span><strong>What I&apos;ve shared</strong><small>Review your Senior Quest memory</small></span><Icon name="chevron" /></Link>
           <Link href="/quests"><Icon name="quests" /><span><strong>My Recommendations</strong><small>Quests prepared by the engine</small></span><Icon name="chevron" /></Link>
-          <Link href="/invites"><Icon name="invite" /><span><strong>My Invites</strong><small>2 demo invitations</small></span><Icon name="chevron" /></Link>
+          <Link href="/quests?tab=Invited"><Icon name="invite" /><span><strong>My Invites</strong><small>2 demo invitations</small></span><Icon name="chevron" /></Link>
         </aside>
       </div>
     </div>

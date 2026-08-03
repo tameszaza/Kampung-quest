@@ -35,7 +35,7 @@ export default function ProfilePage() {
       <section className="menu-card" aria-label="Profile options">
         <MenuRow icon="needs" label="My Needs" href="/needs" />
         <MenuRow icon="quests" label="My Quests" href="/my-quests" />
-        <MenuRow icon="invite" label="My Invites" href="/invites" />
+        <MenuRow icon="invite" label="My Invites" href="/quests?tab=Invited" />
         <MenuRow icon="connections" label="My Connections" href="/messages" />
         <MenuRow icon="badge" label="My Badges" onClick={() => showToast("Badges opened")} />
       </section>

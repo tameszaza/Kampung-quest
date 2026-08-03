@@ -1,12 +1,6 @@
-import { EngineQuestList } from "@/components/engine-quest-views";
-import { PageHeader } from "@/components/page-header";
+import { ActivitiesPage } from "@/components/activities-page";
 
-export default function QuestsPage() {
-  return (
-    <div className="page-container">
-      <PageHeader title="Recommended Quests" />
-      <p className="matched-copy">Safely matched for Maria <span aria-hidden="true">✨</span></p>
-      <EngineQuestList />
-    </div>
-  );
+export default async function QuestsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams;
+  return <ActivitiesPage initialTab={tab === "Invited" ? "Invited" : "Suggested"} />;
 }

@@ -103,17 +103,24 @@ describe("member preferences and chat", () => {
     });
     const direct = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
     await store.sendMessage(lee.id, group.id, "A group update");
+    await store.sendMessage(lee.id, direct.id, "Before the block");
 
     await store.blockUser(maria.id, lee.id);
     expect((await store.listBlockedUsers(maria.id))[0]?.id).toBe(lee.id);
     expect((await store.listContacts(maria.id, "lee")).some((contact) => contact.id === lee.id)).toBe(false);
-    expect((await store.listMessages(maria.id, group.id)).some((message) => message.body === "A group update")).toBe(false);
-    expect((await store.listConversations(maria.id)).some((conversation) => conversation.id === direct.id)).toBe(false);
+    expect((await store.listMessages(maria.id, group.id)).some((message) => message.body === "A group update")).toBe(true);
+    expect((await store.listMessages(maria.id, direct.id)).some((message) => message.body === "Before the block")).toBe(true);
+    expect((await store.listConversations(maria.id)).find((conversation) => conversation.id === direct.id)?.blocked).toBe(true);
     await expect(store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] })).rejects.toThrow("blocked");
 
     await store.unblockUser(maria.id, lee.id);
     expect((await store.listBlockedUsers(maria.id)).length).toBe(0);
     expect((await store.listContacts(maria.id, "lee")).some((contact) => contact.id === lee.id)).toBe(true);
+
+    await store.deleteConversation(maria.id, direct.id);
+    expect((await store.listConversations(maria.id)).some((conversation) => conversation.id === direct.id)).toBe(false);
+    const reopened = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    expect(reopened.id).toBe(direct.id);
 
     await store.leaveConversation(maria.id, group.id);
     expect((await store.listConversations(maria.id)).some((conversation) => conversation.id === group.id)).toBe(false);

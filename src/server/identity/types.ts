@@ -40,6 +40,7 @@ export type ConversationSummary = {
   memberCount: number;
   /** The other participant for a direct message; null for groups. */
   otherUserId?: string | null;
+  blocked?: boolean;
 };
 
 export type ChatMessage = {

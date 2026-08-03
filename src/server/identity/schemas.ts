@@ -73,3 +73,7 @@ export const sendMessageSchema = z.object({
 export const chatUserSchema = z.object({
   userId: z.string().trim().min(1, "Choose a user"),
 });
+
+export const conversationActionSchema = z.object({
+  action: z.enum(["delete", "leave"]).default("leave"),
+});

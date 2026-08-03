@@ -18,8 +18,8 @@ const navItems: Array<{ href: string; label: string; icon: IconName; match: stri
 
 const desktopItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
   { href: "/home", label: "Home", icon: "home", match: ["/home"] },
-  { href: "/quests", label: "Activities", icon: "quests", match: ["/quests"] },
-  { href: "/my-quests", label: "My Activities", icon: "check", match: ["/my-quests", "/invites", "/needs"] },
+  { href: "/quests", label: "Activities", icon: "quests", match: ["/quests", "/invites"] },
+  { href: "/my-quests", label: "My Activities", icon: "check", match: ["/my-quests"] },
   { href: "/messages", label: "Messages", icon: "message", match: ["/messages"] },
   { href: "/profile", label: "My Profile", icon: "profile", match: ["/profile"] },
   { href: "/settings", label: "Settings", icon: "settings", match: ["/settings"] },
@@ -63,6 +63,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-label={item.label}
+                title={item.label}
                 className={isActive(pathname, item.match) ? "active" : ""}
               >
                 <Icon name={item.icon} size={21} />
@@ -70,9 +72,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <button className="desktop-create" type="button" onClick={() => router.push("/assistant")}>
+          <button className="desktop-create" type="button" onClick={() => router.push("/assistant")} aria-label="Talk to Senior Quest" title="Talk to Senior Quest">
             <Icon name="plus" size={22} />
-            Talk to Senior Quest
+            <span className="desktop-create-label">Talk to Senior Quest</span>
           </button>
           <Link className="desktop-avatar" href="/profile" aria-label="Open profile">
             <SafeImage src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="44px" />

@@ -284,7 +284,7 @@ export class PostgresIdentityStore implements IdentityStore {
     const result = await this.pool.query<{
       conversation_id: string; conversation_type: "direct" | "group"; display_title: string;
       display_image: string | null; preview: string | null; last_message_at: Date | string;
-      unread_count: string | number; member_count: string | number; other_user_id: string | null;
+      unread_count: string | number; member_count: string | number; other_user_id: string | null; blocked: boolean;
     }>(
       `SELECT c.conversation_id, c.conversation_type,
               COALESCE(c.title, other.full_name, 'Conversation') AS display_title,
@@ -298,6 +298,14 @@ export class PostgresIdentityStore implements IdentityStore {
                  AND unread.sender_id IS DISTINCT FROM $1) AS unread_count,
               (SELECT count(*) FROM chat.conversation_members members
                WHERE members.conversation_id = c.conversation_id) AS member_count
+              ,(c.conversation_type = 'direct' AND EXISTS (
+                SELECT 1
+                FROM chat.conversation_members blocked_member
+                JOIN chat.user_blocks block
+                  ON (block.blocker_id = $1 AND block.blocked_id = blocked_member.user_id)
+                  OR (block.blocker_id = blocked_member.user_id AND block.blocked_id = $1)
+                WHERE blocked_member.conversation_id = c.conversation_id AND blocked_member.user_id <> $1
+              )) AS blocked
        FROM chat.conversations c
        JOIN chat.conversation_members self
          ON self.conversation_id = c.conversation_id AND self.user_id = $1
@@ -313,13 +321,9 @@ export class PostgresIdentityStore implements IdentityStore {
          WHERE message.conversation_id = c.conversation_id
          ORDER BY created_at DESC LIMIT 1
        ) latest ON true
-       WHERE c.conversation_type = 'group' OR NOT EXISTS (
-         SELECT 1
-         FROM chat.conversation_members blocked_member
-         JOIN chat.user_blocks block
-           ON (block.blocker_id = $1 AND block.blocked_id = blocked_member.user_id)
-           OR (block.blocker_id = blocked_member.user_id AND block.blocked_id = $1)
-         WHERE blocked_member.conversation_id = c.conversation_id AND blocked_member.user_id <> $1
+       WHERE NOT EXISTS (
+         SELECT 1 FROM chat.conversation_deletions deletion
+         WHERE deletion.conversation_id = c.conversation_id AND deletion.user_id = $1
        )
        ORDER BY last_message_at DESC`,
       [userId],
@@ -334,6 +338,7 @@ export class PostgresIdentityStore implements IdentityStore {
       unreadCount: Number(row.unread_count),
       memberCount: Number(row.member_count),
       otherUserId: row.conversation_type === "direct" ? row.other_user_id : null,
+      blocked: row.blocked,
     }));
   }
 
@@ -384,6 +389,11 @@ export class PostgresIdentityStore implements IdentityStore {
           [conversationId, memberId],
         );
       }
+      await client.query(
+        `DELETE FROM chat.conversation_deletions
+         WHERE conversation_id = $1 AND user_id = $2`,
+        [conversationId, userId],
+      );
       await client.query("COMMIT");
       const summary = (await this.listConversations(userId)).find((item) => item.id === conversationId);
       if (!summary) throw new Error("Conversation not found");
@@ -394,6 +404,16 @@ export class PostgresIdentityStore implements IdentityStore {
     } finally {
       client.release();
     }
+  }
+
+  async deleteConversation(userId: string, conversationId: string): Promise<void> {
+    await this.requireMember(userId, conversationId);
+    await this.pool.query(
+      `INSERT INTO chat.conversation_deletions (conversation_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET deleted_at = now()`,
+      [conversationId, userId],
+    );
   }
 
   async leaveConversation(userId: string, conversationId: string): Promise<void> {
@@ -464,13 +484,9 @@ export class PostgresIdentityStore implements IdentityStore {
        FROM chat.messages message
        LEFT JOIN identity.users sender ON sender.user_id = message.sender_id
        WHERE message.conversation_id = $1
-         AND NOT EXISTS (
-           SELECT 1 FROM chat.user_blocks block
-           WHERE block.blocker_id = $2 AND block.blocked_id = message.sender_id
-         )
        ORDER BY message.created_at ASC
        LIMIT 300`,
-      [conversationId, userId],
+      [conversationId],
     );
     await this.pool.query(
       `UPDATE chat.conversation_members SET last_read_at = now()

@@ -70,10 +70,13 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
     const safetyDirect = await store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
     await store!.blockUser(maria.id, lee.id);
     expect((await store!.listContacts(maria.id, `lee.${suffix}`)).some((contact) => contact.id === lee.id)).toBe(false);
-    expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === safetyDirect.id)).toBe(false);
+    expect((await store!.listConversations(maria.id)).find((conversation) => conversation.id === safetyDirect.id)?.blocked).toBe(true);
     await expect(store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] })).rejects.toThrow("blocked");
     await store!.unblockUser(maria.id, lee.id);
-    expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === safetyDirect.id)).toBe(true);
+    await store!.deleteConversation(maria.id, safetyDirect.id);
+    expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === safetyDirect.id)).toBe(false);
+    const reopened = await store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    expect(reopened.id).toBe(safetyDirect.id);
     await store!.leaveConversation(maria.id, group.id);
     expect((await store!.listConversations(maria.id)).some((conversation) => conversation.id === group.id)).toBe(false);
   });

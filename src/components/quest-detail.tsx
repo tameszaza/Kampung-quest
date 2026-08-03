@@ -2,13 +2,13 @@
 
 import Image from "next/image";
 import { useAppState } from "@/components/app-state";
+import { ActivityActions } from "@/components/activity-actions";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import type { Quest } from "@/types/quest";
 
-export function QuestDetail({ quest }: { quest: Quest }) {
-  const { interestedQuests, toggleInterested, showToast } = useAppState();
-  const interested = interestedQuests.has(quest.slug);
+export function QuestDetail({ quest, showActivityActions = true }: { quest: Quest; showActivityActions?: boolean }) {
+  const { showToast } = useAppState();
 
   async function share() {
     try {
@@ -24,7 +24,7 @@ export function QuestDetail({ quest }: { quest: Quest }) {
   }
 
   return (
-    <div className="detail-page">
+    <div className={`detail-page${showActivityActions ? "" : " without-action"}`}>
       <div className="detail-header-wrap">
         <PageHeader
           title="Quest Details"
@@ -58,13 +58,7 @@ export function QuestDetail({ quest }: { quest: Quest }) {
             </div>
           </div>
 
-          <button
-            className={`primary-button detail-action${interested ? " confirmed" : ""}`}
-            type="button"
-            onClick={() => toggleInterested(quest.slug)}
-          >
-            {interested ? <><Icon name="check" size={21} /> Interested</> : "I'm Interested"}
-          </button>
+          {showActivityActions ? <div className="detail-action"><ActivityActions activityId={quest.slug} /></div> : null}
         </article>
       </div>
     </div>
