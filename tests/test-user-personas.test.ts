@@ -19,19 +19,24 @@ describe("test user personas", () => {
     expect(TEST_USER_PASSWORD).toMatch(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/);
   });
 
-  it("creates schema-valid profiles with twelve future Singapore availability windows", () => {
+  it("creates schema-valid profiles with flexible future Singapore availability", () => {
     const now = new Date("2026-08-04T00:00:00.000Z");
     for (const persona of TEST_USER_PERSONAS) {
       const profile = createTestCandidateProfile(persona, `candidate_${persona.fixtureKey}`, now);
       expect(candidateProfileSchema.parse(profile)).toEqual(profile);
       expect(profile.source).toBe("demo");
-      expect(profile.constraints.availableWindows).toHaveLength(12);
+      expect(profile.constraints.availableWindows).toHaveLength(persona.fixtureRole === "hard_filter" ? 12 : 84);
       expect(profile.constraints.availableWindows.every((window) => Date.parse(window.start) > now.getTime())).toBe(true);
       expect(profile.constraints.availableWindows.every((window) => window.timeZone === "Asia/Singapore")).toBe(true);
+      if (persona.fixtureRole !== "hard_filter") {
+        expect(new Set(profile.constraints.availableWindows.map((window) => new Date(window.start).getUTCDay() || 7))).toHaveLength(7);
+        expect(profile.constraints.availableWindows.every((window) => window.start.includes("T08:00:00+08:00"))).toBe(true);
+        expect(profile.constraints.availableWindows.every((window) => window.end.includes("T20:00:00+08:00"))).toBe(true);
+      }
     }
   });
 
-  it("isolates the three primary cohorts by weekly schedule", () => {
+  it("retains representative preferred schedule labels for the three primary cohorts", () => {
     const primarySchedules = new Map<string, Set<string>>();
     for (const persona of TEST_USER_PERSONAS.filter((candidate) => candidate.fixtureRole === "primary")) {
       const schedule = `${persona.schedule.dayOfWeek}:${persona.schedule.startLocalTime}-${persona.schedule.endLocalTime}`;
@@ -63,9 +68,9 @@ describe("test user personas", () => {
     const garden = new Set((await engine.retrieveCandidates({ initiatingCandidateId: "garden_host", limit: 15 })).map((item) => item.profile.candidateId));
     const technology = new Set((await engine.retrieveCandidates({ initiatingCandidateId: "tech_host", limit: 15 })).map((item) => item.profile.candidateId));
 
-    expect(cooking).toEqual(new Set(["cook_halal", "cook_step_free", "reserve_cooking"]));
-    expect(garden).toEqual(new Set(["garden_seated", "garden_companion"]));
-    expect(technology).toEqual(new Set(["tech_errands", "tech_language", "reserve_technology"]));
+    expect([...cooking]).toEqual(expect.arrayContaining(["cook_halal", "cook_step_free", "reserve_cooking"]));
+    expect([...garden]).toEqual(expect.arrayContaining(["garden_seated", "garden_companion"]));
+    expect([...technology]).toEqual(expect.arrayContaining(["tech_errands", "tech_language", "reserve_technology"]));
     expect(cooking.has("filter_time")).toBe(false);
     expect(cooking.has("filter_group")).toBe(false);
     expect(garden.has("filter_distance")).toBe(false);
@@ -109,7 +114,9 @@ describe("test user personas", () => {
         need: persona.need,
         interests: persona.interests.join("; "),
         offers: persona.offers.join("; "),
-        availability_sgt: `${dayName(persona.schedule.dayOfWeek)} ${persona.schedule.startLocalTime}-${persona.schedule.endLocalTime}`,
+        availability_sgt: persona.fixtureRole === "hard_filter"
+          ? `${dayName(persona.schedule.dayOfWeek)} ${persona.schedule.startLocalTime}-${persona.schedule.endLocalTime}`
+          : "Every day 08:00-20:00",
         languages: persona.languages.join("; "),
         maximum_distance_m: String(persona.maximumDistanceM),
         group_size: `${persona.minimumGroupSize}-${persona.maximumGroupSize}`,

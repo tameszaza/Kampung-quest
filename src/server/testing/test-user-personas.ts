@@ -115,9 +115,9 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
     fixtureKey: "filter_time", fullName: "Maria Santos", ...account("filter.time"), dateOfBirth: "1956-02-19", gender: "Female", area: "Toa Payoh",
     cohort: "healthy_cooking", fixtureRole: "hard_filter", expectedMatchingBehavior: "Must not match Alice because there is no 30-minute availability overlap.",
     need: "Would enjoy joining neighbours for healthy lunch preparation", interests: ["healthy cooking", "community lunches", "recipes"], offers: ["can prepare a fruit dessert"],
-    schedule: { dayOfWeek: 4, startLocalTime: "10:00", endLocalTime: "12:00" }, maximumDistanceM: 1_500, minimumGroupSize: 2, maximumGroupSize: 3,
+    schedule: { dayOfWeek: 4, startLocalTime: "20:30", endLocalTime: "22:30" }, maximumDistanceM: 1_500, minimumGroupSize: 2, maximumGroupSize: 3,
     indoorRequired: true, stairsAllowed: true, dietaryRequirements: [], languages: ["English"], distanceFromInitiatorM: 600, previousGroupScore: 0.86,
-    activityLevel: "gentle", accessibilityNeeds: [], coordinationTestMessage: "I am vegetarian and cannot attend on Tuesday.", expectedCoordinationFields: ["dietary", "temporaryConflicts"],
+    activityLevel: "gentle", accessibilityNeeds: [], coordinationTestMessage: "I am vegetarian and cannot attend on Tuesday; I can only attend after 20:30.", expectedCoordinationFields: ["dietary", "temporaryConflicts"],
   },
   {
     fixtureKey: "filter_language", fullName: "Li Wei", ...account("filter.language"), dateOfBirth: "1952-07-07", gender: "Male", area: "Clementi",
@@ -162,16 +162,17 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
 ] as const;
 
 export function createTestCandidateProfile(persona: TestUserPersona, candidateId: string, now = new Date()): CandidateProfile {
-  const availableWindows = futureWeeklyWindows(persona.schedule, now);
-  const recurringAvailabilityRules: WeeklyAvailabilityRule[] = [{
+  const schedules = schedulesForPersona(persona);
+  const availableWindows = futureWeeklyWindows(schedules, now);
+  const recurringAvailabilityRules: WeeklyAvailabilityRule[] = schedules.map((schedule) => ({
     kind: "weekly_recurrence",
-    daysOfWeek: [persona.schedule.dayOfWeek],
-    startLocalTime: persona.schedule.startLocalTime,
-    endLocalTime: persona.schedule.endLocalTime,
+    daysOfWeek: [schedule.dayOfWeek],
+    startLocalTime: schedule.startLocalTime,
+    endLocalTime: schedule.endLocalTime,
     timeZone: "Asia/Singapore",
     validFrom: availableWindows[0].start.slice(0, 10),
     validUntil: availableWindows.at(-1)!.end.slice(0, 10),
-  }];
+  }));
   return {
     candidateId, source: "demo", need: persona.need, interests: [...persona.interests], offers: [...persona.offers],
     constraints: {
@@ -195,19 +196,30 @@ export function createTestPersonaNarrative(persona: TestUserPersona): string {
   return `${persona.need}. ${persona.offers[0]}. Stable requirements: ${requirements}.`;
 }
 
-function futureWeeklyWindows(schedule: TestUserPersona["schedule"], now: Date): CandidateProfile["constraints"]["availableWindows"] {
+function schedulesForPersona(persona: TestUserPersona): TestUserPersona["schedule"][] {
+  if (persona.fixtureRole === "hard_filter") return [persona.schedule];
+  return Array.from({ length: 7 }, (_, index) => ({
+    dayOfWeek: index + 1,
+    startLocalTime: "08:00",
+    endLocalTime: "20:00",
+  }));
+}
+
+function futureWeeklyWindows(schedules: TestUserPersona["schedule"][], now: Date): CandidateProfile["constraints"]["availableWindows"] {
   const singaporeNow = new Date(now.getTime() + 8 * 60 * 60_000);
-  const currentIsoDay = singaporeNow.getUTCDay() || 7;
-  let daysUntilFirst = (schedule.dayOfWeek - currentIsoDay + 7) % 7;
-  if (daysUntilFirst === 0) daysUntilFirst = 7;
-  const firstDate = new Date(Date.UTC(singaporeNow.getUTCFullYear(), singaporeNow.getUTCMonth(), singaporeNow.getUTCDate() + daysUntilFirst));
-  return Array.from({ length: 12 }, (_, index) => {
-    const date = new Date(firstDate.getTime() + index * 7 * 24 * 60 * 60_000);
-    const localDate = date.toISOString().slice(0, 10);
-    return {
-      start: `${localDate}T${schedule.startLocalTime}:00+08:00`,
-      end: `${localDate}T${schedule.endLocalTime}:00+08:00`,
-      timeZone: "Asia/Singapore",
-    };
-  });
+  const firstDate = new Date(Date.UTC(singaporeNow.getUTCFullYear(), singaporeNow.getUTCMonth(), singaporeNow.getUTCDate() + 1));
+  const windows: CandidateProfile["constraints"]["availableWindows"] = [];
+  for (let dayOffset = 0; dayOffset < 84; dayOffset += 1) {
+    const date = new Date(firstDate.getTime() + dayOffset * 24 * 60 * 60_000);
+    const dayOfWeek = date.getUTCDay() || 7;
+    for (const schedule of schedules.filter((candidate) => candidate.dayOfWeek === dayOfWeek)) {
+      const localDate = date.toISOString().slice(0, 10);
+      windows.push({
+        start: `${localDate}T${schedule.startLocalTime}:00+08:00`,
+        end: `${localDate}T${schedule.endLocalTime}:00+08:00`,
+        timeZone: "Asia/Singapore",
+      });
+    }
+  }
+  return windows;
 }
