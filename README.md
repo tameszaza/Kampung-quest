@@ -2,6 +2,30 @@
 
 Kampung Quest is a modular Next.js web server for turning seniors' needs, interests, offers and constraints into safe, mutually beneficial group activities. The implementation follows the pipeline described below and exposes it through versioned App Router API endpoints.
 
+## Competition context
+
+Kampung Quest was built for the **AI Agent / Skills Track** of the WorkBuddy hackathon, whose
+challenge is **"Age Well"**. The project uses an AI-assisted, safety-aware workflow to help older
+adults turn everyday needs and interests into meaningful activities with neighbours. In short,
+the goal is to reduce isolation while preserving dignity, consent, accessibility and human choice.
+
+The competition development deadline is **9 August 2026, 11:59 PM SGT**. The submission is expected
+to include an online demo link or Skill ZIP, a skill demo video, and a project introduction deck
+(PPT). The submission form, process and exact submission timing are to be announced by the
+organisers.
+
+Judging is weighted as follows:
+
+- **30 points — Impact & Relevance:** how directly the project addresses the Age Well challenge.
+- **40 points — Effective use of AI tools:** including autonomous planning, workflows and tool invocation.
+- **30 points — Project Quality:** creativity, completeness, technical execution and polish.
+- **5-point bonus:** share the project on Rednote, YouTube or X with
+  `#CodeBuddy #WorkBuddy #Miora #TencentCloudHackathon`.
+
+This repository is therefore both the Kampung Quest product codebase and the working source for
+the competition demo, video and deck. The AI roles, deterministic safeguards and end-to-end
+workflow described below are the main evidence for the AI-tool and project-quality criteria.
+
 ## Run with Docker
 
 ```bash
@@ -37,6 +61,16 @@ npm run typecheck
 npm run build
 ```
 
+## Image-generation diagnostics
+
+Thumbnail generation emits structured JSON events without API keys, prompts, or image bytes. Watch provider responses, retry decisions, quota classification, and storage results with:
+
+```bash
+docker compose logs -f api | grep 'quest_image'
+```
+
+Set `LOG_LEVEL=debug` for provider timing. Any remote refusal, quota error, timeout, or invalid SVG intentionally falls through to the next thumbnail provider.
+
 ## API workflow
 
 Member-facing APIs require the signed, HttpOnly session cookie managed by Better Auth under
@@ -54,8 +88,8 @@ For direct API use:
 
 1. Start an AI conversation with `POST /api/v1/assistant/conversations`, append answers under its `/turns` route, then confirm it under `/confirm`; the legacy complete-brief endpoint remains available at `POST /api/v1/assistant/recommend`.
 2. Inspect eligible matches with `GET /api/v1/candidates/{candidateId}/retrieve`.
-3. Run synthesis, validation, safety review and coordination with `POST /api/v1/quests/propose/{candidateId}`.
-4. List recommendations with `GET /api/v1/quests?candidateId={candidateId}`, read durable quest state with `GET /api/v1/quests/{questId}`, and submit demo coordination events to `POST /api/v1/quests/{questId}/events`.
+3. Run synthesis, validation, and safety review with `POST /api/v1/quests/propose/{candidateId}`. Approved proposals enter editable formation; synthesis does not send invitations.
+4. Use `/api/v1/event-quests/{questId}` and its roster, coordination, arrangement, and lifecycle routes for durable event coordination. Invitations are handled under `/api/v1/invitations`, while `/api/v1/activities` returns user-centric Suggested, Invited, and My Activities views. The old `/api/v1/quests/{questId}/events` demo mutation endpoint is retired with HTTP 410.
 
 Example profile:
 
@@ -146,7 +180,7 @@ Add the equivalent HTTPS URI for production. A first Google sign-in opens the pr
 screen with Google name, email, and photo prefilled. The name and photo remain editable; the
 verified Google email is locked. Returning members go straight back into their existing account.
 
-Route handlers call one `KampungQuestEngine` interface. The engine owns ordered orchestration while injected adapters provide PostgreSQL, embeddings and AI-agent runs. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
+Route handlers call a small application-owned domain interface: `KampungQuestEngine` owns memory, retrieval, synthesis, validation, and safety orchestration; `EventCoordinator` owns the post-synthesis roster, invitation, membership, private coordination, arrangement, notification, and recovery lifecycle. Both use the same injected `KampungStore`, with optimistic revisions and atomic state/audit/outbox writes. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
 
 ## Core engine storage
 
@@ -156,7 +190,7 @@ One PostgreSQL instance contains four logical schemas:
 | --- | --- |
 | `memory` | Authoritative conversation events, exact constraints, versioned Markdown, normalized facts and agent audit records |
 | `retrieval` | Rebuildable need, interest and offer embeddings tied to an exact active memory version |
-| `quest` | Quest runs, proposals, safety/validation results and immutable coordination events |
+| `quest` | Quest runs, proposals, safety/validation results, event-coordination aggregates, immutable audit events and delivery outbox |
 | `assistant` | AI conversation transcripts, authoritative brief drafts and replayable workflow events |
 
 The Personal Memory Micro-Agent is invoked only when new information arrives. It receives the active Markdown snapshot, current soft facts, authoritative constraints and the new narrative. A new snapshot becomes active only after all three embeddings are stored. Failed model or embedding work remains recorded while the previous active memory stays usable.
@@ -182,12 +216,28 @@ AGENT_PROVIDER=gemini
 GEMINI_API_KEY=your-server-side-key
 ```
 
-The defaults use `gemini-2.5-flash-lite` for memory, safety and recovery,
-`gemini-2.5-flash` for quest synthesis, and `gemini-embedding-001` for retrieval.
+The defaults use `gemini-3.1-flash-lite` for memory, safety and recovery,
+`gemini-3.5-flash` for quest synthesis and `gemini-embedding-001` for retrieval. Quest
+thumbnails do not call a Gemini image model; when needed, the existing text-capable Gemini
+model creates a constrained SVG that is rendered locally.
 The application explicitly requests 1536-dimensional Gemini embeddings to match the
 PostgreSQL `vector(1536)` column. `GEMINI_BASE_URL` and every Gemini model name can be
 overridden through the environment variables shown in `.env.example`. Keep all provider
 keys server-side; do not expose them through `NEXT_PUBLIC_` variables.
+
+### Quest thumbnails
+
+The quest engine invokes a small, best-effort image pipeline after a proposal is validated. It
+asks the normal Gemini text model for a constrained self-contained SVG, then creates a
+deterministic illustrated SVG locally if the text provider is unavailable. Gemini image
+generation is not used. The local fallback is always available, so a provider quota/refusal
+never leaves a new quest with an unrelated stock thumbnail.
+
+All successful outputs are resized and stored as optimized 1200×675 WebP files in
+`QUEST_IMAGE_STORAGE_DIR`. Quest runs keep an opaque `/api/quest-images/...` URL, so image bytes
+never enter the database. A remote timeout, quota error, invalid SVG, or unsafe SVG response
+does not fail the quest. `GEMINI_SVG_IMAGE_MODEL` can override the text model used for SVG
+fallbacks.
 
 Embeddings from different providers, endpoints or models are not comparable, even when they
 have the same number of dimensions. Retrieval therefore records an embedding-space identifier
@@ -205,9 +255,23 @@ extracted quest brief; the browser caches only the current conversation identifi
 members. Test/smoke profiles are excluded from production retrieval. Disable demo seeding when
 real participant profiles are available.
 
+To reset local application data and restore only the canonical community members, run the guarded
+reset command from the host:
+
+```bash
+RESET_DATABASE=NUKE DATABASE_URL=postgresql://kampung:kampung_dev_password@localhost:5432/kampung_quest npm run db:reset
+```
+
+The reset preserves migration history, removes accounts, sessions, chats, memories, conversations
+and quest runs, and seeds no accepted quests. A candidate is excluded from new invitations once
+they have accepted an invitation on an active quest; pending or terminal quests do not block matching.
+
 The application defaults to the hosted Gemini provider and fails visibly when its key or quota
 is unavailable. `AGENT_PROVIDER=deterministic` is an explicit development/test double; it is
 never selected as a provider-failure fallback.
+
+Demo quest and invitation fixtures are shown only to the account whose display name is exactly
+`test`. Other members see empty persisted activity states until they create or accept a real quest.
 
 ## Coordination events
 

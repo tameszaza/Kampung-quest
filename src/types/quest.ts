@@ -9,6 +9,8 @@ export type Quest = {
   dateLabel: string;
   dateLong: string;
   time: string;
+  /** ISO start time used for expiry and tab placement; display labels are localized separately. */
+  startAt: string;
   location: string;
   setting: "Indoor" | "Outdoor";
   host: {

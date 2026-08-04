@@ -18,23 +18,39 @@ import {
   safetyReviewSchema,
   type CandidateProfile,
   type QuestProposal,
+  availabilityWindowSchema,
 } from "@/server/domain/schemas";
+import { z } from "zod";
+
+const coordinationAgentOutputSchema = z.object({
+  reply: z.string().min(1),
+  requirementPatch: z.object({
+    availableWindows: z.array(availabilityWindowSchema).optional(),
+    accessibility: z.array(z.string().min(1)).optional(),
+    travel: z.array(z.string().min(1)).optional(),
+    dietary: z.array(z.string().min(1)).optional(),
+    environmental: z.array(z.string().min(1)).optional(),
+    venuePreferences: z.array(z.string().min(1)).optional(),
+    temporaryConflicts: z.array(z.string().min(1)).optional(),
+    other: z.array(z.string().min(1)).optional(),
+  }),
+});
 
 export function hostedRetrySettings(
   provider: Exclude<AgentProviderName, "deterministic">,
 ): ModelRetrySettings {
   return {
-    maxRetries: provider === "gemini" ? 1 : 2,
+    // Gemini quota responses already include Google's retry guidance. Do not
+    // sleep and spend another request inside a chat turn; surface the quota
+    // state immediately so the member can try again later.
+    maxRetries: provider === "gemini" ? 0 : 2,
     backoff: { initialDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2, jitter: true },
     policy: ({ normalized, providerAdvice }) => {
       if (provider === "gemini" && normalized.statusCode === 429) {
-        const retryAfterMs = normalized.retryAfterMs ?? providerAdvice?.retryAfterMs;
-        if (retryAfterMs === undefined || retryAfterMs > 60_000) return false;
-        return {
-          retry: true,
-          delayMs: retryAfterMs + 250,
-          reason: "Gemini requested a quota backoff",
-        };
+        // Deliberately never wait/retry a quota response. providerAdvice is
+        // retained in the signature for the shared OpenAI policy shape.
+        void providerAdvice;
+        return false;
       }
       return normalized.isNetworkError
         || normalized.statusCode === 429
@@ -49,7 +65,7 @@ export function hostedProviderErrorMessage(
 ): string {
   if (provider === "gemini" && error && typeof error === "object" && "status" in error) {
     const status = error.status;
-    if (status === 429) {
+    if (status === 429 || status === "429") {
       const headers = "headers" in error ? error.headers : null;
       const getHeader = headers && typeof headers === "object" && "get" in headers
         && typeof headers.get === "function"
@@ -58,15 +74,39 @@ export function hostedProviderErrorMessage(
       if (getHeader("x-gemini-quota-period") === "day") {
         return "Gemini's daily request quota for this model is exhausted. It resets at midnight Pacific time.";
       }
-      const retryAfter = getHeader("retry-after");
-      const retrySeconds = retryAfter ? Number.parseInt(String(retryAfter), 10) : Number.NaN;
-      return Number.isFinite(retrySeconds)
+      const retrySeconds = parseRetryAfter(getHeader("retry-after"))
+        ?? parseRetryHint(errorMessage(error));
+      return retrySeconds !== null
         ? `Gemini request quota is temporarily exhausted. Please try again in about ${retrySeconds} seconds.`
         : "Gemini request quota is temporarily exhausted. Please try again later.";
     }
   }
   const message = error instanceof Error ? error.message : "Unknown hosted model error";
   return `${provider} provider unavailable: ${message}`;
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.max(1, Math.ceil(seconds));
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(1, Math.ceil((timestamp - Date.now()) / 1_000));
+}
+
+function parseRetryHint(message: string): number | null {
+  const match = message.match(/retry(?: again)? in\s+([0-9]+(?:\.[0-9]+)?)\s*(?:s|seconds?)/i);
+  if (!match?.[1]) return null;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) ? Math.max(1, Math.ceil(seconds)) : null;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return "";
 }
 
 interface HostedAgentRuntimeOptions {
@@ -101,6 +141,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   private readonly synthesisAgent: Agent<unknown, typeof questSynthesisOutputSchema>;
   private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
+  private readonly coordinationAgent: Agent<unknown, typeof coordinationAgentOutputSchema>;
   private readonly runner: Runner;
 
   constructor(private readonly options: HostedAgentRuntimeOptions) {
@@ -115,6 +156,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         "You are Senior Quest, a warm and concise guide helping an older adult describe one current community activity request.",
         "Ask exactly one useful question per turn and adapt its wording to the conversation; do not follow a scripted questionnaire.",
         "Extract only facts the participant explicitly stated. Never infer consent, availability, access needs, identity, contact details, or addresses.",
+        "Treat all times collected in this conversation as provisional availability, never as a confirmed activity schedule.",
         "The newest current goal is authoritative. Do not blend previous or unrelated goals into it.",
         "Use requestedField only from the supplied missingFields. Return a briefPatch only for facts present in the latest user message.",
         "When no missing fields remain, set requestedField to null and give a short invitation to review the brief.",
@@ -172,6 +214,19 @@ export class HostedAgentRuntime implements AgentRuntime {
         "Return null when no reserve is suitable. Do not change the activity or create new participants.",
       ].join(" "),
       outputType: recoveryActionSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.coordinationAgent = new Agent({
+      name: "Kampung event coordination",
+      model: options.models.recovery,
+      instructions: [
+        "Help one participant coordinate one quest using only their private conversation.",
+        "Extract only requirements explicitly stated in the latest message, such as availability, accessibility, travel, dietary or environmental needs, venue preferences, and temporary conflicts.",
+        "Do not reveal or speculate about any other participant. Do not finalize a schedule, venue, participant change, invitation, or quest state.",
+        "Explain that extracted requirements require participant confirmation before use.",
+        "Return only the requested structured output.",
+      ].join(" "),
+      outputType: coordinationAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
   }
@@ -296,6 +351,20 @@ export class HostedAgentRuntime implements AgentRuntime {
     const candidateId = reverse.get(output.replacementCandidateId);
     if (!candidateId) throw new Error("Agent returned an unknown reserve participant");
     return { replacementCandidateId: candidateId };
+  }
+
+  async coordinateEvent(input: Parameters<AgentRuntime["coordinateEvent"]>[0]) {
+    return coordinationAgentOutputSchema.parse(await this.runStructured(this.coordinationAgent, {
+      quest: input.quest,
+      transcript: input.messages,
+      currentRequirements: input.currentRequirements,
+      latestMessage: input.latestMessage,
+      rules: {
+        participantConfirmationRequired: true,
+        otherParticipantDataForbidden: true,
+        directStateMutationForbidden: true,
+      },
+    }, input.auditContext));
   }
 
   private async runStructured<TOutput extends AgentOutputType>(

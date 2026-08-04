@@ -74,13 +74,21 @@ describe("Senior Quest assistant recommendations", () => {
     expect(result.provider).toBe("deterministic");
     expect(result.memory.profile.candidateId).toBe("maria");
     expect(result.memory.retrievalReady).toBe(true);
-    expect(result.quest.status).toBe("awaiting_acceptance");
+    expect(result.quest.status).toBe("forming");
     expect(result.quest.validation?.valid).toBe(true);
     expect(result.quest.safety?.status).toBe("approved");
     expect(result.quest.proposal?.proposedParticipants).toContainEqual(
       expect.objectContaining({ candidateId: "maria" }),
     );
     expect(result.seededCandidateCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does not seed demo neighbours when the caller is not the showcase account", async () => {
+    const { assistant } = setup();
+    const result = await assistant.recommend(command(), undefined, { allowDemoNeighbors: false });
+
+    expect(result.seededCandidateCount).toBe(0);
+    expect(result.quest.status).toBe("no_match");
   });
 
   it("returns the same memory and quest when a confirmed conversation is retried", async () => {
@@ -100,17 +108,23 @@ describe("Senior Quest assistant recommendations", () => {
     expect(repeated.quest.runId).toBe(first.quest.runId);
   });
 
-  it("lists Maria's persisted recommendations without exposing another candidate's runs", async () => {
+  it("lists a matched quest for every participant without exposing it to outsiders", async () => {
     const { assistant, store } = setup();
-    await assistant.recommend(command());
+    const first = await assistant.recommend(command());
     await assistant.recommend({ ...command(), conversationId: "conversation_002" });
 
     const mariaRuns = await store.listQuestRuns("maria", 10);
-    const otherRuns = await store.listQuestRuns("demo_anne", 10);
+    const matchedCandidateId = first.quest.proposal?.proposedParticipants.find(
+      (participant) => participant.candidateId !== "maria",
+    )?.candidateId;
+    expect(matchedCandidateId).toBeTruthy();
+    const matchedRuns = await store.listQuestRuns(matchedCandidateId!, 10);
+    const outsiderRuns = await store.listQuestRuns("not_a_participant", 10);
 
     expect(mariaRuns).toHaveLength(2);
     expect(mariaRuns.every((run) => run.initiatingCandidateId === "maria")).toBe(true);
-    expect(otherRuns).toEqual([]);
+    expect(matchedRuns.map((run) => run.runId)).toContain(first.quest.runId);
+    expect(outsiderRuns).toEqual([]);
   });
 
   it("refreshes only rolling demo availability while keeping stable profile constraints", async () => {
@@ -128,7 +142,7 @@ describe("Senior Quest assistant recommendations", () => {
     const result = await assistant.recommend(later);
     const laterAnne = await store.findMemory("demo_anne");
 
-    expect(result.quest.status).toBe("awaiting_acceptance");
+    expect(result.quest.status).toBe("forming");
     expect(result.quest.proposal?.proposedParticipants.length).toBeGreaterThanOrEqual(2);
     expect(laterAnne?.profile.constraints.languages).toEqual(firstAnne?.profile.constraints.languages);
     expect(laterAnne?.profile.distanceFromInitiatorM).toBe(firstAnne?.profile.distanceFromInitiatorM);
@@ -204,7 +218,7 @@ describe("Senior Quest assistant recommendations", () => {
     const versionBeforeRetry = (await store.findMemory("maria"))?.version;
     const recovered = await assistant.recommend(command());
 
-    expect(recovered.quest.status).toBe("awaiting_acceptance");
+    expect(recovered.quest.status).toBe("forming");
     expect(recovered.quest.idempotencyKey).toBe(`assistant:maria:conversation_001:retry:${failedRun?.runId}`);
     expect(recovered.memory.version).toBe(versionBeforeRetry);
     expect(failedRun?.status).toBe("failed");

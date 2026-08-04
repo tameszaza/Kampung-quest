@@ -11,6 +11,11 @@ import { getQuestRun, listUserQuests } from "@/features/assistant/client";
 import { quests } from "@/data/mock-data";
 import type { QuestRun } from "@/server/domain/schemas";
 import { useUser } from "@/components/user-context";
+import { useAppState } from "@/components/app-state";
+import { ProfileAvatar } from "@/components/profile-avatar";
+import { isQuestPast, isQuestRunPast } from "@/lib/activity-time";
+import { questParticipantStatus } from "@/lib/quest-participant-status";
+import { canSeeDemoContent } from "@/lib/demo-access";
 
 type LoadState<T> =
   | { status: "loading"; value: T }
@@ -19,6 +24,7 @@ type LoadState<T> =
 
 export function EngineQuestList() {
   const { user } = useUser();
+  const { activityDecisions } = useAppState();
   const [state, setState] = useState<LoadState<QuestRun[]>>({ status: "loading", value: [] });
 
   useEffect(() => {
@@ -33,8 +39,15 @@ export function EngineQuestList() {
 
   if (state.status === "loading") return <ConnectedLoading label="Loading your recommendations…" />;
   if (state.status === "error") return <ConnectedError message={state.message} />;
-  const visibleRuns = state.value.filter((run) => run.proposal !== null);
-  if (visibleRuns.length === 0) return <section className="quest-grid" aria-label="Featured activities">{quests.map((quest) => <QuestCard key={quest.slug} quest={quest} />)}</section>;
+  const visibleRuns = state.value.filter((run) => run.proposal !== null && !isQuestRunPast(run) && activityDecisions[run.runId] !== "accepted");
+  const visibleMockQuests = canSeeDemoContent(user)
+    ? quests.filter((quest) => !isQuestPast(quest) && activityDecisions[quest.slug] !== "accepted")
+    : [];
+  if (visibleRuns.length === 0) {
+    return visibleMockQuests.length > 0
+      ? <section className="quest-grid" aria-label="Featured activities">{visibleMockQuests.map((quest) => <QuestCard key={quest.slug} quest={quest} />)}</section>
+      : <div className="empty-state"><span aria-hidden="true">✓</span><h2>All caught up</h2><p>New activity suggestions will appear here when they are ready.</p></div>;
+  }
   return <section className="quest-grid" aria-label="Your recommended quests">{visibleRuns.map((run) => <EngineQuestCard key={run.runId} run={run} />)}</section>;
 }
 
@@ -83,12 +96,16 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
   const venueRequirements = proposal.quest.venueRequirements.length > 0
     ? proposal.quest.venueRequirements.map((item) => item.replaceAll("_", " ")).join(", ")
     : "Venue to be confirmed";
+  const invitationStatus = run.coordination?.invitations.find((invitation) => invitation.candidateId === user.id)?.status;
+  const participantCount = proposal.proposedParticipants.length;
+  const canRespond = showActivityActions && run.status === "awaiting_acceptance" && invitationStatus === "pending";
+  const hasDecision = invitationStatus === "accepted" || invitationStatus === "declined";
 
   return (
     <div className={`detail-page engine-detail-page${showActivityActions ? "" : " without-action"}`}>
       <div className="detail-header-wrap"><header className="page-header"><Link className="icon-button" href="/quests" aria-label="Back to quests"><Icon name="back" /></Link><h1>Quest Details</h1><span /></header></div>
       <div className="detail-layout">
-        <div className="detail-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" /><span className="image-badge">{run.status === "human_review" ? "Needs review" : "Recommended"}</span></div>
+        <div className="detail-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />{run.status === "human_review" && <span className="image-badge">Needs review</span>}</div>
         <article className="detail-content">
           <h1>{proposal.quest.title}</h1>
           <p className="detail-description">{proposal.quest.description}</p>
@@ -96,9 +113,18 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
             <div className="detail-fact"><Icon name="calendar" /><span><small>Date and time</small><strong>{questDate(run)}</strong></span></div>
             <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {proposal.quest.durationMinutes} minutes</strong></span></div>
             <div className="detail-fact"><Icon name="pin" /><span><small>Venue requirements</small><strong>{venueRequirements}</strong></span></div>
-            <div className="detail-fact"><Icon name="people" /><span><small>Group size</small><strong>{proposal.quest.groupSize} people</strong></span></div>
+            <div className="detail-fact"><Icon name="people" /><span><small>Group size</small><strong>{participantCount} people</strong></span></div>
           </div>
-          <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => <div key={participant.candidateId}><span>{participant.candidateId === user.id ? "You" : participant.candidateId.replace("demo_", "").replace(/^./, (letter) => letter.toUpperCase())}</span><strong>{participant.proposedRole.replaceAll("_", " ")}</strong></div>)}</section>
+          <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => {
+            const profile = run.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
+            const name = profile?.displayName ?? participantLabel(participant.candidateId, user.id);
+            const status = questParticipantStatus(
+              participant.candidateId,
+              user.id,
+              run.coordination?.invitations.find((invitation) => invitation.candidateId === participant.candidateId)?.status,
+            );
+            return <div className="engine-participant" key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={36} /><span className="engine-participant-name"><strong>{name}</strong><small>{participant.proposedRole.replaceAll("_", " ")}</small></span><span className={`participant-status participant-status-${status.key}`}>{status.label}</span></div>;
+          })}</section>
           <section className="engine-assurance">
             <h2>Checks and coordination</h2>
             <div><strong>Constraints</strong><span>{run.validation?.valid ? "All participant constraints validated" : "Coordinator review required"}</span></div>
@@ -106,8 +132,8 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
             <div><strong>Safety</strong><span>{run.safety ? `${run.safety.status.replace("_", " ")} · ${run.safety.riskLevel} risk` : "Not yet reviewed"}</span></div>
             {run.safety?.conditions.length ? <ul>{run.safety.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : null}
           </section>
-          {run.status === "human_review" ? <p className="assistant-note">A coordinator needs to review this match before any invitation is prepared.</p> : <p className="engine-safety"><Icon name="shield" size={20} /> Demo coordination only: safety approved and invitations prepared; no real messages were sent.</p>}
-          {showActivityActions ? <div className="detail-action"><ActivityActions activityId={run.runId} /></div> : null}
+          {run.status === "human_review" ? <p className="assistant-note">A coordinator needs to review this match before any invitation is prepared.</p> : <p className="engine-safety"><Icon name="shield" size={20} /> Safety checks passed; invitations are ready for the participants.</p>}
+          {canRespond || hasDecision ? <div className="detail-action"><ActivityActions activityId={run.runId} initialDecision={hasDecision ? invitationStatus : undefined} onDecision={(decision) => setState((current) => current.status !== "ready" || !current.value?.coordination ? current : { ...current, value: { ...current.value, coordination: { ...current.value.coordination, invitations: current.value.coordination.invitations.map((invitation) => invitation.candidateId === user.id ? { ...invitation, status: decision } : invitation) } } })} /></div> : null}
         </article>
       </div>
     </div>
@@ -120,4 +146,15 @@ function ConnectedLoading({ label }: { label: string }) {
 
 function ConnectedError({ message }: { message: string }) {
   return <div className="connected-state error" role="alert"><Icon name="shield" /><strong>{message}</strong><Link href="/messages?assistant=1">Talk to Senior Quest</Link></div>;
+}
+
+function participantLabel(candidateId: string, currentUserId: string): string {
+  if (candidateId === currentUserId) return "You";
+  const demoNames: Record<string, string> = {
+    demo_anne: "Anne",
+    demo_david: "David",
+    demo_john: "John",
+    demo_mei: "Mei",
+  };
+  return demoNames[candidateId] ?? (candidateId.startsWith("demo_") ? "Community neighbour" : "Community member");
 }

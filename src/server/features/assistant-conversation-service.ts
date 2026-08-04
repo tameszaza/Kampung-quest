@@ -32,6 +32,7 @@ interface AssistantConversationDependencies {
   store: KampungStore;
   agents: AgentRuntime;
   recommendations?: AssistantRecommendationService;
+  allowDemoNeighbors?: (candidateId: string) => Promise<boolean>;
 }
 
 export class AssistantConversationService {
@@ -201,6 +202,7 @@ export class AssistantConversationService {
         offers: brief.offers,
         constraints: {
           availableWindows: brief.availableWindows,
+          recurringAvailabilityRules: brief.recurringAvailabilityRules,
           maximumDistanceM: brief.maximumDistanceM,
           minimumGroupSize: brief.minimumGroupSize,
           maximumGroupSize: brief.maximumGroupSize,
@@ -221,7 +223,11 @@ export class AssistantConversationService {
       };
       let result;
       try {
-        result = await recommendationService.recommend(recommendationCommand, observeRecommendation);
+        result = await recommendationService.recommend(recommendationCommand, observeRecommendation, {
+          allowDemoNeighbors: this.dependencies.allowDemoNeighbors
+            ? await this.dependencies.allowDemoNeighbors(current.candidateId)
+            : undefined,
+        });
       } catch (error) {
         const failedEvent = current.events.at(-1);
         const retryableStage = failedEvent?.status === "failed"
@@ -237,7 +243,11 @@ export class AssistantConversationService {
           message: `${failedEvent.stage === "safety" ? "Safety Guardian" : "Matchmaker"} timed out; retrying once`,
           kind: "agent",
         }, onEvent);
-        result = await recommendationService.recommend(recommendationCommand, observeRecommendation);
+        result = await recommendationService.recommend(recommendationCommand, observeRecommendation, {
+          allowDemoNeighbors: this.dependencies.allowDemoNeighbors
+            ? await this.dependencies.allowDemoNeighbors(current.candidateId)
+            : undefined,
+        });
       }
       const finalStatus = result.quest.status === "no_match" ? "no_match" : "complete";
       const completed: AssistantConversationSnapshot = {
@@ -315,7 +325,14 @@ export class AssistantConversationService {
     if (answer.field === "goal") return { ...brief, currentGoal: answer.value };
     if (answer.field === "interests") return { ...brief, interests: answer.value ? [answer.value] : [] };
     if (answer.field === "offers") return { ...brief, offers: answer.value ? [answer.value] : [] };
-    if (answer.field === "availability") return { ...brief, availableWindows: [answer.value] };
+    if (answer.field === "availability") {
+      if ("start" in answer.value) return { ...brief, availableWindows: [answer.value], recurringAvailabilityRules: [] };
+      return {
+        ...brief,
+        availableWindows: answer.value.availableWindows,
+        recurringAvailabilityRules: answer.value.recurringAvailabilityRules,
+      };
+    }
     if (answer.field === "group_size") {
       return { ...brief, minimumGroupSize: answer.value.minimum, maximumGroupSize: answer.value.maximum };
     }
@@ -337,7 +354,11 @@ export class AssistantConversationService {
 
   private displayAnswer(answer: AssistantAnswer): string {
     if (answer.field === "availability") {
-      return `${answer.value.start} to ${answer.value.end}`;
+      const windows = "start" in answer.value ? [answer.value] : answer.value.availableWindows;
+      const recurring = "start" in answer.value ? [] : answer.value.recurringAvailabilityRules;
+      return recurring.length
+        ? `${recurring.length} weekly availability pattern${recurring.length === 1 ? "" : "s"}`
+        : `${windows.length} available time${windows.length === 1 ? "" : "s"}`;
     }
     if (answer.field === "group_size") {
       return `${answer.value.minimum}–${answer.value.maximum} people`;

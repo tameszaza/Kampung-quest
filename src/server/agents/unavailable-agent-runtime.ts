@@ -23,6 +23,10 @@ export class UnavailableAgentRuntime implements AgentRuntime {
   recoverQuest(): ReturnType<AgentRuntime["recoverQuest"]> {
     return Promise.reject(new Error(this.reason));
   }
+
+  coordinateEvent(): ReturnType<AgentRuntime["coordinateEvent"]> {
+    return Promise.reject(new Error(this.reason));
+  }
 }
 
 export class UnavailableEmbeddingProvider implements EmbeddingProvider {

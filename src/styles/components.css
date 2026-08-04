@@ -36,6 +36,77 @@
   background: var(--green-600);
 }
 
+.activity-notifications {
+  display: grid;
+}
+
+.activity-notification {
+  min-width: 0;
+  padding: 16px 4px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.activity-notification-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  place-items: center;
+}
+
+.activity-notification-content {
+  min-width: 0;
+}
+
+.activity-notification-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.activity-notification-heading h2 {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.activity-notification-heading time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.activity-notification-content p {
+  margin: 5px 0 7px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.activity-notification-content a {
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.activity-notification-content a:hover {
+  text-decoration: underline;
+}
+
+.activity-notifications-empty {
+  min-height: 300px;
+}
+
 .meta-row {
   min-width: 0;
   color: var(--ink-soft);
@@ -380,4 +451,441 @@
 .stack-avatar > img {
   width: 100%;
   height: 100%;
+}
+
+/* Server-backed event formation and coordination */
+.event-activity-card .quest-card-body,
+.event-invite-card,
+.event-joined-card .joined-body {
+  display: grid;
+  gap: 13px;
+}
+
+.event-activity-card .quest-card-body {
+  min-height: 310px;
+  align-content: start;
+  padding: 24px;
+}
+
+.event-activity-card p,
+.event-invite-card > p,
+.event-joined-card p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.event-card-action {
+  align-self: end;
+  margin-top: auto;
+  text-align: center;
+}
+
+.provisional-time {
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--green-50);
+}
+
+.provisional-time span {
+  display: grid;
+  gap: 3px;
+}
+
+.provisional-time small {
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.event-workspace .detail-layout {
+  align-items: start;
+}
+
+.event-detail-hero {
+  min-height: 330px;
+  padding: clamp(28px, 6vw, 64px);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, #eaf7ef, #d6ebdf);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.event-detail-hero h1,
+.event-detail-hero p {
+  margin: 0;
+}
+
+.event-detail-hero h1 {
+  max-width: 720px;
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: .98;
+  letter-spacing: -.045em;
+}
+
+.event-detail-hero p {
+  max-width: 620px;
+  color: var(--ink-muted);
+  font-size: 18px;
+  line-height: 1.55;
+}
+
+.detail-fact em {
+  color: #8b5c13;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.event-panel {
+  margin-top: 22px;
+  padding: clamp(20px, 3vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: white;
+  display: grid;
+  gap: 14px;
+}
+
+.event-panel h2,
+.event-panel p {
+  margin: 0;
+}
+
+.event-panel > p {
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.section-kicker {
+  color: var(--green-700);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.event-roster {
+  display: grid;
+  gap: 9px;
+}
+
+.event-roster > div,
+.event-contact-results > button {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.event-roster p,
+.event-roster p small {
+  min-width: 0;
+  display: block;
+}
+
+.event-roster p {
+  flex: 1;
+}
+
+.event-roster small {
+  margin-top: 3px;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.member-initial {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-800);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+
+.event-person-search,
+.arrangement-form {
+  display: grid;
+  gap: 12px;
+}
+
+.event-person-search label,
+.arrangement-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.event-person-search input,
+.arrangement-form input {
+  min-width: 0;
+  height: 48px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+
+.event-confirm-roster {
+  width: 100%;
+}
+
+.validation-errors {
+  margin: 0;
+  padding: 12px 16px 12px 34px;
+  border-radius: var(--radius-sm);
+  background: #fff4ef;
+  color: #9b361f;
+}
+
+.arrangement-summary {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.arrangement-summary > div {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 3px;
+}
+
+.arrangement-summary dt {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.arrangement-summary dd {
+  margin: 0;
+  font-weight: 750;
+}
+
+.availability-panel {
+  gap: 13px;
+}
+
+.availability-mode {
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.availability-mode button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-weight: 750;
+}
+
+.availability-mode button.active {
+  background: white;
+  color: var(--green-700);
+  box-shadow: 0 2px 9px rgba(5, 61, 45, .08);
+}
+
+.availability-natural-entry {
+  align-items: end;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.availability-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.availability-heading small,
+.availability-interpretation p {
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+.availability-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.availability-list li {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--green-50);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.availability-list button {
+  border: 0;
+  background: transparent;
+  color: #a33a24;
+  font-weight: 700;
+}
+
+.weekday-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.weekday-picker legend {
+  margin-bottom: 7px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.weekday-picker label {
+  display: block;
+}
+
+.weekday-picker input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.weekday-picker span {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.weekday-picker input:checked + span {
+  border-color: var(--green-600);
+  background: var(--green-100);
+  color: var(--green-800);
+}
+
+.availability-interpretation,
+.pending-requirements,
+.coordination-invitation-card {
+  padding: 14px;
+  border: 1px solid var(--green-200);
+  border-radius: var(--radius-sm);
+  background: var(--green-50);
+}
+
+.event-coordination-chat {
+  width: min(900px, 100%);
+  height: calc(100dvh - 86px);
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: white;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+}
+
+.event-unread-banner {
+  align-items: center;
+  background: var(--color-surface-warm, #fff8ec);
+  border: 1px solid var(--color-border, #ded8cc);
+  border-radius: 14px;
+  display: flex;
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.invitation-facts {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.invitation-facts div {
+  background: color-mix(in srgb, var(--color-surface, #fff) 82%, transparent);
+  border-radius: 10px;
+  padding: 0.65rem;
+}
+
+.invitation-facts dt {
+  color: var(--color-text-muted, #6f6a61);
+  font-size: 0.75rem;
+}
+
+.invitation-facts dd {
+  margin: 0.15rem 0 0;
+}
+
+.event-unread-banner span {
+  flex: 1;
+}
+
+.arrangement-summary dd small {
+  display: block;
+  font-weight: 400;
+  margin-top: 0.2rem;
+}
+
+.event-danger-zone {
+  border-color: color-mix(in srgb, var(--color-danger, #a23b33) 28%, transparent);
+}
+
+.event-chat-header {
+  position: relative;
+}
+
+.event-message-history {
+  min-height: 0;
+}
+
+.pending-requirements,
+.coordination-invitation-card {
+  margin: 12px 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.pending-requirements p,
+.coordination-invitation-card p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+@media (min-width: 768px) {
+  .event-person-search,
+  .arrangement-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .event-person-search .secondary-button,
+  .arrangement-form .primary-button {
+    align-self: end;
+  }
 }

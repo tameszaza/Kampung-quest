@@ -46,7 +46,9 @@ export interface IdentityStore {
   listContacts(userId: string, query?: string): Promise<ChatContact[]>;
   listBlockedUsers(userId: string): Promise<ChatContact[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
-  createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary>;
+  createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string; systemInitiated?: boolean }): Promise<ConversationSummary>;
+  /** Creates or expands the private group chat attached to an accepted quest. */
+  ensureQuestGroupConversation(questId: string, title: string, memberIds: string[]): Promise<void>;
   deleteConversation(userId: string, conversationId: string): Promise<void>;
   leaveConversation(userId: string, conversationId: string): Promise<void>;
   blockUser(userId: string, blockedUserId: string): Promise<void>;
@@ -62,6 +64,8 @@ type MemoryConversation = {
   imageUrl: string | null;
   memberIds: string[];
   directKey: string | null;
+  questId: string | null;
+  seededDemo: boolean;
   updatedAt: string;
 };
 
@@ -131,7 +135,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       preferences: { ...defaultPreferences, ...input.preferences },
     };
     this.users.set(user.id, user);
-    this.seedWelcomeChats(user.id);
+    if (user.username === "test") this.seedWelcomeChats(user.id);
     return publicUser(user);
   }
 
@@ -146,6 +150,7 @@ export class InMemoryIdentityStore implements IdentityStore {
         username: existing.username ?? (input.username ? normalizeUsername(input.username) : null),
       };
       this.users.set(input.id, next);
+      if (next.username === "test") this.seedWelcomeChats(input.id);
       return publicUser(next);
     }
     const user: StoredUser = {
@@ -165,7 +170,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       preferences: structuredClone(defaultPreferences),
     };
     this.users.set(user.id, user);
-    this.seedWelcomeChats(user.id);
+    if (user.username === "test") this.seedWelcomeChats(user.id);
     return publicUser(user);
   }
 
@@ -184,6 +189,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       preferences: { ...user.preferences, ...input.preferences },
     };
     this.users.set(userId, next);
+    if (username === "test") this.seedWelcomeChats(userId);
     return publicUser(next);
   }
 
@@ -242,12 +248,13 @@ export class InMemoryIdentityStore implements IdentityStore {
     this.requireUser(userId);
     return [...this.conversations.values()]
       .filter((conversation) => conversation.memberIds.includes(userId))
+      .filter((conversation) => !conversation.seededDemo || this.users.get(userId)?.username === "test")
       .filter((conversation) => !this.deletedConversations.has(deletionKey(userId, conversation.id)))
       .map((conversation) => this.toSummary(userId, conversation))
       .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
   }
 
-  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary> {
+  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string; systemInitiated?: boolean }): Promise<ConversationSummary> {
     this.requireUser(userId);
     const participantIds = [...new Set(input.participantIds.filter((id) => id !== userId))];
     participantIds.forEach((id) => this.requireUser(id));
@@ -260,10 +267,15 @@ export class InMemoryIdentityStore implements IdentityStore {
       ? [...this.conversations.values()].find((conversation) => conversation.directKey === directKey)
       : undefined;
     if (existing) {
+      if (existing.seededDemo && this.users.get(userId)?.username !== "test") {
+        existing.seededDemo = false;
+        this.messages.set(existing.id, []);
+        existing.updatedAt = new Date().toISOString();
+      }
       this.deletedConversations.delete(deletionKey(userId, existing.id));
       return this.toSummary(userId, existing);
     }
-    if (input.type === "direct" && !this.canStartDirectMessage(userId, participantIds[0])) {
+    if (input.type === "direct" && !input.systemInitiated && !this.canStartDirectMessage(userId, participantIds[0])) {
       throw new Error("This person is not accepting new direct messages");
     }
     const now = new Date().toISOString();
@@ -274,11 +286,31 @@ export class InMemoryIdentityStore implements IdentityStore {
       imageUrl: input.type === "group" ? "/assets/profile-group.jpg" : null,
       memberIds,
       directKey,
+      questId: null,
+      seededDemo: false,
       updatedAt: now,
     };
     this.conversations.set(conversation.id, conversation);
     this.messages.set(conversation.id, []);
     return this.toSummary(userId, conversation);
+  }
+
+  async ensureQuestGroupConversation(questId: string, title: string, memberIds: string[]): Promise<void> {
+    const uniqueMemberIds = [...new Set(memberIds)];
+    if (!uniqueMemberIds.length) return;
+    uniqueMemberIds.forEach((id) => this.requireUser(id));
+    let conversation = [...this.conversations.values()].find((candidate) => candidate.questId === questId);
+    if (!conversation) {
+      conversation = this.createMemoryConversation("group", uniqueMemberIds, title);
+      conversation.questId = questId;
+      conversation.imageUrl = "/assets/profile-group.jpg";
+      this.messages.set(conversation.id, []);
+    } else {
+      conversation.title = title;
+      conversation.memberIds = [...new Set([...conversation.memberIds, ...uniqueMemberIds])];
+      conversation.updatedAt = new Date().toISOString();
+    }
+    for (const memberId of uniqueMemberIds) this.deletedConversations.delete(deletionKey(memberId, conversation.id));
   }
 
   async deleteConversation(userId: string, conversationId: string): Promise<void> {
@@ -334,11 +366,12 @@ export class InMemoryIdentityStore implements IdentityStore {
   }
 
   private seedWelcomeChats(userId: string) {
-    const direct = this.createMemoryConversation("direct", [userId, "community_anne"], null);
+    if ([...this.conversations.values()].some((conversation) => conversation.memberIds.includes(userId) && conversation.seededDemo)) return;
+    const direct = this.createMemoryConversation("direct", [userId, "community_anne"], null, true);
     this.messages.set(direct.id, [
       this.seedMessage(direct.id, "community_anne", "Hi! I’m Anne. Welcome to Senior Quest — message me if you need help getting started. 😊", -8),
     ]);
-    const group = this.createMemoryConversation("group", [userId, "community_anne", "community_david"], "Cooking Buddies");
+    const group = this.createMemoryConversation("group", [userId, "community_anne", "community_david"], "Cooking Buddies", true);
     group.imageUrl = "/assets/profile-group.jpg";
     this.messages.set(group.id, [
       this.seedMessage(group.id, "community_anne", "Welcome to Cooking Buddies! We share simple recipes and plan friendly lunches here.", -5),
@@ -346,10 +379,10 @@ export class InMemoryIdentityStore implements IdentityStore {
     ]);
   }
 
-  private createMemoryConversation(type: "direct" | "group", memberIds: string[], title: string | null) {
+  private createMemoryConversation(type: "direct" | "group", memberIds: string[], title: string | null, seededDemo = false) {
     const directKey = type === "direct" ? [...memberIds].sort().join(":") : null;
     const conversation: MemoryConversation = {
-      id: randomUUID(), type, title, imageUrl: null, memberIds, directKey, updatedAt: new Date().toISOString(),
+      id: randomUUID(), type, title, imageUrl: null, memberIds, directKey, questId: null, seededDemo, updatedAt: new Date().toISOString(),
     };
     this.conversations.set(conversation.id, conversation);
     return conversation;

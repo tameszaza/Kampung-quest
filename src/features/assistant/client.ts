@@ -7,6 +7,7 @@ import type {
   MemoryCard,
   QuestRun,
 } from "@/server/domain/schemas";
+import type { QuestNotification } from "@/server/quest/quest-notifications";
 
 async function responseJson<T>(response: Response): Promise<T> {
   const payload = await response.json() as T & { error?: string };
@@ -25,10 +26,12 @@ export async function requestRecommendation(
   return responseJson<AssistantRecommendationResult>(response);
 }
 
-export async function getUserMemory(candidateId: string): Promise<MemoryCard | null> {
-  const response = await fetch(`/api/v1/memories/${encodeURIComponent(candidateId)}`, { cache: "no-store" });
-  if (response.status === 404) return null;
-  return responseJson<MemoryCard>(response);
+export async function getUserMemory(): Promise<MemoryCard | null> {
+  // The authenticated endpoint returns an explicit empty state (200 + null),
+  // so a new member's needs page does not create a noisy, expected 404 request.
+  const response = await fetch("/api/v1/memories", { cache: "no-store" });
+  const payload = await responseJson<{ memory: MemoryCard | null }>(response);
+  return payload.memory;
 }
 
 export async function listUserQuests(candidateId: string, limit = 20): Promise<QuestRun[]> {
@@ -37,6 +40,11 @@ export async function listUserQuests(candidateId: string, limit = 20): Promise<Q
     { cache: "no-store" },
   );
   return responseJson<QuestRun[]>(response);
+}
+
+export async function listUserNotifications(limit = 50): Promise<QuestNotification[]> {
+  const response = await fetch(`/api/v1/notifications?limit=${encodeURIComponent(limit)}`, { cache: "no-store" });
+  return responseJson<QuestNotification[]>(response);
 }
 
 export async function getQuestRun(runId: string): Promise<QuestRun | null> {

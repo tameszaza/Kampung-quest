@@ -16,7 +16,7 @@ export class DeterministicAgentRuntime implements AgentRuntime {
       goal: "What would feel helpful or enjoyable for your next quest?",
       interests: "What interests would you like this quest to include?",
       offers: "Is there anything you would enjoy contributing?",
-      availability: "When would you be comfortable meeting?",
+      availability: "When are you generally available? You can share several times or a weekly pattern; this will not schedule the activity yet.",
       group_size: "What group size would feel comfortable?",
       indoor: "Would you prefer an indoor setting?",
       stairs: "Are stairs comfortable for you?",
@@ -103,6 +103,24 @@ export class DeterministicAgentRuntime implements AgentRuntime {
   ): ReturnType<AgentRuntime["recoverQuest"]> {
     return {
       replacementCandidateId: input.run.proposal?.reserveCandidates[0]?.candidateId ?? null,
+    };
+  }
+
+  async coordinateEvent(
+    input: Parameters<AgentRuntime["coordinateEvent"]>[0],
+  ): ReturnType<AgentRuntime["coordinateEvent"]> {
+    const message = input.latestMessage.trim();
+    const lower = message.toLowerCase();
+    const requirementPatch: Awaited<ReturnType<AgentRuntime["coordinateEvent"]>>["requirementPatch"] = {};
+    if (/cannot|can't|unavailable|conflict|not free/.test(lower)) requirementPatch.temporaryConflicts = [message];
+    if (/wheelchair|stairs|step-free|accessible|walking aid/.test(lower)) requirementPatch.accessibility = [message];
+    if (/halal|vegetarian|vegan|allerg|diet/.test(lower)) requirementPatch.dietary = [message];
+    if (/travel|distance|bus|taxi|walk/.test(lower)) requirementPatch.travel = [message];
+    if (/venue|community centre|community center|library|park/.test(lower)) requirementPatch.venuePreferences = [message];
+    if (Object.keys(requirementPatch).length === 0) requirementPatch.other = [message];
+    return {
+      reply: "I have prepared that as a private coordination requirement. Please confirm it before I use it to arrange the quest.",
+      requirementPatch,
     };
   }
 }

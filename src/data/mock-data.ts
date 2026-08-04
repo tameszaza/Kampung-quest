@@ -11,6 +11,7 @@ export const quests: Quest[] = [
     dateLabel: "Tomorrow",
     dateLong: "Tomorrow, Aug 5, 2026",
     time: "11:30 AM – 1:30 PM",
+    startAt: "2026-08-05T11:30:00+08:00",
     location: "Sunny Community Center, Kitchen Room",
     setting: "Indoor",
     host: {
@@ -30,6 +31,7 @@ export const quests: Quest[] = [
     dateLabel: "Aug 8",
     dateLong: "Saturday, Aug 8, 2026",
     time: "7:00 AM – 8:30 AM",
+    startAt: "2026-08-08T07:00:00+08:00",
     location: "Neighbourhood Park",
     setting: "Outdoor",
     host: {
@@ -49,6 +51,7 @@ export const quests: Quest[] = [
     dateLabel: "Aug 12",
     dateLong: "Wednesday, Aug 12, 2026",
     time: "2:00 PM – 3:30 PM",
+    startAt: "2026-08-12T14:00:00+08:00",
     location: "Community Room B",
     setting: "Indoor",
     host: {

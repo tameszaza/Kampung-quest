@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRuntime } from "@/server/agents/agent-runtime";
+import type { QuestImageAgent } from "@/server/agents/quest-image-agent";
 import { stableFactRef } from "@/server/agents/provider-privacy";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
 import {
@@ -22,7 +23,11 @@ import type {
   ValidationResult,
 } from "@/server/domain/schemas";
 import { ConstraintValidator } from "@/server/features/validation-service";
+import type { EventCoordinator } from "@/server/features/event-coordinator";
 import type { KampungStore } from "@/server/repositories/kampung-store";
+import type { QuestImageStorage } from "@/server/quest/quest-image-storage";
+import type { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
+import { logger, safeErrorMessage } from "@/server/observability/logger";
 
 interface KampungQuestEngineDependencies {
   store: KampungStore;
@@ -30,7 +35,15 @@ interface KampungQuestEngineDependencies {
   embeddings: EmbeddingProvider;
   invitations?: InvitationAdapter;
   venues?: VenueAdapter;
+  imageAgent?: QuestImageAgent;
+  imageStorage?: QuestImageStorage;
+  chatNotifier?: QuestChatNotifier;
+  eventCoordinator?: EventCoordinator;
 }
+
+const OPEN_QUEST_MATCH_THRESHOLD = 0.72;
+const OPEN_QUEST_SCAN_LIMIT = 50;
+export const QUEST_IMAGE_PLACEHOLDER = "/assets/quest-placeholder.svg";
 
 export interface QuestPipelineEvent {
   stage: "retrieval" | "synthesis" | "validation" | "safety";
@@ -49,6 +62,11 @@ export class KampungQuestEngine {
   constructor(private readonly dependencies: KampungQuestEngineDependencies) {
     this.invitations = dependencies.invitations ?? new MockInvitationAdapter();
     this.venues = dependencies.venues ?? new MockVenueAdapter();
+  }
+
+  /** Exposes whether this engine is backed by the event aggregate. */
+  get usesEventCoordination(): boolean {
+    return Boolean(this.dependencies.eventCoordinator);
   }
 
   async recordMemory(command: MemoryUpdateCommand): Promise<MemoryCard> {
@@ -114,6 +132,196 @@ export class KampungQuestEngine {
     return this.dependencies.store.findMemory(candidateId);
   }
 
+  /**
+   * Add a newly prepared participant to an existing future quest when their
+   * current need, interests, and offers are a strong vector match for the
+   * whole group. The transition is optimistic-lock protected so concurrent
+   * sign-ups cannot overfill or mutate the same quest.
+   */
+  async joinOpenQuest(
+    candidateId: string,
+    idempotencyKey?: string,
+    observe?: QuestPipelineObserver,
+  ): Promise<QuestRun | null> {
+    const candidate = await this.dependencies.store.findMemory(candidateId);
+    if (!candidate || candidate.profile.memoryStatus !== "active") return null;
+
+    // Event coordination owns forming rosters. A newly prepared participant can
+    // join a compatible, not-yet-started formation without bypassing its
+    // organizer confirmation flow. This keeps the legacy QuestRun path below
+    // available for older records and tests while new quests use the event
+    // aggregate as the source of truth.
+    if (this.dependencies.eventCoordinator) {
+      const [candidateEmbeddings, states] = await Promise.all([
+        this.dependencies.store.findEmbeddings(candidateId),
+        this.dependencies.store.listAllEventCoordinationStates(OPEN_QUEST_SCAN_LIMIT),
+      ]);
+      const candidateVectors = this.embeddingMap(candidateEmbeddings);
+      if (candidateVectors.need && this.hasSignal(candidateVectors.need)) {
+        for (const state of states) {
+          if (state.lifecycle !== "forming"
+            || state.initiatorId === candidateId
+            || Date.parse(state.proposal.quest.proposedTimeWindow.end) <= Date.now()
+            || state.roster.some((member) => member.userId === candidateId)
+            || state.memberships.some((member) => member.userId === candidateId
+              && !["withdrawn", "replaced", "cancelled", "completed"].includes(member.status))) continue;
+          if (state.roster.length >= candidate.profile.constraints.maximumGroupSize) continue;
+          const score = await this.groupCompatibilityScore(
+            candidateVectors,
+            state.roster.map((member) => member.userId),
+          );
+          if (score === null || score < OPEN_QUEST_MATCH_THRESHOLD) continue;
+          try {
+            const updated = await this.dependencies.eventCoordinator.updateRoster({
+              runId: state.runId,
+              actorId: state.initiatorId,
+              expectedRevision: state.revision,
+              action: "add",
+              userId: candidateId,
+            });
+            await observe?.({
+              stage: "retrieval",
+              status: "completed",
+              message: "A compatible future activity is ready for the organizer to review",
+              kind: "system",
+            });
+            return this.dependencies.store.findQuestRun(updated.runId);
+          } catch (error) {
+            logger.info("quest.event_roster_match.skipped", {
+              runId: state.runId,
+              candidateId,
+              error: safeErrorMessage(error),
+            });
+          }
+        }
+      }
+    }
+
+    const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+    if (acceptedCandidateIds.has(candidateId)) return null;
+
+    const [candidateEmbeddings, openRuns, cards] = await Promise.all([
+      this.dependencies.store.findEmbeddings(candidateId),
+      this.dependencies.store.listJoinableQuestRuns(OPEN_QUEST_SCAN_LIMIT),
+      this.dependencies.store.listMemories(),
+    ]);
+    const candidateVectors = this.embeddingMap(candidateEmbeddings);
+    // Need is required for a meaningful match. Interests/offers are optional
+    // preferences, so an empty embedding must not make an otherwise compatible
+    // participant look unrelated.
+    if (!candidateVectors.need || !this.hasSignal(candidateVectors.need)) return null;
+    const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+
+    await observe?.({
+      stage: "retrieval",
+      status: "started",
+      message: "Checking compatible activities that have not started",
+      kind: "system",
+    });
+
+    for (const run of openRuns) {
+      const proposal = run.proposal;
+      const coordination = run.coordination;
+      if (!proposal || !coordination) continue;
+      if (Date.parse(proposal.quest.proposedTimeWindow.start) <= Date.now()) continue;
+      if (run.initiatingCandidateId === candidateId) continue;
+      if (proposal.proposedParticipants.some((participant) => participant.candidateId === candidateId)) continue;
+      if (coordination.invitations.some((invitation) => invitation.candidateId === candidateId)) continue;
+      if (proposal.proposedParticipants.length >= candidate.profile.constraints.maximumGroupSize) continue;
+
+      const participantIds = proposal.proposedParticipants.map((participant) => participant.candidateId);
+      const groupScore = await this.groupCompatibilityScore(candidateVectors, participantIds);
+      if (groupScore === null || groupScore < OPEN_QUEST_MATCH_THRESHOLD) continue;
+
+      const updatedProposal = structuredClone(proposal);
+      updatedProposal.quest.groupSize = participantIds.length + 1;
+      updatedProposal.quest.needsAddressed = [
+        ...new Set([...updatedProposal.quest.needsAddressed, candidate.profile.need]),
+      ];
+      updatedProposal.proposedParticipants.push({
+        candidateId,
+        proposedRole: `participant_${participantIds.length + 1}`,
+        needsAddressed: [candidate.profile.need],
+        contributionsUsed: [candidate.profile.offers[0] ?? "participate and support the group"],
+      });
+      updatedProposal.mutualBenefitExplanation = [
+        ...updatedProposal.mutualBenefitExplanation,
+        `${candidate.profile.need} is compatible with the group's shared goal (match score ${this.round(groupScore)}).`,
+      ];
+
+      const validation = this.validator.validate(updatedProposal, profiles);
+      if (!validation.valid) continue;
+      const safety = await this.dependencies.agents.reviewSafety({
+        proposal: updatedProposal,
+        profiles,
+        auditContext: { questRunId: run.runId, participantAdded: candidateId },
+      });
+      if (safety.status !== "approved") continue;
+
+      const updatedCoordination = structuredClone(coordination);
+      updatedCoordination.state = "awaiting_acceptance";
+      updatedCoordination.invitations.push({ candidateId, status: "pending" });
+      updatedCoordination.nextAction = "Collect the new participant's acceptance, then confirm the updated group.";
+      const updatedRun: QuestRun = {
+        ...run,
+        participantIdempotencyKeys: idempotencyKey
+          ? [...new Set([...(run.participantIdempotencyKeys ?? []), idempotencyKey])]
+          : run.participantIdempotencyKeys,
+        status: "awaiting_acceptance",
+        proposal: updatedProposal,
+        validation,
+        safety,
+        coordination: updatedCoordination,
+        updatedAt: this.nextUpdatedAt(run.updatedAt),
+      };
+
+      let saved: QuestRun;
+      try {
+        saved = await this.dependencies.store.saveQuestRunWithEvent(updatedRun, {
+          eventId: `event_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+          runId: run.runId,
+          type: "participant_added",
+          candidateId,
+          occurredAt: new Date().toISOString(),
+        }, run.updatedAt);
+      } catch (error) {
+        // Another participant may have won the optimistic-lock race. Scan the
+        // remaining activities instead of surfacing a transient conflict.
+        logger.info("quest.participant_add.conflict", {
+          runId: run.runId,
+          candidateId,
+          error: safeErrorMessage(error),
+        });
+        continue;
+      }
+
+      try {
+        await this.invitations.send({ runId: saved.runId, candidateId });
+      } catch (error) {
+        logger.error("quest.participant_add.invitation_failed", {
+          runId: saved.runId,
+          candidateId,
+          error: safeErrorMessage(error),
+        });
+      }
+      await observe?.({
+        stage: "retrieval",
+        status: "completed",
+        message: "Added you to a compatible activity that has not started",
+        kind: "system",
+      });
+      return saved;
+    }
+
+    await observe?.({
+      stage: "retrieval",
+      status: "completed",
+      message: "No compatible future activity is open yet",
+      kind: "system",
+    });
+    return null;
+  }
+
   async retrieveCandidates(command: RetrievalCommand): Promise<RetrievedCandidate[]> {
     const initiatorCard = await this.dependencies.store.findMemory(command.initiatingCandidateId);
     if (!initiatorCard) throw new Error("Initiating candidate was not found");
@@ -124,7 +332,7 @@ export class KampungQuestEngine {
     if (!need || !interest) throw new Error("Initiating candidate memory is not retrieval-ready");
 
     const rawLimit = 10;
-    const [needMatches, offerMatches, interestMatches, cards] = await Promise.all([
+    const [needMatches, offerMatches, interestMatches, cards, acceptedCandidateIdsResult] = await Promise.all([
       this.dependencies.store.searchEmbeddings({
         kind: "need",
         query: need.vector,
@@ -147,8 +355,10 @@ export class KampungQuestEngine {
         limit: rawLimit,
       }),
       this.dependencies.store.listMemories(),
+      this.dependencies.store.listAcceptedCandidateIds(),
     ]);
     const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+    const acceptedCandidateIds = new Set(acceptedCandidateIdsResult);
     const scoreByCandidate = new Map<string, { need: number; offer: number; interest: number }>();
     for (const [key, matches] of [
       ["need", needMatches],
@@ -165,7 +375,7 @@ export class KampungQuestEngine {
     return [...scoreByCandidate.entries()]
       .flatMap(([candidateId, vectorScores]) => {
         const profile = profiles.get(candidateId);
-        if (!profile || !this.passesHardFilters(initiatorCard.profile, profile)) return [];
+        if (!profile || !this.passesHardFilters(initiatorCard.profile, profile, acceptedCandidateIds)) return [];
         const minimumGroupSize = Math.max(
           initiatorCard.profile.constraints.minimumGroupSize,
           profile.constraints.minimumGroupSize,
@@ -330,6 +540,31 @@ export class KampungQuestEngine {
       }
 
       await observe?.({ stage: "validation", status: "completed", message: "All quest rules passed", kind: "system" });
+      // Retrieval and invitation happen in separate steps. Re-check here so a
+      // participant who accepted another quest while this proposal was being
+      // synthesized can never receive a second invitation.
+      const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+      const alreadyAcceptedParticipant = proposal.proposedParticipants.find((participant) =>
+        acceptedCandidateIds.has(participant.candidateId),
+      );
+      if (alreadyAcceptedParticipant) {
+        const eligibility = {
+          valid: false,
+          errors: [...validation.errors, {
+            candidateId: alreadyAcceptedParticipant.candidateId,
+            field: "eligibility",
+            message: "Participant has already accepted another active quest.",
+          }],
+        };
+        await observe?.({ stage: "validation", status: "failed", message: "A participant accepted another active quest", kind: "system" });
+        return this.dependencies.store.saveQuestRun({
+          ...base,
+          status: "human_review",
+          proposal,
+          validation: eligibility,
+          updatedAt: new Date().toISOString(),
+        });
+      }
       activeStage = "safety";
       await observe?.({ stage: "safety", status: "started", message: "Safety Guardian is reviewing the quest", kind: "agent" });
       const safety = await this.dependencies.agents.reviewSafety({
@@ -339,18 +574,18 @@ export class KampungQuestEngine {
       });
       await observe?.({ stage: "safety", status: "completed", message: safety.status === "approved" ? "Safety review approved" : "Safety review requires attention", kind: "agent" });
       const approved = safety.status === "approved";
-      if (approved) {
+      if (approved && !this.dependencies.eventCoordinator) {
         await Promise.all(proposal.proposedParticipants.map((participant) =>
           this.invitations.send({ runId, candidateId: participant.candidateId })
         ));
       }
-      return this.dependencies.store.saveQuestRun({
+      const finalRun: QuestRun = {
         ...base,
-        status: approved ? "awaiting_acceptance" : "human_review",
+        status: approved && this.dependencies.eventCoordinator ? "forming" : approved ? "awaiting_acceptance" : "human_review",
         proposal,
         validation,
         safety,
-        coordination: approved
+        coordination: approved && !this.dependencies.eventCoordinator
           ? {
               questId: runId,
               state: "awaiting_acceptance",
@@ -359,10 +594,16 @@ export class KampungQuestEngine {
                 status: "pending",
               })),
               nextAction: "Collect explicit acceptance, then confirm the venue and exact schedule.",
-            }
+          }
           : null,
+        imageUrl: QUEST_IMAGE_PLACEHOLDER,
         updatedAt: new Date().toISOString(),
-      });
+      };
+      const saved = approved && this.dependencies.eventCoordinator
+        ? await this.dependencies.eventCoordinator.activateFormation(finalRun, base.updatedAt)
+        : await this.dependencies.store.saveQuestRun(finalRun);
+      this.queueQuestImage(saved);
+      return saved;
     } catch (error) {
       await observe?.({
         stage: activeStage,
@@ -377,6 +618,70 @@ export class KampungQuestEngine {
       });
       throw error;
     }
+  }
+
+  private embeddingMap(embeddings: Awaited<ReturnType<KampungStore["findEmbeddings"]>>): {
+    need?: number[];
+    interest?: number[];
+    offer?: number[];
+  } {
+    return {
+      need: embeddings.find((embedding) => embedding.kind === "need")?.vector,
+      interest: embeddings.find((embedding) => embedding.kind === "interest")?.vector,
+      offer: embeddings.find((embedding) => embedding.kind === "offer")?.vector,
+    };
+  }
+
+  private async groupCompatibilityScore(
+    candidate: { need?: number[]; interest?: number[]; offer?: number[] },
+    participantIds: string[],
+  ): Promise<number | null> {
+    const participantEmbeddings = await Promise.all(
+      participantIds.map(async (participantId) => this.embeddingMap(
+        await this.dependencies.store.findEmbeddings(participantId),
+      )),
+    );
+    const pairScores = participantEmbeddings.map((vectors) => {
+      if (!vectors.need || !this.hasSignal(vectors.need)) return null;
+      // Re-normalise weights when a member did not provide optional interests
+      // or offers. This keeps a strong need match from being penalised by a
+      // zero vector generated for an intentionally empty preference list.
+      const signals = [
+        { score: this.cosine(candidate.need, vectors.need), weight: 0.5 },
+        { score: this.cosineIfUsable(candidate.interest, vectors.interest), weight: 0.3 },
+        { score: this.cosineIfUsable(candidate.offer, vectors.offer), weight: 0.1 },
+        { score: this.cosineIfUsable(candidate.need, vectors.offer), weight: 0.1 },
+      ].filter((signal): signal is { score: number; weight: number } => signal.score !== null);
+      if (signals.length === 0) return null;
+      const totalWeight = signals.reduce((sum, signal) => sum + signal.weight, 0);
+      return signals.reduce((sum, signal) => sum + signal.score * signal.weight, 0) / totalWeight;
+    });
+    const validPairScores = pairScores.filter((score): score is number => score !== null);
+    if (validPairScores.length !== pairScores.length || validPairScores.length === 0) return null;
+    return validPairScores.reduce((sum, score) => sum + score, 0) / validPairScores.length;
+  }
+
+  private cosine(left: number[] | undefined, right: number[] | undefined): number {
+    if (!left || !right || left.length !== right.length || left.length === 0) return 0;
+    let dot = 0;
+    let leftMagnitude = 0;
+    let rightMagnitude = 0;
+    for (let index = 0; index < left.length; index += 1) {
+      dot += left[index] * right[index];
+      leftMagnitude += left[index] * left[index];
+      rightMagnitude += right[index] * right[index];
+    }
+    const denominator = Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude);
+    return denominator === 0 ? 0 : dot / denominator;
+  }
+
+  private cosineIfUsable(left: number[] | undefined, right: number[] | undefined): number | null {
+    if (!left || !right || !this.hasSignal(left) || !this.hasSignal(right)) return null;
+    return this.cosine(left, right);
+  }
+
+  private hasSignal(vector: number[]): boolean {
+    return vector.some((value) => Math.abs(value) > Number.EPSILON);
   }
 
   getQuest(runId: string): Promise<QuestRun | null> {
@@ -482,10 +787,22 @@ export class KampungQuestEngine {
         run.initiatingCandidateId,
         this.validator.validate(proposal, profiles),
       );
-      const safety = validation.valid
+      const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+      const reserveAlreadyAccepted = acceptedCandidateIds.has(reserve.candidateId);
+      const replacementValidation = reserveAlreadyAccepted
+        ? {
+            valid: false,
+            errors: [...validation.errors, {
+              candidateId: reserve.candidateId,
+              field: "eligibility",
+              message: "Replacement participant has already accepted another active quest.",
+            }],
+          }
+        : validation;
+      const safety = replacementValidation.valid
         ? await this.dependencies.agents.reviewSafety({ proposal, profiles })
         : null;
-      const approved = validation.valid && safety?.status === "approved";
+      const approved = replacementValidation.valid && safety?.status === "approved";
       if (approved) {
         await this.invitations.send({ runId: run.runId, candidateId: reserve.candidateId });
         invitation.status = "replaced";
@@ -499,7 +816,7 @@ export class KampungQuestEngine {
         ...run,
         status: approved ? "awaiting_acceptance" : "human_review",
         proposal,
-        validation,
+        validation: replacementValidation,
         safety,
         coordination,
         updatedAt: this.nextUpdatedAt(run.updatedAt),
@@ -535,23 +852,80 @@ export class KampungQuestEngine {
     throw new Error("This coordination event requires recovery handling");
   }
 
-  private persistCoordinationTransition(
+  private async persistCoordinationTransition(
     previous: QuestRun,
     updated: QuestRun,
     command: CoordinationEventCommand,
   ): Promise<QuestRun> {
-    return this.dependencies.store.saveQuestRunWithEvent(updated, {
+    const saved = await this.dependencies.store.saveQuestRunWithEvent(updated, {
       ...command,
       eventId: `event_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
       occurredAt: command.occurredAt ?? new Date().toISOString(),
     }, previous.updatedAt);
+    if (command.type === "participant_accepted" && command.candidateId) {
+      await this.dependencies.chatNotifier?.participantAccepted(saved, command.candidateId);
+    }
+    return saved;
+  }
+
+  /**
+   * Thumbnail generation is deliberately best effort. A model outage, quota
+   * limit, or malformed image must never prevent a valid quest from being
+   * shown; the UI uses a neutral placeholder until the generated SVG is ready.
+   */
+  private queueQuestImage(run: QuestRun): void {
+    if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
+      logger.debug("quest_image.queue.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
+      return;
+    }
+    void this.attachQuestImage(run)
+      .then(async (generated) => {
+        if (!generated.imageUrl || generated.imageUrl === QUEST_IMAGE_PLACEHOLDER) return;
+        const saved = await this.dependencies.store.saveQuestImage(run.runId, generated.imageUrl, run.updatedAt);
+        if (!saved) {
+          logger.warn("quest_image.queue.conflict", { runId: run.runId, reason: "quest_changed_before_thumbnail_ready" });
+          return;
+        }
+        logger.info("quest_image.queue.saved", { runId: run.runId, imageUrl: generated.imageUrl });
+      })
+      .catch((error) => {
+        logger.error("quest_image.queue.error", { runId: run.runId, error: safeErrorMessage(error) });
+      });
+  }
+
+  private async attachQuestImage(run: QuestRun): Promise<QuestRun> {
+    if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
+      logger.debug("quest_image.attach.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
+      return run;
+    }
+    logger.info("quest_image.attach.start", { runId: run.runId });
+    try {
+      const generated = await this.dependencies.imageAgent.generate({
+        quest: run.proposal.quest,
+        variationKey: run.runId,
+      });
+      if (!generated) {
+        logger.warn("quest_image.attach.placeholder", { runId: run.runId, reason: "agent_returned_empty" });
+        return run;
+      }
+      const imageUrl = await this.dependencies.imageStorage.save(generated);
+      logger.info("quest_image.attach.success", { runId: run.runId, imageUrl, bytes: generated.bytes.length, mimeType: generated.mimeType });
+      return { ...run, imageUrl };
+    } catch (error) {
+      logger.error("quest_image.attach.error", { runId: run.runId, error: safeErrorMessage(error) });
+      return run;
+    }
   }
 
   private nextUpdatedAt(previous: string): string {
     return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
   }
 
-  private passesHardFilters(initiator: CandidateProfile, candidate: CandidateProfile): boolean {
+  private passesHardFilters(
+    initiator: CandidateProfile,
+    candidate: CandidateProfile,
+    acceptedCandidateIds: Set<string>,
+  ): boolean {
     if (
       candidate.candidateId === initiator.candidateId ||
       candidate.source === "test" ||
@@ -559,6 +933,7 @@ export class KampungQuestEngine {
       !candidate.constraints.verified ||
       !candidate.constraints.invitationConsent ||
       candidate.alreadyCommitted ||
+      acceptedCandidateIds.has(candidate.candidateId) ||
       candidate.relationshipBlocked
     ) return false;
 

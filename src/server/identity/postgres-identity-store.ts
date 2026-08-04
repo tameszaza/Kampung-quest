@@ -87,7 +87,7 @@ export class PostgresIdentityStore implements IdentityStore {
           input.preferences.messageNotifications, input.preferences.questNotifications,
         ],
       );
-      await this.seedWelcomeChats(client, id);
+      if (username === "test") await this.seedWelcomeChatsIfNeeded(client, id, username);
       await client.query("COMMIT");
       return publicUser({
         ...input,
@@ -131,13 +131,7 @@ export class PostgresIdentityStore implements IdentityStore {
         `INSERT INTO identity.user_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING`,
         [input.id],
       );
-      const existingChats = await client.query(
-        "SELECT 1 FROM chat.conversation_members WHERE user_id = $1 LIMIT 1",
-        [input.id],
-      );
-      if (!existingChats.rowCount) {
-        await this.seedWelcomeChats(client, input.id);
-      }
+      await this.seedWelcomeChatsIfNeeded(client, input.id, username);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -154,6 +148,7 @@ export class PostgresIdentityStore implements IdentityStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const username = normalizeUsername(input.username);
       await client.query(
         `UPDATE identity.users SET
            full_name = $2, username = $3, phone = $4, date_of_birth = $5, gender = $6,
@@ -161,7 +156,7 @@ export class PostgresIdentityStore implements IdentityStore {
            onboarding_complete = true, updated_at = now()
          WHERE user_id = $1`,
         [
-          userId, input.fullName, normalizeUsername(input.username), normalizePhone(input.phone),
+          userId, input.fullName, username, normalizePhone(input.phone),
           input.dateOfBirth, input.gender, input.preferredLanguage, input.area, input.photoUrl,
         ],
       );
@@ -170,6 +165,7 @@ export class PostgresIdentityStore implements IdentityStore {
            activity_level = $4, updated_at = now() WHERE user_id = $1`,
         [userId, input.preferences.interests, input.preferences.groupSize, input.preferences.activityLevel],
       );
+      await this.seedWelcomeChatsIfNeeded(client, userId, username);
       const result = await client.query<UserRow>(`${userSelect} WHERE u.user_id = $1`, [userId]);
       if (!result.rows[0]) throw new Error("User not found");
       await client.query("COMMIT");
@@ -346,6 +342,16 @@ export class PostgresIdentityStore implements IdentityStore {
          SELECT 1 FROM chat.conversation_deletions deletion
          WHERE deletion.conversation_id = c.conversation_id AND deletion.user_id = $1
        )
+       AND (
+         EXISTS (
+           SELECT 1 FROM identity.users viewer
+           WHERE viewer.user_id = $1 AND viewer.username = 'test'
+         )
+         OR NOT (
+           (c.conversation_type = 'group' AND c.title = 'Cooking Buddies' AND c.created_by = 'community_anne')
+           OR (c.conversation_type = 'direct' AND c.created_by = 'community_anne' AND other.user_id = 'community_anne')
+         )
+       )
        ORDER BY last_message_at DESC`,
       [userId],
     );
@@ -363,7 +369,7 @@ export class PostgresIdentityStore implements IdentityStore {
     }));
   }
 
-  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary> {
+  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string; systemInitiated?: boolean }): Promise<ConversationSummary> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -385,10 +391,23 @@ export class PostgresIdentityStore implements IdentityStore {
       let conversationId: string;
       if (input.type === "direct") {
         const directKey = [...memberIds].sort().join(":");
-        const existing = await client.query<{ conversation_id: string }>(
-          "SELECT conversation_id FROM chat.conversations WHERE direct_key = $1",
+        const existing = await client.query<{ conversation_id: string; created_by: string | null }>(
+          "SELECT conversation_id, created_by FROM chat.conversations WHERE direct_key = $1",
           [directKey],
         );
+        if (existing.rows[0]?.created_by === "community_anne") {
+          const viewer = await client.query<{ username: string | null }>(
+            "SELECT username FROM identity.users WHERE user_id = $1",
+            [userId],
+          );
+          if (viewer.rows[0]?.username !== "test") {
+            await client.query("DELETE FROM chat.messages WHERE conversation_id = $1", [existing.rows[0].conversation_id]);
+            await client.query(
+              "UPDATE chat.conversations SET created_by = $2, updated_at = now() WHERE conversation_id = $1",
+              [existing.rows[0].conversation_id, userId],
+            );
+          }
+        }
         if (!existing.rowCount) {
           const privacy = await client.query<{ profile_visibility: UserPreferences["profileVisibility"] | null; message_privacy: UserPreferences["messagePrivacy"] | null }>(
             `SELECT COALESCE(p.profile_visibility, 'community') AS profile_visibility,
@@ -398,10 +417,10 @@ export class PostgresIdentityStore implements IdentityStore {
             [participantIds[0]],
           );
           const target = privacy.rows[0];
-          if (target?.profile_visibility === "private" || target?.message_privacy === "nobody") {
+          if (!input.systemInitiated && (target?.profile_visibility === "private" || target?.message_privacy === "nobody")) {
             throw new Error("This person is not accepting new direct messages");
           }
-          if (target?.profile_visibility === "connections" || target?.message_privacy === "connections") {
+          if (!input.systemInitiated && (target?.profile_visibility === "connections" || target?.message_privacy === "connections")) {
             throw new Error("You can message this person after you have an existing connection");
           }
         }
@@ -439,6 +458,58 @@ export class PostgresIdentityStore implements IdentityStore {
       const summary = (await this.listConversations(userId)).find((item) => item.id === conversationId);
       if (!summary) throw new Error("Conversation not found");
       return summary;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async ensureQuestGroupConversation(questId: string, title: string, memberIds: string[]): Promise<void> {
+    const uniqueMemberIds = [...new Set(memberIds)];
+    if (!uniqueMemberIds.length) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const users = await client.query<{ user_id: string }>(
+        "SELECT user_id FROM identity.users WHERE user_id = ANY($1::text[])",
+        [uniqueMemberIds],
+      );
+      if (users.rows.length !== uniqueMemberIds.length) throw new Error("One or more quest participants were not found");
+      const directKey = `quest:${questId}`;
+      const existing = await client.query<{ conversation_id: string }>(
+        `SELECT conversation_id FROM chat.conversations
+         WHERE conversation_type = 'group' AND direct_key = $1
+         FOR UPDATE`,
+        [directKey],
+      );
+      const conversationId = existing.rows[0]?.conversation_id ?? randomUUID();
+      if (!existing.rowCount) {
+        await client.query(
+          `INSERT INTO chat.conversations
+             (conversation_id, conversation_type, title, image_url, direct_key, created_by)
+           VALUES ($1, 'group', $2, '/assets/profile-group.jpg', $3, $4)`,
+          [conversationId, title, directKey, uniqueMemberIds[0]],
+        );
+      } else {
+        await client.query(
+          `UPDATE chat.conversations SET title = $2, updated_at = now() WHERE conversation_id = $1`,
+          [conversationId, title],
+        );
+      }
+      for (const memberId of uniqueMemberIds) {
+        await client.query(
+          `INSERT INTO chat.conversation_members (conversation_id, user_id)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [conversationId, memberId],
+        );
+        await client.query(
+          `DELETE FROM chat.conversation_deletions WHERE conversation_id = $1 AND user_id = $2`,
+          [conversationId, memberId],
+        );
+      }
+      await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -651,6 +722,20 @@ export class PostgresIdentityStore implements IdentityStore {
         randomUUID(), "Glad you’re here! 👋",
       ],
     );
+  }
+
+  private async seedWelcomeChatsIfNeeded(client: PoolClient, userId: string, username: string | null) {
+    if (username !== "test") return;
+    const existing = await client.query(
+      `SELECT 1
+       FROM chat.conversations c
+       JOIN chat.conversation_members member ON member.conversation_id = c.conversation_id
+       WHERE member.user_id = $1 AND c.conversation_type = 'group'
+         AND c.title = 'Cooking Buddies' AND c.created_by = 'community_anne'
+       LIMIT 1`,
+      [userId],
+    );
+    if (!existing.rowCount) await this.seedWelcomeChats(client, userId);
   }
 
   private async addMembers(client: PoolClient, conversationId: string, userIds: string[]) {

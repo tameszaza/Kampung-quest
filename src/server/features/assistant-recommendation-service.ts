@@ -31,6 +31,11 @@ export type AssistantRecommendationObserver = (event: QuestPipelineEvent | {
   kind: "agent" | "system";
 }) => Promise<void> | void;
 
+export interface AssistantRecommendationOptions {
+  /** Demo neighbours are reserved for the explicit `test` showcase account. */
+  allowDemoNeighbors?: boolean;
+}
+
 const DEMO_NEIGHBOURS = [
   {
     candidateId: "demo_anne",
@@ -127,6 +132,7 @@ export class AssistantRecommendationService {
   async recommend(
     command: AssistantRecommendationCommand,
     observe?: AssistantRecommendationObserver,
+    options?: AssistantRecommendationOptions,
   ): Promise<AssistantRecommendationResult> {
     const idempotencyPrefix = `assistant:${command.candidateId}:${command.requestKey ?? command.conversationId}`;
     let idempotencyKey = idempotencyPrefix;
@@ -189,18 +195,65 @@ export class AssistantRecommendationService {
     });
     let seededCandidateCount = 0;
     try {
-      seededCandidateCount = this.dependencies.demoSeedEnabled
+      seededCandidateCount = (options?.allowDemoNeighbors ?? this.dependencies.demoSeedEnabled)
         ? await this.ensureDemoNeighbours(command)
         : 0;
     } catch (error) {
       await observe?.({ stage: "retrieval", status: "failed", message: "Neighbour demo availability could not be refreshed", kind: "system" });
       throw error;
     }
-    const quest = await this.dependencies.engine.proposeQuest({
+    const joinedQuest = await this.dependencies.engine.joinOpenQuest(
+      command.candidateId,
+      idempotencyKey,
+      observe ? (event) => observe(event) : undefined,
+    );
+    if (joinedQuest) {
+      return {
+        memory,
+        quest: joinedQuest,
+        provider: this.dependencies.provider,
+        seededCandidateCount,
+      };
+    }
+    // An accepted member already has an active commitment. Return that run
+    // instead of synthesising a second proposal that can only end in an
+    // ineligible human-review state.
+    const activeAcceptedQuest = (await this.dependencies.store.listQuestRuns(command.candidateId, 50))
+      .find((run) =>
+        (run.status === "awaiting_acceptance" || run.status === "confirmed") &&
+        run.proposal !== null &&
+        Date.parse(run.proposal.quest.proposedTimeWindow.start) > Date.now() &&
+        run.coordination?.invitations.some((invitation) =>
+          invitation.candidateId === command.candidateId && invitation.status === "accepted",
+        ),
+      );
+    if (activeAcceptedQuest) {
+      return {
+        memory,
+        quest: activeAcceptedQuest,
+        provider: this.dependencies.provider,
+        seededCandidateCount,
+      };
+    }
+    let quest = await this.dependencies.engine.proposeQuest({
       initiatingCandidateId: command.candidateId,
       idempotencyKey,
       conversationId: command.conversationId,
     }, observe ? (event) => observe(event) : undefined);
+
+    // The production container always supplies EventCoordinator. Keep the
+    // lightweight standalone engine useful for local recommendation tests and
+    // scripts by representing a validated proposal as a formation even when
+    // no coordinator persistence is configured.
+    if (!this.dependencies.engine.usesEventCoordination
+      && quest.status === "awaiting_acceptance"
+      && quest.coordination) {
+      quest = await this.dependencies.store.saveQuestRun({
+        ...quest,
+        status: "forming",
+        coordination: null,
+      });
+    }
 
     return {
       memory,
@@ -221,6 +274,7 @@ export class AssistantRecommendationService {
         offers: [...neighbour.offers],
         constraints: {
           availableWindows: command.constraints.availableWindows,
+          recurringAvailabilityRules: command.constraints.recurringAvailabilityRules,
           maximumDistanceM: 2_000,
           minimumGroupSize: 2,
           maximumGroupSize: 4,

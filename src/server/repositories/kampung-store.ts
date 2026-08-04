@@ -7,6 +7,8 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
+import type { EventCoordinationState } from "@/server/domain/event-coordination";
+import { canViewQuestRun } from "@/server/quest/quest-access";
 
 export interface ActivateMemoryInput {
   attemptId: string;
@@ -23,8 +25,15 @@ export interface MemoryUpdateAttempt {
 }
 
 export interface KampungStore {
+  createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
+  findEventCoordinationState(runId: string): Promise<EventCoordinationState | null>;
+  saveEventCoordinationState(state: EventCoordinationState, expectedRevision: number): Promise<EventCoordinationState>;
+  listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
+  listAllEventCoordinationStates(limit?: number): Promise<EventCoordinationState[]>;
+  saveQuestRunWithFormation(run: QuestRun, state: EventCoordinationState, expectedUpdatedAt: string): Promise<QuestRun>;
   createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
   findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null>;
+  findLatestAssistantConversation(candidateId: string): Promise<AssistantConversationSnapshot | null>;
   saveAssistantConversation(
     conversation: AssistantConversationSnapshot,
     expectedRevision: number,
@@ -44,6 +53,8 @@ export interface KampungStore {
   }): Promise<Array<{ candidateId: string; similarity: number }>>;
   createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }>;
   saveQuestRun(run: QuestRun): Promise<QuestRun>;
+  /** Updates only the generated thumbnail when the run has not changed. */
+  saveQuestImage(runId: string, imageUrl: string, expectedUpdatedAt: string): Promise<boolean>;
   saveQuestRunWithEvent(
     run: QuestRun,
     event: CoordinationEventRecord,
@@ -52,6 +63,10 @@ export interface KampungStore {
   findQuestRun(runId: string): Promise<QuestRun | null>;
   findQuestByIdempotencyKey(key: string): Promise<QuestRun | null>;
   listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]>;
+  /** Active future quests that may accept another compatible participant. */
+  listJoinableQuestRuns(limit: number): Promise<QuestRun[]>;
+  /** Candidates who accepted an invitation on a still-active quest. */
+  listAcceptedCandidateIds(): Promise<string[]>;
   appendCoordinationEvent(event: CoordinationEventRecord): Promise<void>;
   healthCheck(): Promise<{ database: boolean; vector: boolean }>;
   recordAgentRun(record: AgentRunAudit): Promise<void>;
@@ -65,6 +80,59 @@ export class InMemoryKampungStore implements KampungStore {
   private readonly coordinationEvents: CoordinationEventRecord[] = [];
   private readonly memoryAttempts = new Map<string, MemoryUpdateCommand>();
   private readonly agentRuns: AgentRunAudit[] = [];
+  private readonly eventCoordinationStates = new Map<string, EventCoordinationState>();
+
+  async saveQuestRunWithFormation(
+    run: QuestRun,
+    state: EventCoordinationState,
+    expectedUpdatedAt: string,
+  ): Promise<QuestRun> {
+    const current = this.questRuns.get(run.runId);
+    if (!current || current.updatedAt !== expectedUpdatedAt || this.eventCoordinationStates.has(run.runId)) {
+      throw new Error("Quest state conflict; reload and retry formation");
+    }
+    this.questRuns.set(run.runId, structuredClone(run));
+    this.eventCoordinationStates.set(run.runId, structuredClone(state));
+    return structuredClone(run);
+  }
+
+  async createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState> {
+    if (this.eventCoordinationStates.has(state.runId)) throw new Error("Event coordination state already exists");
+    this.eventCoordinationStates.set(state.runId, structuredClone(state));
+    return structuredClone(state);
+  }
+
+  async findEventCoordinationState(runId: string): Promise<EventCoordinationState | null> {
+    const state = this.eventCoordinationStates.get(runId);
+    return state ? structuredClone(state) : null;
+  }
+
+  async saveEventCoordinationState(
+    state: EventCoordinationState,
+    expectedRevision: number,
+  ): Promise<EventCoordinationState> {
+    const current = this.eventCoordinationStates.get(state.runId);
+    if (!current || current.revision !== expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    this.eventCoordinationStates.set(state.runId, structuredClone(state));
+    return structuredClone(state);
+  }
+
+  async listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]> {
+    return [...this.eventCoordinationStates.values()]
+      .filter((state) => state.initiatorId === userId
+        || state.roster.some((member) => member.userId === userId)
+        || state.invitations.some((invitation) => invitation.guestId === userId)
+        || state.memberships.some((membership) => membership.userId === userId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((state) => structuredClone(state));
+  }
+
+  async listAllEventCoordinationStates(limit = 50): Promise<EventCoordinationState[]> {
+    return [...this.eventCoordinationStates.values()]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, Math.min(50, Math.max(1, limit)))
+      .map((state) => structuredClone(state));
+  }
 
   async createAssistantConversation(
     conversation: AssistantConversationSnapshot,
@@ -79,6 +147,13 @@ export class InMemoryKampungStore implements KampungStore {
   async findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null> {
     const conversation = this.assistantConversations.get(conversationId);
     return conversation ? structuredClone(conversation) : null;
+  }
+
+  async findLatestAssistantConversation(candidateId: string): Promise<AssistantConversationSnapshot | null> {
+    const latest = [...this.assistantConversations.values()]
+      .filter((conversation) => conversation.candidateId === candidateId)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
+    return latest ? structuredClone(latest) : null;
   }
 
   async saveAssistantConversation(
@@ -185,10 +260,24 @@ export class InMemoryKampungStore implements KampungStore {
     return structuredClone(run);
   }
 
+  async saveQuestImage(runId: string, imageUrl: string, expectedUpdatedAt: string): Promise<boolean> {
+    const current = this.questRuns.get(runId);
+    if (!current || current.updatedAt !== expectedUpdatedAt) return false;
+    const updated: QuestRun = {
+      ...current,
+      imageUrl,
+      updatedAt: new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(),
+    };
+    this.questRuns.set(runId, structuredClone(updated));
+    return true;
+  }
+
   async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {
     if (run.idempotencyKey) {
+      const idempotencyKey = run.idempotencyKey;
       const existing = [...this.questRuns.values()].find(
-        (candidate) => candidate.idempotencyKey === run.idempotencyKey,
+        (candidate) => candidate.idempotencyKey === idempotencyKey ||
+          candidate.participantIdempotencyKeys?.includes(idempotencyKey),
       );
       if (existing) return { run: structuredClone(existing), created: false };
     }
@@ -216,16 +305,38 @@ export class InMemoryKampungStore implements KampungStore {
   }
 
   async findQuestByIdempotencyKey(key: string): Promise<QuestRun | null> {
-    const run = [...this.questRuns.values()].find((candidate) => candidate.idempotencyKey === key);
+    const run = [...this.questRuns.values()].find(
+      (candidate) => candidate.idempotencyKey === key || candidate.participantIdempotencyKeys?.includes(key),
+    );
     return run ? structuredClone(run) : null;
   }
 
   async listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]> {
     return [...this.questRuns.values()]
-      .filter((run) => run.initiatingCandidateId === candidateId)
+      .filter((run) => canViewQuestRun(run, candidateId))
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
       .slice(0, Math.min(50, Math.max(1, limit)))
       .map((run) => structuredClone(run));
+  }
+
+  async listJoinableQuestRuns(limit: number): Promise<QuestRun[]> {
+    return [...this.questRuns.values()]
+      .filter(isJoinableQuestRun)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .slice(0, Math.min(50, Math.max(1, limit)))
+      .map((run) => structuredClone(run));
+  }
+
+  async listAcceptedCandidateIds(): Promise<string[]> {
+    const accepted = new Set<string>();
+    for (const run of this.questRuns.values()) {
+      if (!run.coordination || isTerminalQuestStatus(run.status)) continue;
+      if (run.proposal && Date.parse(run.proposal.quest.proposedTimeWindow.start) <= Date.now()) continue;
+      for (const invitation of run.coordination.invitations) {
+        if (invitation.status === "accepted") accepted.add(invitation.candidateId);
+      }
+    }
+    return [...accepted];
   }
 
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {
@@ -239,4 +350,15 @@ export class InMemoryKampungStore implements KampungStore {
   async recordAgentRun(record: AgentRunAudit): Promise<void> {
     this.agentRuns.push(structuredClone(record));
   }
+}
+
+function isTerminalQuestStatus(status: QuestRun["status"]): boolean {
+  return status === "completed" || status === "cancelled" || status === "failed";
+}
+
+export function isJoinableQuestRun(run: QuestRun): boolean {
+  if (run.status !== "awaiting_acceptance" && run.status !== "confirmed") return false;
+  if (!run.proposal || !run.coordination) return false;
+  if (run.coordination.state !== "awaiting_acceptance" && run.coordination.state !== "confirmed") return false;
+  return Date.parse(run.proposal.quest.proposedTimeWindow.start) > Date.now();
 }
