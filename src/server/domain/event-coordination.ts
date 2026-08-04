@@ -178,6 +178,8 @@ export interface EventCoordinationState {
   runId: string;
   initiatorId: string;
   lifecycle: EventQuestLifecycle;
+  /** Requested total roster size, retained while individual candidates change. */
+  targetGroupSize?: number;
   revision: number;
   rosterRevision: number;
   proposal: QuestProposal;
