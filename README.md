@@ -255,6 +255,21 @@ extracted quest brief; the browser caches only the current conversation identifi
 members. Test/smoke profiles are excluded from production retrieval. Disable demo seeding when
 real participant profiles are available.
 
+### Login-capable test personas
+
+Fifteen local test accounts cover three matchable cohorts, four single-constraint hard-filter
+cases, and two replacement reserves. Their usernames, shared development password, persona
+summaries, and coordination prompts are in `test-data/test-users.csv` (UTF-8 CSV).
+
+```bash
+SEED_TEST_USERS=YES npm run db:seed-test-users
+```
+
+The command refuses production and non-local database hosts. It reuses existing fixture accounts
+only when their CSV password still works, and it reuses unchanged memories. The profiles use `source: "demo"` because `source: "test"` is
+excluded from retrieval. Stable facts are persisted in identity and memory tables; send the CSV
+coordination prompts from each user's private event thread after accepting an invitation.
+
 To reset local application data and restore only the canonical community members, run the guarded
 reset command from the host:
 
