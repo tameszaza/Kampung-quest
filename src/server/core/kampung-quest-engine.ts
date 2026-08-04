@@ -253,6 +253,7 @@ export class KampungQuestEngine {
       if (candidateVectors.need && this.hasSignal(candidateVectors.need)) {
         for (const state of states) {
           if (state.lifecycle !== "forming"
+            || state.recruitment?.status === "draft"
             || state.initiatorId === candidateId
             || Date.parse(state.proposal.quest.proposedTimeWindow.end) <= Date.now()
             || state.roster.some((member) => member.userId === candidateId)
@@ -620,7 +621,7 @@ export class KampungQuestEngine {
       let validation = this.validator.validate(proposal, profiles);
       validation = this.requireInitiator(proposal, command.initiatingCandidateId, validation);
       validation = this.requireActiveIntent(proposal, initiator.profile, validation);
-      if (!validation.valid) {
+      if (!validation.valid && !this.isRecruitableUnderstaffedProposal(proposal, validation, initiator.profile)) {
         activeStage = "synthesis";
         await observe?.({ stage: "synthesis", status: "started", message: "Matchmaker is correcting the proposal", kind: "agent" });
         synthesis = await this.dependencies.agents.synthesizeQuest({
@@ -659,7 +660,7 @@ export class KampungQuestEngine {
         validation = this.requireActiveIntent(proposal, initiator.profile, validation);
       }
 
-      if (!validation.valid) {
+      if (!validation.valid && !this.isRecruitableUnderstaffedProposal(proposal, validation, initiator.profile)) {
         if (validation.errors.some((error) => error.field === "activeIntent")) {
           await observe?.({ stage: "validation", status: "failed", message: "The proposal did not directly address the current request", kind: "system" });
           return this.dependencies.store.saveQuestRun({
@@ -682,7 +683,12 @@ export class KampungQuestEngine {
         });
       }
 
-      await observe?.({ stage: "validation", status: "completed", message: "All quest rules passed", kind: "system" });
+      await observe?.({
+        stage: "validation",
+        status: "completed",
+        message: validation.valid ? "All quest rules passed" : "The quest is safe to draft while recruiting the remaining group",
+        kind: "system",
+      });
       // Retrieval and invitation happen in separate steps. Re-check here so a
       // participant who accepted another quest while this proposal was being
       // synthesized can never receive a second invitation.
@@ -1182,6 +1188,18 @@ export class KampungQuestEngine {
         message: "The initiating candidate must be included in the proposed group.",
       }],
     };
+  }
+
+  private isRecruitableUnderstaffedProposal(
+    proposal: QuestProposal,
+    validation: ValidationResult,
+    initiator: CandidateProfile,
+  ): boolean {
+    return proposal.proposedParticipants.length >= 1
+      && proposal.proposedParticipants.length < initiator.constraints.minimumGroupSize
+      && proposal.proposedParticipants.some((participant) => participant.candidateId === initiator.candidateId)
+      && validation.errors.length > 0
+      && validation.errors.every((error) => error.field === "groupSize");
   }
 
   private requireActiveIntent(

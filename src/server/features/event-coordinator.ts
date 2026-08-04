@@ -7,8 +7,11 @@ import type {
   EventCoordinationThread,
   EventCoordinationState,
   EventInvitation,
+  EventJoinRequest,
   EventMembership,
   EventQuestView,
+  EventRecruitmentAssessment,
+  EventRecruitmentEligibilityGuard,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 
@@ -18,8 +21,10 @@ export interface EventCoordinationStore {
   saveEventCoordinationState(
     state: EventCoordinationState,
     expectedRevision: number,
+    eligibilityGuard?: EventRecruitmentEligibilityGuard,
   ): Promise<EventCoordinationState>;
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
+  listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]>;
   saveQuestRunWithFormation(
     run: QuestRun,
     state: EventCoordinationState,
@@ -37,6 +42,14 @@ interface EventCoordinatorDependencies {
     participant: Participant;
     explanation: string[];
   } | null>;
+  resolveGroupSizeRange?: (userIds: string[]) => Promise<{
+    minimum: number;
+    maximum: number;
+  } | null>;
+  assessRecruitmentCandidate?: (
+    state: EventCoordinationState,
+    userId: string,
+  ) => Promise<EventRecruitmentAssessment>;
   validateRoster?: (proposal: QuestProposal) => Promise<ValidationResult>;
   validateArrangement?: (input: {
     state: EventCoordinationState;
@@ -64,24 +77,34 @@ export class EventCoordinator {
   constructor(private readonly dependencies: EventCoordinatorDependencies) {}
 
   async createFormation(run: QuestRun): Promise<EventCoordinationState> {
-    if (!run.proposal || !run.validation?.valid || run.safety?.status !== "approved") {
+    if (!this.canEnterFormation(run)) {
       throw new Error("Only a validated and safety-approved proposal can enter formation");
     }
     const existing = await this.dependencies.store.findEventCoordinationState(run.runId);
     if (existing) return existing;
-    return this.dependencies.store.createEventCoordinationState(this.formationState(run));
+    return this.dependencies.store.createEventCoordinationState(await this.formationState(run));
   }
 
   async activateFormation(run: QuestRun, expectedUpdatedAt: string): Promise<QuestRun> {
-    if (!run.proposal || !run.validation?.valid || run.safety?.status !== "approved") {
+    if (!this.canEnterFormation(run)) {
       throw new Error("Only a validated and safety-approved proposal can enter formation");
     }
-    return this.dependencies.store.saveQuestRunWithFormation(run, this.formationState(run), expectedUpdatedAt);
+    return this.dependencies.store.saveQuestRunWithFormation(run, await this.formationState(run), expectedUpdatedAt);
   }
 
-  private formationState(run: QuestRun): EventCoordinationState {
+  private async formationState(run: QuestRun): Promise<EventCoordinationState> {
     if (!run.proposal || !run.validation) throw new Error("Formation requires a proposal and validation result");
     const now = new Date().toISOString();
+    const currentGroupSize = run.proposal.proposedParticipants.length;
+    const resolvedRange = await this.dependencies.resolveGroupSizeRange?.(
+      run.proposal.proposedParticipants.map((participant) => participant.candidateId),
+    );
+    if (resolvedRange && resolvedRange.minimum > resolvedRange.maximum) {
+      throw new Error("The proposed participants do not share a compatible group-size range");
+    }
+    const minimumGroupSize = Math.max(2, resolvedRange?.minimum ?? currentGroupSize);
+    const maximumGroupSize = resolvedRange?.maximum ?? Math.max(minimumGroupSize, currentGroupSize);
+    const understaffed = currentGroupSize < minimumGroupSize;
     return {
       runId: run.runId,
       initiatorId: run.initiatingCandidateId,
@@ -98,6 +121,14 @@ export class EventCoordinator {
           ? ["You started this quest"]
           : ["Compatible interests, contributions, and availability"],
       })),
+      recruitment: {
+        status: understaffed ? "draft" : "closed",
+        minimumGroupSize,
+        targetGroupSize: Math.max(minimumGroupSize, currentGroupSize),
+        maximumGroupSize,
+        publishedAt: null,
+      },
+      joinRequests: [],
       invitations: [],
       memberships: [],
       threads: [],
@@ -128,7 +159,18 @@ export class EventCoordinator {
       invitation.guestId === userId && invitation.status === "pending");
     const activeMembership = [...current.memberships].reverse().find((membership) =>
       membership.userId === userId && this.isActiveMembership(membership));
-    if (!organizer && !pendingInvitation && !activeMembership) {
+    const hasInvitationHistory = current.invitations.some((invitation) => invitation.guestId === userId);
+    const selectedMember = current.recruitment.status !== "draft"
+      && current.roster.some((member) => member.userId === userId)
+      && !hasInvitationHistory;
+    const ownJoinRequest = [...current.joinRequests].reverse().find((request) => request.applicantId === userId);
+    const ownJoinRequestGrantsAccess = ownJoinRequest?.status === "pending"
+      || (ownJoinRequest?.status === "approved" && !hasInvitationHistory);
+    const applicantAssessment = current.lifecycle === "recruiting" && current.recruitment.status === "open"
+      ? await this.dependencies.assessRecruitmentCandidate?.(current, userId)
+      : undefined;
+    const eligibleApplicant = applicantAssessment?.eligible === true;
+    if (!organizer && !pendingInvitation && !activeMembership && !selectedMember && !ownJoinRequestGrantsAccess && !eligibleApplicant) {
       throw new Error("Event coordination state was not found");
     }
     const safe = structuredClone(current) as EventQuestView;
@@ -138,7 +180,7 @@ export class EventCoordinator {
         : this.basicRosterValidation(current.proposal);
     }
     safe.viewer = {
-      role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : "participant",
+      role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : activeMembership ? "participant" : selectedMember ? "selected" : "applicant",
       canChat: this.canCoordinate(current, userId),
       pendingInvitationId: pendingInvitation?.invitationId ?? null,
     };
@@ -170,19 +212,229 @@ export class EventCoordinator {
         updatedAt: availabilityStatus === "not_shared" ? null : thread?.updatedAt ?? null,
       };
     }));
+    safe.recruitmentProgress = { currentApprovedCount: current.roster.length };
+    safe.applicantProfiles = await Promise.all((organizer
+      ? current.joinRequests
+      : current.joinRequests.filter((request) => request.applicantId === userId))
+      .map(async (request) => {
+        const profile = await this.dependencies.resolveMember?.(request.applicantId);
+        return {
+          userId: request.applicantId,
+          displayName: profile?.displayName ?? this.displayMember(request.applicantId),
+          photoUrl: profile?.photoUrl ?? null,
+        };
+      }));
     safe.threads = safe.threads.filter((thread) => thread.userId === userId);
     safe.notifications = safe.notifications.filter((notification) => notification.userId === userId);
     safe.auditEvents = [];
     safe.outbox = [];
     safe.processedCommands = [];
     if (!organizer) safe.invitations = safe.invitations.filter((invitation) => invitation.guestId === userId);
+    if (!organizer) safe.joinRequests = safe.joinRequests.filter((request) => request.applicantId === userId);
     safe.proposal.quest.needsAddressed = [];
     safe.proposal.proposedParticipants = safe.proposal.proposedParticipants.map((participant) => ({
       ...participant,
       needsAddressed: [],
       contributionsUsed: [],
     }));
+    if (safe.viewer.role === "applicant" || safe.viewer.role === "selected") {
+      safe.initiatorId = "";
+      safe.roster = [];
+      safe.proposal.proposedParticipants = [];
+      safe.proposal.reserveCandidates = [];
+      safe.proposal.mutualBenefitExplanation = [];
+      safe.participantProgress = [];
+      safe.memberships = [];
+      safe.invitations = [];
+      safe.rosterValidation = { valid: true, errors: [] };
+      safe.arrangements = [];
+    }
     return safe;
+  }
+
+  async publishRecruitment(input: {
+    runId: string;
+    actorId: string;
+    targetGroupSize: number;
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.initiatorId !== input.actorId) throw new Error("Only the quest organizer can publish recruitment");
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    if (current.lifecycle !== "forming" || current.recruitment.status !== "draft") {
+      throw new Error("This quest is not available for recruitment publication");
+    }
+    if (input.targetGroupSize < current.recruitment.minimumGroupSize
+      || input.targetGroupSize > current.recruitment.maximumGroupSize) {
+      throw new Error("Target group size must be between the minimum and maximum group sizes");
+    }
+    if (current.roster.length >= input.targetGroupSize) throw new Error("This quest already meets its recruitment target");
+    const now = new Date().toISOString();
+    return this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      lifecycle: "recruiting",
+      revision: current.revision + 1,
+      recruitment: {
+        ...current.recruitment,
+        status: "open",
+        targetGroupSize: input.targetGroupSize,
+        publishedAt: now,
+      },
+      auditEvents: [...current.auditEvents, this.auditEvent(current, "recruitment_published", input.actorId, input.idempotencyKey, {
+        minimumGroupSize: current.recruitment.minimumGroupSize,
+        targetGroupSize: input.targetGroupSize,
+        maximumGroupSize: current.recruitment.maximumGroupSize,
+        currentApprovedCount: current.roster.length,
+      }, "recruiting")],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: now,
+    }, current.revision);
+  }
+
+  async requestToJoin(input: {
+    runId: string;
+    actorId: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    if (current.lifecycle !== "recruiting" || current.recruitment.status !== "open") {
+      throw new Error("This quest is not accepting join requests");
+    }
+    if (current.roster.some((member) => member.userId === input.actorId)) {
+      throw new Error("You are already in this quest roster");
+    }
+    if (current.roster.length >= current.recruitment.targetGroupSize) throw new Error("This quest has reached its target size");
+    const previousRequest = [...current.joinRequests].reverse().find((request) => request.applicantId === input.actorId);
+    if (previousRequest) {
+      throw new Error(previousRequest.status === "pending"
+        ? "You already have a pending request for this quest"
+        : "Your request for this quest has already been decided");
+    }
+    const assessment = await this.dependencies.assessRecruitmentCandidate?.(current, input.actorId);
+    if (!assessment?.eligible) throw new Error(assessment?.reason ?? "You are not currently eligible for this quest");
+    const now = new Date().toISOString();
+    const request: EventJoinRequest = {
+      requestId: `join_request_${randomUUID()}`,
+      runId: current.runId,
+      applicantId: input.actorId,
+      status: "pending",
+      version: 1,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      revision: current.revision + 1,
+      joinRequests: [...current.joinRequests, request],
+      auditEvents: [...current.auditEvents, this.auditEvent(current, "join_requested", input.actorId, input.idempotencyKey, {
+        requestId: request.requestId,
+      }, current.lifecycle)],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: now,
+    }, current.revision);
+  }
+
+  async decideJoinRequest(input: {
+    runId: string;
+    requestId: string;
+    actorId: string;
+    decision: "approve" | "reject";
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.initiatorId !== input.actorId) throw new Error("Only the quest organizer can decide join requests");
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    const request = current.joinRequests.find((candidate) => candidate.requestId === input.requestId);
+    if (!request || request.status !== "pending") throw new Error("This join request is no longer pending");
+    if (input.decision === "approve"
+      && (current.lifecycle !== "recruiting" || current.recruitment.status !== "open")) {
+      throw new Error("This quest is no longer recruiting");
+    }
+    const now = new Date().toISOString();
+    let roster = current.roster;
+    let proposal = current.proposal;
+    let rosterValidation = current.rosterValidation;
+    let lifecycle: EventCoordinationState["lifecycle"] = current.lifecycle;
+    let recruitment = current.recruitment;
+    let eligibilityGuard: EventRecruitmentEligibilityGuard | undefined;
+    if (input.decision === "approve") {
+      if (current.roster.length >= current.recruitment.targetGroupSize
+        || current.roster.length >= current.recruitment.maximumGroupSize) {
+        throw new Error("This quest has no remaining places");
+      }
+      const assessment = await this.dependencies.assessRecruitmentCandidate?.(current, request.applicantId);
+      if (!assessment?.eligible) {
+        throw new Error(assessment?.reason ?? "This applicant is no longer eligible for this quest");
+      }
+      const resolved = assessment.candidate;
+      eligibilityGuard = resolved.eligibilityGuard;
+      roster = [...current.roster, {
+        userId: request.applicantId,
+        source: "application",
+        proposedRole: resolved.participant.proposedRole,
+        explanation: resolved.explanation,
+      }];
+      const participants = [...current.proposal.proposedParticipants, resolved.participant];
+      proposal = {
+        ...structuredClone(current.proposal),
+        quest: {
+          ...current.proposal.quest,
+          groupSize: participants.length,
+          needsAddressed: [...new Set(participants.flatMap((participant) => participant.needsAddressed))],
+        },
+        proposedParticipants: participants,
+      };
+      rosterValidation = this.dependencies.validateRoster
+        ? await this.dependencies.validateRoster(proposal)
+        : this.basicRosterValidation(proposal);
+      if (!rosterValidation.valid && !this.hasOnlyGroupSizeErrors(rosterValidation)) {
+        throw new Error(rosterValidation.errors.map((error) => error.message).join(" ")
+          || "This applicant is no longer eligible for this quest");
+      }
+      if (roster.length >= recruitment.targetGroupSize) {
+        lifecycle = "forming";
+        recruitment = { ...recruitment, status: "closed" };
+      }
+    }
+    const targetReached = input.decision === "approve" && roster.length >= recruitment.targetGroupSize;
+    const joinRequests = current.joinRequests.map((candidate): EventJoinRequest => {
+      if (candidate.requestId === request.requestId) {
+        return { ...candidate, status: input.decision === "approve" ? "approved" : "rejected", version: candidate.version + 1, updatedAt: now };
+      }
+      if (targetReached && candidate.status === "pending") {
+        return { ...candidate, status: "rejected", version: candidate.version + 1, updatedAt: now };
+      }
+      return candidate;
+    });
+    return this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      lifecycle,
+      revision: current.revision + 1,
+      rosterRevision: input.decision === "approve" ? current.rosterRevision + 1 : current.rosterRevision,
+      roster,
+      proposal,
+      rosterValidation,
+      recruitment,
+      joinRequests,
+      auditEvents: [...current.auditEvents, this.auditEvent(current, input.decision === "approve" ? "join_request_approved" : "join_request_rejected", input.actorId, input.idempotencyKey, {
+        requestId: request.requestId,
+        applicantId: request.applicantId,
+        currentApprovedCount: roster.length,
+        surplusRequestsClosed: targetReached
+          ? current.joinRequests.filter((candidate) => candidate.requestId !== request.requestId && candidate.status === "pending").length
+          : 0,
+      }, lifecycle)],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: now,
+    }, current.revision, eligibilityGuard);
   }
 
   async confirmRoster(input: {
@@ -783,6 +1035,12 @@ export class EventCoordinator {
       ? await this.dependencies.validateRoster(proposal)
       : this.basicRosterValidation(proposal);
     const now = new Date().toISOString();
+    const recruitment = current.recruitment.publishedAt && roster.length < current.recruitment.targetGroupSize
+      ? { ...current.recruitment, status: "open" as const }
+      : current.recruitment.status === "draft" && roster.length >= current.recruitment.minimumGroupSize
+        ? { ...current.recruitment, status: "closed" as const }
+        : current.recruitment;
+    const lifecycle = recruitment.status === "open" ? "recruiting" as const : current.lifecycle;
     const rosterNotifications = input.action === "add" ? [
       {
         notificationId: `notification_${randomUUID()}`,
@@ -818,11 +1076,13 @@ export class EventCoordinator {
       : current.memberships;
     return this.dependencies.store.saveEventCoordinationState({
       ...current,
+      lifecycle,
       revision: current.revision + 1,
       rosterRevision: current.rosterRevision + 1,
       roster,
       proposal,
       rosterValidation,
+      recruitment,
       invitations,
       memberships,
       notifications: [...current.notifications, ...rosterNotifications],
@@ -833,7 +1093,7 @@ export class EventCoordinator {
       auditEvents: [...current.auditEvents, this.auditEvent(current, `roster_member_${input.action === "add" ? "added" : "removed"}`, input.actorId, null, {
         userId: input.userId,
         rosterRevision: current.rosterRevision + 1,
-      }, current.lifecycle)],
+      }, lifecycle)],
       updatedAt: now,
     }, current.revision);
   }
@@ -1091,7 +1351,11 @@ export class EventCoordinator {
   }
 
   async listActivities(userId: string): Promise<UserEventActivities> {
-    const states = await this.dependencies.store.listEventCoordinationStates(userId);
+    const [relatedStates, recruitingStates] = await Promise.all([
+      this.dependencies.store.listEventCoordinationStates(userId),
+      this.dependencies.store.listRecruitingEventCoordinationStates(),
+    ]);
+    const states = [...new Map([...relatedStates, ...recruitingStates].map((state) => [state.runId, this.withRecruitmentDefaults(state)])).values()];
     const result: UserEventActivities = {
       unreadCount: 0,
       notifications: [],
@@ -1106,6 +1370,7 @@ export class EventCoordinator {
         cancelled: [],
       },
     };
+    const suggestedScores = new Map<string, number>();
     for (const state of states) {
       const userNotifications = state.notifications.filter((notification) => notification.userId === userId);
       result.unreadCount += userNotifications.filter((notification) => notification.readAt === null).length;
@@ -1113,11 +1378,21 @@ export class EventCoordinator {
         ...notification,
         runId: state.runId,
       })));
-      const activity = this.activityCard(state);
+      const ownJoinRequest = [...state.joinRequests].reverse().find((request) => request.applicantId === userId);
+      const activity = this.activityCard(state, ownJoinRequest?.status ?? null);
       if (state.lifecycle === "forming"
         && state.memberships.length === 0
-        && (state.initiatorId === userId || state.roster.some((member) => member.userId === userId))) {
+        && (state.initiatorId === userId
+          || (state.recruitment.status !== "draft" && state.roster.some((member) => member.userId === userId)))) {
         result.suggested.push(activity);
+      }
+      if (state.lifecycle === "recruiting" && state.recruitment.status === "open") {
+        const related = state.initiatorId === userId
+          || state.roster.some((member) => member.userId === userId);
+        const assessment = related ? null : await this.dependencies.assessRecruitmentCandidate?.(state, userId);
+        const eligible = related || assessment?.eligible === true;
+        suggestedScores.set(state.runId, related ? 1 : assessment?.eligible ? assessment.candidate.score ?? 0 : 0);
+        if (eligible) result.suggested.push(activity);
       }
       for (const invitation of state.invitations) {
         const view = { ...invitation, activity };
@@ -1135,11 +1410,15 @@ export class EventCoordinator {
         result.my.awaitingConfirmation.push(activity);
       } else result.my.awaitingCoordination.push(activity);
     }
+    result.suggested.sort((left, right) => (suggestedScores.get(right.runId) ?? 0) - (suggestedScores.get(left.runId) ?? 0));
     result.notifications.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
     return result;
   }
 
-  private activityCard(state: EventCoordinationState): EventActivityCard {
+  private activityCard(
+    state: EventCoordinationState,
+    viewerRequestStatus: EventJoinRequest["status"] | null = null,
+  ): EventActivityCard {
     const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
     return {
       runId: state.runId,
@@ -1154,6 +1433,13 @@ export class EventCoordinator {
         venueName: finalized.venueName,
         version: finalized.version,
       } : null,
+      recruitment: state.recruitment.status === "closed" && state.recruitment.publishedAt === null
+        ? null
+        : {
+            ...state.recruitment,
+            currentApprovedCount: state.roster.length,
+            viewerRequestStatus,
+          },
     };
   }
 
@@ -1169,6 +1455,33 @@ export class EventCoordinator {
       message: "Proposed participants must be unique.",
     });
     return { valid: errors.length === 0, errors };
+  }
+
+  private hasOnlyGroupSizeErrors(validation: ValidationResult): boolean {
+    return validation.errors.length > 0 && validation.errors.every((error) => error.field === "groupSize");
+  }
+
+  private canEnterFormation(run: QuestRun): boolean {
+    if (!run.proposal || !run.validation || run.safety?.status !== "approved") return false;
+    if (run.validation.valid) return true;
+    return run.proposal.proposedParticipants.length >= 1
+      && run.proposal.proposedParticipants.some((participant) => participant.candidateId === run.initiatingCandidateId)
+      && this.hasOnlyGroupSizeErrors(run.validation);
+  }
+
+  private withRecruitmentDefaults(state: EventCoordinationState): EventCoordinationState {
+    const currentGroupSize = state.roster.length;
+    return {
+      ...state,
+      recruitment: state.recruitment ?? {
+        status: "closed",
+        minimumGroupSize: Math.max(2, currentGroupSize),
+        targetGroupSize: Math.max(2, currentGroupSize),
+        maximumGroupSize: Math.max(2, currentGroupSize),
+        publishedAt: null,
+      },
+      joinRequests: state.joinRequests ?? [],
+    };
   }
 
   private isActiveMembership(membership: EventMembership): boolean {
@@ -1249,6 +1562,6 @@ export class EventCoordinator {
   private async requireState(runId: string): Promise<EventCoordinationState> {
     const state = await this.dependencies.store.findEventCoordinationState(runId);
     if (!state) throw new Error("Event coordination state was not found");
-    return state;
+    return this.withRecruitmentDefaults(state);
   }
 }

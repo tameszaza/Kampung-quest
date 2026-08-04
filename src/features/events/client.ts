@@ -43,6 +43,42 @@ export async function confirmEventRoster(runId: string, expectedRevision: number
   }));
 }
 
+export async function publishEventRecruitment(input: {
+  runId: string;
+  targetGroupSize: number;
+  expectedRevision: number;
+}): Promise<EventQuestView> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/recruitment`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+    body: JSON.stringify({ targetGroupSize: input.targetGroupSize, expectedRevision: input.expectedRevision }),
+  }));
+}
+
+export async function requestToJoinEventQuest(runId: string, expectedRevision: number): Promise<EventQuestView> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/join-requests`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+    body: JSON.stringify({ expectedRevision }),
+  }));
+}
+
+export async function decideEventJoinRequest(input: {
+  runId: string;
+  requestId: string;
+  decision: "approve" | "reject";
+  expectedRevision: number;
+}): Promise<EventQuestView> {
+  return json(await fetch(
+    `/api/v1/event-quests/${encodeURIComponent(input.runId)}/join-requests/${encodeURIComponent(input.requestId)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+      body: JSON.stringify({ decision: input.decision, expectedRevision: input.expectedRevision }),
+    },
+  ));
+}
+
 export async function searchEventParticipants(runId: string, query: string): Promise<ChatContact[]> {
   const response = await fetch(
     `/api/v1/event-quests/${encodeURIComponent(runId)}/participants?q=${encodeURIComponent(query)}`,

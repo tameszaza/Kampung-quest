@@ -5,6 +5,7 @@ import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provid
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine, QUEST_IMAGE_PLACEHOLDER } from "@/server/core/kampung-quest-engine";
+import { EventCoordinator } from "@/server/features/event-coordinator";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageAgent } from "@/server/agents/quest-image-agent";
 
@@ -126,6 +127,41 @@ class RankedCandidateStore extends InMemoryKampungStore {
 }
 
 describe("KampungQuestEngine memory", () => {
+  it("keeps a safe undersized proposal private and ready for organizer recruitment consent", async () => {
+    const store = new InMemoryKampungStore();
+    const eventCoordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 4, maximum: 4 }),
+    });
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+      eventCoordinator,
+    });
+    await engine.recordMemory({
+      profile: withProfile("candidate_001", {
+        constraints: { ...profile("candidate_001").constraints, minimumGroupSize: 4, maximumGroupSize: 4 },
+      }),
+      narrative: "I would like a group of four for lunch.",
+    });
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+    const formation = await store.findEventCoordinationState(run.runId);
+
+    expect(run.status).toBe("forming");
+    expect(run.validation).toEqual(expect.objectContaining({ valid: false }));
+    expect(run.proposal?.proposedParticipants.map((participant) => participant.candidateId)).toEqual(["candidate_001"]);
+    expect(run.validation?.errors.every((error) => error.field === "groupSize")).toBe(true);
+    expect(formation?.lifecycle).toBe("forming");
+    expect(formation?.recruitment).toMatchObject({
+      status: "draft",
+      minimumGroupSize: 4,
+      targetGroupSize: 4,
+      maximumGroupSize: 4,
+      publishedAt: null,
+    });
+  });
+
   it("activates a versioned Markdown memory only after its vectors are ready", async () => {
     const engine = new KampungQuestEngine({
       store: new InMemoryKampungStore(),

@@ -7,7 +7,7 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
-import type { EventCoordinationState } from "@/server/domain/event-coordination";
+import type { EventCoordinationState, EventRecruitmentEligibilityGuard } from "@/server/domain/event-coordination";
 import { canViewQuestRun } from "@/server/quest/quest-access";
 
 export interface ActivateMemoryInput {
@@ -45,8 +45,13 @@ export interface CandidateCommitment {
 export interface KampungStore {
   createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
   findEventCoordinationState(runId: string): Promise<EventCoordinationState | null>;
-  saveEventCoordinationState(state: EventCoordinationState, expectedRevision: number): Promise<EventCoordinationState>;
+  saveEventCoordinationState(
+    state: EventCoordinationState,
+    expectedRevision: number,
+    eligibilityGuard?: EventRecruitmentEligibilityGuard,
+  ): Promise<EventCoordinationState>;
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
+  listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]>;
   listAllEventCoordinationStates(limit?: number): Promise<EventCoordinationState[]>;
   saveQuestRunWithFormation(run: QuestRun, state: EventCoordinationState, expectedUpdatedAt: string): Promise<QuestRun>;
   createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
@@ -129,9 +134,24 @@ export class InMemoryKampungStore implements KampungStore {
   async saveEventCoordinationState(
     state: EventCoordinationState,
     expectedRevision: number,
+    eligibilityGuard?: EventRecruitmentEligibilityGuard,
   ): Promise<EventCoordinationState> {
     const current = this.eventCoordinationStates.get(state.runId);
     if (!current || current.revision !== expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    if (eligibilityGuard) {
+      const profilesChanged = eligibilityGuard.profileVersions.some(({ candidateId, memoryVersion }) =>
+        this.memories.get(candidateId)?.version !== memoryVersion);
+      if (profilesChanged) {
+        throw new Error("The applicant's profile changed during approval; review the request again");
+      }
+      const commitments = this.acceptedCommitments();
+      const overlap = commitments.some((commitment) => commitment.candidateId === eligibilityGuard.candidateId
+        && commitment.questId !== eligibilityGuard.excludeRunId
+        && (commitment.start === null || commitment.end === null
+          || (Date.parse(commitment.start) < Date.parse(eligibilityGuard.end)
+            && Date.parse(commitment.end) > Date.parse(eligibilityGuard.start))));
+      if (overlap) throw new Error("The applicant gained an overlapping commitment during approval");
+    }
     this.eventCoordinationStates.set(state.runId, structuredClone(state));
     return structuredClone(state);
   }
@@ -150,6 +170,13 @@ export class InMemoryKampungStore implements KampungStore {
     return [...this.eventCoordinationStates.values()]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, Math.min(50, Math.max(1, limit)))
+      .map((state) => structuredClone(state));
+  }
+
+  async listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]> {
+    return [...this.eventCoordinationStates.values()]
+      .filter((state) => state.lifecycle === "recruiting" && state.recruitment?.status === "open")
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((state) => structuredClone(state));
   }
 
@@ -361,6 +388,10 @@ export class InMemoryKampungStore implements KampungStore {
   }
 
   async listAcceptedCommitments(): Promise<CandidateCommitment[]> {
+    return this.acceptedCommitments();
+  }
+
+  private acceptedCommitments(): CandidateCommitment[] {
     const commitments = new Map<string, CandidateCommitment>();
     for (const run of this.questRuns.values()) {
       if (!run.coordination || isTerminalQuestStatus(run.status)) continue;

@@ -83,12 +83,14 @@ describe("Senior Quest assistant recommendations", () => {
     expect(result.seededCandidateCount).toBeGreaterThanOrEqual(3);
   });
 
-  it("does not seed demo neighbours when the caller is not the showcase account", async () => {
+  it("creates a private organizer-only recruitment draft without demo neighbours", async () => {
     const { assistant } = setup();
     const result = await assistant.recommend(command(), undefined, { allowDemoNeighbors: false });
 
     expect(result.seededCandidateCount).toBe(0);
-    expect(result.quest.status).toBe("no_match");
+    expect(result.quest.status).toBe("forming");
+    expect(result.quest.proposal?.proposedParticipants.map((participant) => participant.candidateId)).toEqual(["maria"]);
+    expect(result.quest.validation).toMatchObject({ valid: false });
   });
 
   it("returns the same memory and quest when a confirmed conversation is retried", async () => {

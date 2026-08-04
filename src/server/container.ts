@@ -21,6 +21,7 @@ import { findCommonAvailability } from "@/server/features/availability-service";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import { SafetyGuardianService } from "@/server/features/safety-service";
 import { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
+import { RecruitmentEligibilityService } from "@/server/features/recruitment-eligibility-service";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
 import { createQuestImageStorage } from "@/server/quest/quest-image-storage";
@@ -112,6 +113,7 @@ const questChatNotifier = new QuestChatNotifier(identityStore, kampungStore);
 
 const eventConstraintValidator = new ConstraintValidator();
 const eventSafetyGuardian = new SafetyGuardianService();
+const recruitmentEligibility = new RecruitmentEligibilityService(kampungStore);
 
 export const eventCoordinator = new EventCoordinator({
   store: kampungStore,
@@ -138,6 +140,16 @@ export const eventCoordinator = new EventCoordinator({
       explanation: ["Selected by you"],
     };
   },
+  resolveGroupSizeRange: async (userIds) => {
+    const profiles = (await Promise.all(userIds.map((userId) => kampungStore.findMemory(userId))))
+      .flatMap((memory) => memory?.profile ? [memory.profile] : []);
+    if (profiles.length !== userIds.length) return null;
+    return {
+      minimum: Math.max(...profiles.map((profile) => profile.constraints.minimumGroupSize)),
+      maximum: Math.min(...profiles.map((profile) => profile.constraints.maximumGroupSize)),
+    };
+  },
+  assessRecruitmentCandidate: (state, userId) => recruitmentEligibility.assess(state, userId),
   validateRoster: async (proposal) => {
     const cards = await kampungStore.listMemories();
     const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));

@@ -169,14 +169,23 @@ function formatNotificationTime(value: string) {
 }
 
 export function EventActivityCardView({ activity, action = "View activity" }: { activity: EventActivityCard; action?: string }) {
+  const requestAction = {
+    pending: "Request pending",
+    approved: "Added to proposed group",
+    rejected: "Request not approved",
+  } as const;
+  const recruitmentAction = activity.recruitment?.viewerRequestStatus
+    ? requestAction[activity.recruitment.viewerRequestStatus]
+    : activity.recruitment?.status === "open" ? "View recruiting quest" : action;
   return <article className="quest-card event-activity-card">
     <Link className="quest-card-link" href={`/quests/${activity.runId}`}>
       <div className="quest-card-body">
-        <span className="result-kicker"><Icon name={activity.lifecycle === "scheduled" ? "check" : "people"} size={17} /> {activity.lifecycle === "forming" ? "Group ready to review" : activity.lifecycle.replaceAll("_", " ")}</span>
+        <span className="result-kicker"><Icon name={activity.lifecycle === "scheduled" ? "check" : "people"} size={17} /> {activity.recruitment?.status === "open" ? `Recruiting · ${activity.recruitment.currentApprovedCount} of ${activity.recruitment.targetGroupSize}` : activity.lifecycle === "forming" ? "Group ready to review" : activity.lifecycle.replaceAll("_", " ")}</span>
         <h2>{activity.title}</h2>
         <p>{activity.description}</p>
         <AvailabilityLabel activity={activity} />
-        <span className="primary-button event-card-action">{action}</span>
+        {activity.recruitment ? <div className="meta-row"><Icon name="people" size={19} /><span><strong>{activity.recruitment.currentApprovedCount} approved</strong><small>Minimum {activity.recruitment.minimumGroupSize} · target {activity.recruitment.targetGroupSize} · maximum {activity.recruitment.maximumGroupSize}</small></span></div> : null}
+        <span className="primary-button event-card-action">{recruitmentAction}</span>
       </div>
     </Link>
   </article>;

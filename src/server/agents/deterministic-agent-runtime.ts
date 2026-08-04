@@ -78,13 +78,6 @@ export class DeterministicAgentRuntime implements AgentRuntime {
   async synthesizeQuest(
     input: Parameters<AgentRuntime["synthesizeQuest"]>[0],
   ): ReturnType<AgentRuntime["synthesizeQuest"]> {
-    if (input.candidates.length === 0) {
-      return {
-        outcome: "no_match",
-        reason: "No eligible neighbours directly support this request yet.",
-        missingCapabilities: input.initiator.interests,
-      };
-    }
     return {
       outcome: "proposal",
       proposal: this.synthesis.synthesize(input.initiator, input.candidates),

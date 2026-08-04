@@ -431,7 +431,7 @@ export const questProposalSchema = z.object({
     description: z.string().min(1),
     needsAddressed: z.array(z.string()),
     durationMinutes: z.number().int().positive().max(120),
-    groupSize: z.number().int().min(2).max(5),
+    groupSize: z.number().int().min(1).max(5),
     venueRequirements: z.array(z.string()),
     proposedTimeWindow: availabilityWindowSchema,
   }),
@@ -440,7 +440,7 @@ export const questProposalSchema = z.object({
     proposedRole: z.string().min(1),
     needsAddressed: z.array(z.string()),
     contributionsUsed: z.array(z.string()),
-  })).min(2).max(5),
+  })).min(1).max(5),
   reserveCandidates: z.array(z.object({
     candidateId: z.string().min(1),
     possibleRole: z.string().min(1),

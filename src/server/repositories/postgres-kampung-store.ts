@@ -11,7 +11,7 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
-import type { EventCoordinationState } from "@/server/domain/event-coordination";
+import type { EventCoordinationState, EventRecruitmentEligibilityGuard } from "@/server/domain/event-coordination";
 import type {
   ActivateMemoryInput,
   CandidateCommitment,
@@ -100,10 +100,12 @@ export class PostgresKampungStore implements KampungStore {
   async saveEventCoordinationState(
     state: EventCoordinationState,
     expectedRevision: number,
+    eligibilityGuard?: EventRecruitmentEligibilityGuard,
   ): Promise<EventCoordinationState> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      if (eligibilityGuard) await this.assertRecruitmentEligibilityGuard(client, eligibilityGuard);
       const result = await client.query(
         `UPDATE quest.event_coordination_states
          SET revision = $2, lifecycle = $3, payload = $4::jsonb, updated_at = $5
@@ -120,6 +122,64 @@ export class PostgresKampungStore implements KampungStore {
     } finally {
       client.release();
     }
+  }
+
+  private async assertRecruitmentEligibilityGuard(
+    client: PoolClient,
+    guard: EventRecruitmentEligibilityGuard,
+  ): Promise<void> {
+    await client.query("LOCK TABLE quest.event_memberships IN SHARE MODE");
+    await client.query("LOCK TABLE quest.event_arrangements IN SHARE MODE");
+    await client.query("LOCK TABLE quest.quest_runs IN SHARE MODE");
+    const profileIds = guard.profileVersions.map((profile) => profile.candidateId);
+    const memory = await client.query<{ candidate_id: string; active_version: number }>(
+      "SELECT candidate_id, active_version FROM memory.candidates WHERE candidate_id = ANY($1::text[]) FOR SHARE",
+      [profileIds],
+    );
+    const activeVersions = new Map(memory.rows.map((row) => [row.candidate_id, Number(row.active_version)]));
+    if (guard.profileVersions.some((profile) => activeVersions.get(profile.candidateId) !== profile.memoryVersion)) {
+      throw new Error("The applicant's profile changed during approval; review the request again");
+    }
+    const conflict = await client.query<{ conflict: boolean }>(
+      `WITH event_commitments AS (
+         SELECT state.run_id AS quest_id,
+                COALESCE(
+                  (arrangement.payload->>'start')::timestamptz,
+                  (state.payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz
+                ) AS starts_at,
+                COALESCE(
+                  (arrangement.payload->>'end')::timestamptz,
+                  (state.payload->'proposal'->'quest'->'proposedTimeWindow'->>'end')::timestamptz
+                ) AS ends_at
+         FROM quest.event_coordination_states state
+         JOIN quest.event_memberships membership ON membership.run_id = state.run_id
+         LEFT JOIN LATERAL (
+           SELECT payload FROM quest.event_arrangements candidate
+           WHERE candidate.run_id = state.run_id AND candidate.status = 'finalized'
+           ORDER BY candidate.version DESC LIMIT 1
+         ) arrangement ON true
+         WHERE membership.user_id = $1
+           AND state.run_id <> $2
+           AND state.lifecycle NOT IN ('completed', 'cancelled')
+           AND membership.status IN ('coordinating', 'awaiting_confirmation', 'confirmed')
+       ), legacy_commitments AS (
+         SELECT run.run_id AS quest_id,
+                (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz AS starts_at,
+                (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'end')::timestamptz AS ends_at
+         FROM quest.quest_runs run
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(run.payload->'coordination'->'invitations', '[]'::jsonb)) invitation
+         WHERE run.run_id <> $2
+           AND run.status IN ('awaiting_acceptance', 'confirmed', 'human_review')
+           AND invitation->>'candidateId' = $1
+           AND invitation->>'status' = 'accepted'
+       )
+       SELECT EXISTS (
+         SELECT 1 FROM (SELECT * FROM event_commitments UNION ALL SELECT * FROM legacy_commitments) commitments
+         WHERE starts_at IS NULL OR ends_at IS NULL OR (starts_at < $4::timestamptz AND ends_at > $3::timestamptz)
+       ) AS conflict`,
+      [guard.candidateId, guard.excludeRunId, guard.start, guard.end],
+    );
+    if (conflict.rows[0]?.conflict) throw new Error("The applicant gained an overlapping commitment during approval");
   }
 
   async listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]> {
@@ -141,6 +201,16 @@ export class PostgresKampungStore implements KampungStore {
       `SELECT payload FROM quest.event_coordination_states
        ORDER BY updated_at DESC LIMIT $1`,
       [Math.min(50, Math.max(1, limit))],
+    );
+    return result.rows.map((row) => row.payload);
+  }
+
+  async listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]> {
+    const result = await this.pool.query<{ payload: EventCoordinationState }>(
+      `SELECT payload FROM quest.event_coordination_states
+       WHERE lifecycle = 'recruiting'
+         AND payload @> '{"recruitment":{"status":"open"}}'::jsonb
+       ORDER BY updated_at DESC`,
     );
     return result.rows.map((row) => row.payload);
   }
@@ -174,6 +244,17 @@ export class PostgresKampungStore implements KampungStore {
         [invitation.invitationId, state.runId, invitation.inviterId, invitation.guestId,
           invitation.status, invitation.version, invitation.rosterRevision, invitation.deliveryState,
           invitation.idempotencyKey, invitation.createdAt, invitation.updatedAt],
+      );
+    }
+    for (const request of state.joinRequests ?? []) {
+      await client.query(
+        `INSERT INTO quest.event_join_requests
+          (request_id, run_id, applicant_id, status, version, idempotency_key, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (request_id) DO UPDATE
+         SET status = EXCLUDED.status, version = EXCLUDED.version, updated_at = EXCLUDED.updated_at`,
+        [request.requestId, state.runId, request.applicantId, request.status, request.version,
+          request.idempotencyKey, request.createdAt, request.updatedAt],
       );
     }
     for (const membership of state.memberships) {

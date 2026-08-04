@@ -256,7 +256,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         ? this.aliasProposalForSynthesis(input.proposalToCorrect, aliases)
         : null,
       rules: {
-        minimumGroupSize: 2,
+        minimumGroupSize: 1,
         maximumGroupSize: 5,
         maximumDurationMinutes: 120,
         publicVenueRequired: true,

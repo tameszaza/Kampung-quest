@@ -64,6 +64,210 @@ function approvedRun(): QuestRun {
 }
 
 describe("EventCoordinator", () => {
+  it("publishes an undersized quest to the Suggested feed only after organizer consent", async () => {
+    const run = approvedRun();
+    run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+    run.proposal!.quest.groupSize = 2;
+    run.validation = {
+      valid: false,
+      errors: [{ field: "groupSize", message: "This quest needs at least three people." }],
+    };
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 5 }),
+      assessRecruitmentCandidate: async (_state, userId) => userId === "sofia" ? { eligible: true, candidate: {
+        participant: {
+          candidateId: "sofia",
+          proposedRole: "supporting_participant",
+          needsAddressed: ["Would enjoy meeting neighbours"],
+          contributionsUsed: ["can welcome newcomers"],
+        },
+        explanation: ["Compatible availability and group preferences"],
+      } } : { eligible: false, reason: "Not eligible" },
+    });
+
+    const draft = await coordinator.createFormation(run);
+
+    expect(draft.recruitment).toMatchObject({
+      status: "draft",
+      minimumGroupSize: 3,
+      targetGroupSize: 3,
+      maximumGroupSize: 5,
+      publishedAt: null,
+    });
+    expect((await coordinator.listActivities("sofia")).suggested).toEqual([]);
+    expect((await coordinator.listActivities("anne")).suggested).toEqual([]);
+    await expect(coordinator.getStateForUser(draft.runId, "anne")).rejects.toThrow("not found");
+
+    const published = await coordinator.publishRecruitment({
+      runId: draft.runId,
+      actorId: "maria",
+      targetGroupSize: 4,
+      expectedRevision: draft.revision,
+      idempotencyKey: "publish-understaffed-quest",
+    });
+
+    expect(published.lifecycle).toBe("recruiting");
+    expect(published.recruitment).toMatchObject({
+      status: "open",
+      minimumGroupSize: 3,
+      targetGroupSize: 4,
+      maximumGroupSize: 5,
+    });
+    expect((await coordinator.listActivities("sofia")).suggested).toEqual([
+      expect.objectContaining({
+        runId: run.runId,
+        recruitment: expect.objectContaining({
+          status: "open",
+          currentApprovedCount: 2,
+          minimumGroupSize: 3,
+          targetGroupSize: 4,
+          maximumGroupSize: 5,
+        }),
+      }),
+    ]);
+    expect((await coordinator.listActivities("unknown")).suggested).toEqual([]);
+  });
+
+  it("keeps join requests pending until organizer approval and closes at the target", async () => {
+    const run = approvedRun();
+    run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+    run.proposal!.quest.groupSize = 2;
+    run.validation = { valid: false, errors: [{ field: "groupSize", message: "Three people are required." }] };
+    const store = new InMemoryKampungStore();
+    let sofiaEligible = true;
+    const coordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 4 }),
+      resolveMember: async (userId) => userId === "sofia"
+        ? { displayName: "Sofia Tan", photoUrl: null }
+        : null,
+      assessRecruitmentCandidate: async (_state, userId) => userId === "sofia" && sofiaEligible ? { eligible: true, candidate: {
+        participant: {
+          candidateId: "sofia",
+          proposedRole: "welcomer",
+          needsAddressed: ["Would enjoy meeting neighbours"],
+          contributionsUsed: ["can welcome newcomers"],
+        },
+        explanation: ["Compatible availability and group preferences"],
+      } } : { eligible: false, reason: "The applicant's availability no longer includes this quest window." },
+      validateRoster: async (proposal) => proposal.proposedParticipants.length >= 3
+        ? { valid: true, errors: [] }
+        : { valid: false, errors: [{ field: "groupSize", message: "Three people are required." }] },
+    });
+    const draft = await coordinator.createFormation(run);
+    const published = await coordinator.publishRecruitment({
+      runId: draft.runId,
+      actorId: "maria",
+      targetGroupSize: 3,
+      expectedRevision: draft.revision,
+      idempotencyKey: "publish-for-sofia",
+    });
+
+    const requested = await coordinator.requestToJoin({
+      runId: published.runId,
+      actorId: "sofia",
+      expectedRevision: published.revision,
+      idempotencyKey: "sofia-requests",
+    });
+    const withPrivateArrangement = await store.saveEventCoordinationState({
+      ...requested,
+      revision: requested.revision + 1,
+      arrangements: [{
+        arrangementId: "private-arrangement",
+        version: 1,
+        start: "2026-08-10T03:00:00.000Z",
+        end: "2026-08-10T04:30:00.000Z",
+        venueName: "Exact Private Venue",
+        venueAddress: "Private address",
+        venueStatus: "proposed",
+        status: "proposed",
+        materialChanges: [],
+        confirmations: [{ userId: "anne", status: "pending", respondedAt: null }],
+        createdAt: requested.updatedAt,
+        updatedAt: requested.updatedAt,
+      }],
+    }, requested.revision);
+    const applicantView = await coordinator.getStateForUser(requested.runId, "sofia");
+    const organizerView = await coordinator.getStateForUser(requested.runId, "maria");
+
+    expect(requested.roster.map((member) => member.userId)).toEqual(["maria", "anne"]);
+    expect(applicantView.viewer.role).toBe("applicant");
+    expect(applicantView.roster).toEqual([]);
+    expect(applicantView.proposal.quest.needsAddressed).toEqual([]);
+    expect(applicantView.arrangements).toEqual([]);
+    expect(applicantView.joinRequests).toEqual([
+      expect.objectContaining({ applicantId: "sofia", status: "pending" }),
+    ]);
+    expect(organizerView.applicantProfiles).toEqual([
+      { userId: "sofia", displayName: "Sofia Tan", photoUrl: null },
+    ]);
+
+    sofiaEligible = false;
+    expect((await coordinator.listActivities("sofia")).suggested).toEqual([]);
+    await expect(coordinator.decideJoinRequest({
+      runId: requested.runId,
+      requestId: requested.joinRequests[0].requestId,
+      actorId: "maria",
+      decision: "approve",
+      expectedRevision: withPrivateArrangement.revision,
+      idempotencyKey: "maria-attempts-stale-sofia",
+    })).rejects.toThrow("availability no longer includes");
+    sofiaEligible = true;
+
+    const approved = await coordinator.decideJoinRequest({
+      runId: requested.runId,
+      requestId: requested.joinRequests[0].requestId,
+      actorId: "maria",
+      decision: "approve",
+      expectedRevision: withPrivateArrangement.revision,
+      idempotencyKey: "maria-approves-sofia",
+    });
+
+    expect(approved.roster.at(-1)).toMatchObject({ userId: "sofia", source: "application" });
+    expect(approved.joinRequests[0]).toMatchObject({ status: "approved", version: 2 });
+    expect(approved.recruitment.status).toBe("closed");
+    expect(approved.lifecycle).toBe("forming");
+    expect(approved.auditEvents.at(-1)).toMatchObject({ type: "join_request_approved", newLifecycle: "forming" });
+    expect((await coordinator.listActivities("unknown")).suggested).toEqual([]);
+  });
+
+  it("does not truncate eligible recruiting quests to the general activity scan limit", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 4 }),
+      assessRecruitmentCandidate: async () => ({ eligible: true, candidate: {
+        participant: {
+          candidateId: "sofia",
+          proposedRole: "supporting_participant",
+          needsAddressed: ["Would enjoy meeting neighbours"],
+          contributionsUsed: ["can welcome newcomers"],
+        },
+        explanation: ["Eligible match"],
+      } }),
+    });
+    for (let index = 0; index < 51; index += 1) {
+      const run = approvedRun();
+      run.runId = `quest_recruiting_${index}`;
+      run.idempotencyKey = `formation-${index}`;
+      run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+      run.proposal!.quest.groupSize = 2;
+      run.validation = { valid: false, errors: [{ field: "groupSize", message: "Three people are required." }] };
+      const draft = await coordinator.createFormation(run);
+      await coordinator.publishRecruitment({
+        runId: run.runId,
+        actorId: "maria",
+        targetGroupSize: 3,
+        expectedRevision: draft.revision,
+        idempotencyKey: `publish-${index}`,
+      });
+    }
+
+    expect((await coordinator.listActivities("sofia")).suggested).toHaveLength(51);
+  });
+
   it("keeps recommendations editable until the organizer confirms guest invitations", async () => {
     const store = new InMemoryKampungStore();
     const coordinator = new EventCoordinator({ store });

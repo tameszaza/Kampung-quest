@@ -1,8 +1,9 @@
-import type { QuestProposal, ValidationResult } from "@/server/domain/schemas";
+import type { Participant, QuestProposal, ValidationResult } from "@/server/domain/schemas";
 import { z } from "zod";
 
 export type EventQuestLifecycle =
   | "forming"
+  | "recruiting"
   | "awaiting_responses"
   | "coordinating"
   | "awaiting_confirmation"
@@ -17,7 +18,7 @@ export interface AvailabilityHorizon {
   end: string;
 }
 
-export type RosterSource = "initiator" | "recommended" | "manual";
+export type RosterSource = "initiator" | "recommended" | "manual" | "application";
 
 export interface EventRosterMember {
   userId: string;
@@ -182,6 +183,8 @@ export interface EventCoordinationState {
   proposal: QuestProposal;
   rosterValidation: ValidationResult;
   roster: EventRosterMember[];
+  recruitment: EventRecruitment;
+  joinRequests: EventJoinRequest[];
   invitations: EventInvitation[];
   memberships: EventMembership[];
   threads: EventCoordinationThread[];
@@ -196,12 +199,58 @@ export interface EventCoordinationState {
 
 export interface EventQuestView extends EventCoordinationState {
   viewer: {
-    role: "organizer" | "pending_invitee" | "participant";
+    role: "organizer" | "pending_invitee" | "participant" | "selected" | "applicant";
     canChat: boolean;
     pendingInvitationId: string | null;
   };
   participantProgress: EventParticipantProgress[];
+  recruitmentProgress: {
+    currentApprovedCount: number;
+  };
+  applicantProfiles: Array<{
+    userId: string;
+    displayName: string;
+    photoUrl: string | null;
+  }>;
 }
+
+export interface EventRecruitment {
+  status: "draft" | "open" | "closed";
+  minimumGroupSize: number;
+  targetGroupSize: number;
+  maximumGroupSize: number;
+  publishedAt: string | null;
+}
+
+export interface EventJoinRequest {
+  requestId: string;
+  runId: string;
+  applicantId: string;
+  status: "pending" | "approved" | "rejected";
+  version: number;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventRecruitmentCandidate {
+  participant: Participant;
+  explanation: string[];
+  score?: number;
+  eligibilityGuard?: EventRecruitmentEligibilityGuard;
+}
+
+export interface EventRecruitmentEligibilityGuard {
+  candidateId: string;
+  profileVersions: Array<{ candidateId: string; memoryVersion: number }>;
+  start: string;
+  end: string;
+  excludeRunId: string;
+}
+
+export type EventRecruitmentAssessment =
+  | { eligible: true; candidate: EventRecruitmentCandidate }
+  | { eligible: false; reason: string };
 
 export interface EventParticipantProgress {
   userId: string;
@@ -220,6 +269,20 @@ export const rosterUpdateRequestSchema = z.object({
 });
 
 export const rosterConfirmRequestSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+
+export const recruitmentPublishRequestSchema = z.object({
+  targetGroupSize: z.number().int().min(2).max(5),
+  expectedRevision: z.number().int().positive(),
+});
+
+export const joinRequestCreateSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+
+export const joinRequestDecisionSchema = z.object({
+  decision: z.enum(["approve", "reject"]),
   expectedRevision: z.number().int().positive(),
 });
 
@@ -275,6 +338,10 @@ export interface EventActivityCard {
     venueName: string;
     version: number;
   } | null;
+  recruitment: (EventRecruitment & {
+    currentApprovedCount: number;
+    viewerRequestStatus: EventJoinRequest["status"] | null;
+  }) | null;
 }
 
 export interface EventInvitationView extends EventInvitation {

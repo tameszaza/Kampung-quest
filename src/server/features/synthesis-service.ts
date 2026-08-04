@@ -9,7 +9,7 @@ import type {
 export class QuestSynthesisService {
   synthesize(initiator: CandidateProfile, candidates: RetrievedCandidate[]): QuestProposal {
     const selectedProfiles = this.selectCompatibleGroup(initiator, candidates);
-    if (selectedProfiles.length < 2) throw new Error("No eligible candidates share an availability window");
+    if (selectedProfiles.length < 1) throw new Error("No eligible participant is available for a quest draft");
 
     const window = this.sharedWindow(selectedProfiles);
     if (!window) throw new Error("No shared availability window was found");

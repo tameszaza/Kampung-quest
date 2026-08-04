@@ -8,9 +8,12 @@ import { ProfileAvatar } from "@/components/profile-avatar";
 import { useUser } from "@/components/user-context";
 import {
   confirmEventRoster,
+  decideEventJoinRequest,
   decideEventArrangement,
   getEventQuest,
   proposeEventArrangement,
+  publishEventRecruitment,
+  requestToJoinEventQuest,
   respondToEventInvitation,
   searchEventParticipants,
   suggestEventArrangement,
@@ -48,12 +51,15 @@ function EventQuestWorkspace({ state, onChange }: {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [contacts, setContacts] = useState<ChatContact[]>([]);
+  const [targetGroupSize, setTargetGroupSize] = useState(state.recruitment.targetGroupSize);
   const organizer = state.initiatorId === user.id;
   const ownInvitation = state.invitations.find((invitation) => invitation.guestId === user.id);
   const ownMembership = state.memberships.find((membership) => membership.userId === user.id);
   const latestArrangement = state.arrangements.at(-1);
   const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const proposed = state.proposal.quest.proposedTimeWindow;
+  const ownJoinRequest = state.joinRequests.find((request) => request.applicantId === user.id);
+  const approvedCount = state.recruitmentProgress.currentApprovedCount;
 
   async function act(label: string, action: () => Promise<EventQuestView>) {
     setBusy(label);
@@ -98,8 +104,40 @@ function EventQuestWorkspace({ state, onChange }: {
           <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
-          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.roster.length} people</strong></span></div>
+          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{approvedCount} approved · {state.recruitment.targetGroupSize} target</strong></span></div>
         </div>
+
+        {organizer && state.lifecycle === "forming" && state.recruitment.status === "draft" ? <section className="event-panel recruitment-publish-panel">
+          <span className="section-kicker">More people needed</span>
+          <h2>Create this quest and recruit safely matched neighbours?</h2>
+          <p>We found {state.roster.length} people so far. The quest needs at least {state.recruitment.minimumGroupSize}. It will stay private unless you choose to publish it.</p>
+          <label><span>Recruitment target</span><select value={targetGroupSize} onChange={(event) => setTargetGroupSize(Number(event.target.value))}>{Array.from({ length: state.recruitment.maximumGroupSize - state.recruitment.minimumGroupSize + 1 }, (_, index) => state.recruitment.minimumGroupSize + index).map((size) => <option value={size} key={size}>{size} people</option>)}</select></label>
+          <div className="split-actions"><Link className="secondary-button" href="/quests">Not now</Link><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act("publish-recruitment", () => publishEventRecruitment({ runId: state.runId, targetGroupSize, expectedRevision: state.revision }))}>{busy === "publish-recruitment" ? "Publishing…" : "Create & recruit"}</button></div>
+        </section> : null}
+
+        {state.viewer.role === "applicant" && state.recruitment.status === "open" ? <section className="event-panel recruitment-request-panel">
+          <span className="section-kicker">Safely matched for you</span>
+          <h2>{ownJoinRequest?.status === "pending" ? "Your request is pending" : ownJoinRequest?.status === "approved" ? "You were added to the proposed group" : ownJoinRequest?.status === "rejected" ? "Your request was not approved" : "Would you like to join this quest?"}</h2>
+          <p>{ownJoinRequest?.status === "pending" ? "The organizer will review your request. You have not been added to the group yet." : ownJoinRequest?.status === "approved" ? "The organizer is still recruiting the remaining people. Invitations and coordination will begin after the group is complete." : ownJoinRequest?.status === "rejected" ? "This request is closed. Talk to Senior Quest to find another suitable activity." : `The activity is recruiting toward ${state.recruitment.targetGroupSize} people. The organizer must approve your request before you join.`}</p>
+          {ownJoinRequest ? <button className="primary-button" type="button" disabled>{ownJoinRequest.status === "pending" ? "Request pending" : ownJoinRequest.status === "approved" ? "Added to group" : "Request closed"}</button> : <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act("request-to-join", () => requestToJoinEventQuest(state.runId, state.revision))}>{busy === "request-to-join" ? "Sending request…" : "Request to join"}</button>}
+        </section> : null}
+
+        {state.viewer.role === "selected" && state.recruitment.status === "open" ? <section className="event-panel recruitment-request-panel">
+          <span className="section-kicker">You are in the proposed group</span>
+          <h2>The organizer is recruiting the remaining people</h2>
+          <p>You do not need to apply. You will receive an invitation after the group reaches its target and the organizer confirms the roster.</p>
+          <button className="primary-button" type="button" disabled>Added to proposed group</button>
+        </section> : null}
+
+        {organizer && state.recruitment.publishedAt !== null && (state.lifecycle === "recruiting" || state.joinRequests.some((request) => request.status === "pending")) ? <section className="event-panel recruitment-organizer-panel">
+          <span className="section-kicker">{state.recruitment.status === "open" ? "Recruiting safely matched neighbours" : "Recruitment closed"}</span>
+          <h2>{state.roster.length} of {state.recruitment.targetGroupSize} approved</h2>
+          <p>Minimum {state.recruitment.minimumGroupSize} · target {state.recruitment.targetGroupSize} · maximum {state.recruitment.maximumGroupSize}. Recruitment closes automatically at the target.</p>
+          {state.joinRequests.filter((request) => request.status === "pending").length ? <div className="event-roster">{state.joinRequests.filter((request) => request.status === "pending").map((request) => {
+            const profile = state.applicantProfiles.find((candidate) => candidate.userId === request.applicantId);
+            return <div key={request.requestId}><ProfileAvatar name={profile?.displayName ?? "Community member"} photoUrl={profile?.photoUrl} size={44} /><p><strong>{profile?.displayName ?? "Community member"}</strong><small>Requested to join · eligibility will be checked again</small></p><div className="split-actions"><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`reject-${request.requestId}`, () => decideEventJoinRequest({ runId: state.runId, requestId: request.requestId, decision: "reject", expectedRevision: state.revision }))}>Reject</button>{state.recruitment.status === "open" ? <button type="button" className="primary-button" disabled={Boolean(busy)} onClick={() => void act(`approve-${request.requestId}`, () => decideEventJoinRequest({ runId: state.runId, requestId: request.requestId, decision: "approve", expectedRevision: state.revision }))}>Approve</button> : null}</div></div>;
+          })}</div> : <p className="assistant-note">No pending join requests yet. Only people who pass the quest’s hard eligibility checks can see and apply.</p>}
+        </section> : null}
 
         {organizer && state.lifecycle === "forming" ? <section className="event-panel">
           <span className="section-kicker">Step 1 · Review your group</span>
@@ -112,7 +150,7 @@ function EventQuestWorkspace({ state, onChange }: {
           {!state.rosterValidation.valid ? <ul className="validation-errors">{state.rosterValidation.errors.map((item) => <li key={`${item.field}-${item.message}`}>{item.message}</li>)}</ul> : null}
           <form className="event-person-search" onSubmit={search}><label><span>Invite people you know</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an existing member" /></label><button className="secondary-button" disabled={busy === "search"}>{busy === "search" ? "Searching…" : "Search"}</button></form>
           {contacts.length ? <div className="contact-picker event-contact-results">{contacts.map((contact) => <button type="button" key={contact.id} disabled={Boolean(busy)} onClick={() => void act(`add-${contact.id}`, () => updateEventRoster({ runId: state.runId, action: "add", userId: contact.id, expectedRevision: state.revision }))}><span className="member-initial">{contact.fullName.slice(0, 1)}</span><span><strong>{contact.fullName}</strong><small>{contact.username ? `@${contact.username}` : "Community member"}</small></span><b>+</b></button>)}</div> : null}
-          <button className="primary-button event-confirm-roster" type="button" disabled={Boolean(busy) || !state.rosterValidation.valid} onClick={() => void act("confirm-roster", () => confirmEventRoster(state.runId, state.revision))}>{busy === "confirm-roster" ? "Preparing invitations…" : "Confirm group & send invitations"}</button>
+          {state.recruitment.status !== "draft" ? <button className="primary-button event-confirm-roster" type="button" disabled={Boolean(busy) || !state.rosterValidation.valid} onClick={() => void act("confirm-roster", () => confirmEventRoster(state.runId, state.revision))}>{busy === "confirm-roster" ? "Preparing invitations…" : "Confirm group & send invitations"}</button> : null}
         </section> : null}
 
         {ownInvitation?.status === "pending" ? <section className="event-panel invitation-decision-panel"><span className="section-kicker">Invitation</span><h2>Would you like to join coordination?</h2><p>Accepting does not confirm this provisional time. Everyone will confirm the final arrangement later.</p><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("decline", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "decline", expectedRevision: state.revision }))}>Decline</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("accept", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "accept", expectedRevision: state.revision }))}>Accept & coordinate</button></div></section> : null}

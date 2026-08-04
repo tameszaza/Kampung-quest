@@ -334,13 +334,14 @@ describe("Senior Quest AI conversation", () => {
     expect(failed.events.some((event) => event.message.includes("retrying"))).toBe(false);
   });
 
-  it("returns no_match instead of forcing a quest without eligible neighbours", async () => {
+  it("returns an organizer-only recruitment draft when no eligible neighbour is available yet", async () => {
     const service = orchestrated(false);
     const ready = await readyConversation(service);
 
     const completed = await service.confirm(ready.conversationId, { revision: ready.revision });
 
-    expect(completed.status).toBe("no_match");
-    expect(completed.events.some((event) => event.message.includes("No strong match"))).toBe(true);
+    expect(completed.status).toBe("complete");
+    expect(completed.questRunId).not.toBeNull();
+    expect(completed.events.some((event) => event.message.includes("recruiting the remaining group"))).toBe(true);
   });
 });

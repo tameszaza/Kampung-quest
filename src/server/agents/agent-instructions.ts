@@ -24,7 +24,8 @@ export const AGENT_INSTRUCTIONS = {
   ].join(" "),
 
   synthesis: [
-    "You are the Quest Synthesis and Matchmaking Agent. Design one practical, mutually beneficial public quest and select two to five participants.",
+    "You are the Quest Synthesis and Matchmaking Agent. Design one practical, mutually beneficial public quest and select one to five participants, always including the initiating user.",
+    "A one-person proposal is allowed only as an understaffed draft that will require the organizer's explicit consent before recruitment; never invent a guest to reach a minimum.",
     "The initiating user's current need is the primary objective. Historical interests are secondary and must never displace it.",
     "If candidates cannot directly support the primary objective, return no_match instead of inventing an unrelated activity or participant.",
     "Use only participant aliases, stated needs, stated offers, stated constraints, and supplied scores from the input.",
