@@ -25,6 +25,7 @@ import type {
 import { ConstraintValidator } from "@/server/features/validation-service";
 import type { KampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageStorage } from "@/server/quest/quest-image-storage";
+import type { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
 
 interface KampungQuestEngineDependencies {
   store: KampungStore;
@@ -34,6 +35,7 @@ interface KampungQuestEngineDependencies {
   venues?: VenueAdapter;
   imageAgent?: QuestImageAgent;
   imageStorage?: QuestImageStorage;
+  chatNotifier?: QuestChatNotifier;
 }
 
 export interface QuestPipelineEvent {
@@ -394,7 +396,9 @@ export class KampungQuestEngine {
           : null,
         updatedAt: new Date().toISOString(),
       };
-      return this.dependencies.store.saveQuestRun(await this.attachQuestImage(completedRun));
+      const saved = await this.dependencies.store.saveQuestRun(await this.attachQuestImage(completedRun));
+      await this.dependencies.chatNotifier?.questCreated(saved);
+      return saved;
     } catch (error) {
       await observe?.({
         stage: activeStage,
@@ -579,16 +583,20 @@ export class KampungQuestEngine {
     throw new Error("This coordination event requires recovery handling");
   }
 
-  private persistCoordinationTransition(
+  private async persistCoordinationTransition(
     previous: QuestRun,
     updated: QuestRun,
     command: CoordinationEventCommand,
   ): Promise<QuestRun> {
-    return this.dependencies.store.saveQuestRunWithEvent(updated, {
+    const saved = await this.dependencies.store.saveQuestRunWithEvent(updated, {
       ...command,
       eventId: `event_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
       occurredAt: command.occurredAt ?? new Date().toISOString(),
     }, previous.updatedAt);
+    if (command.type === "participant_accepted" && command.candidateId) {
+      await this.dependencies.chatNotifier?.participantAccepted(saved, command.candidateId);
+    }
+    return saved;
   }
 
   /**

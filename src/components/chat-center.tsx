@@ -7,6 +7,7 @@ import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
 import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
+import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
 
@@ -27,6 +28,7 @@ const assistantConversation: ConversationSummary = {
 export function ChatCenter({ initialConversation }: { initialConversation?: "assistant" }) {
   const { showToast } = useAppState();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [assistant, setAssistant] = useState<ConversationSummary>(assistantConversation);
   const [selectedId, setSelectedId] = useState<string | null>(initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
@@ -42,14 +44,14 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
 
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const assistantSelected = selectedId === ASSISTANT_CONVERSATION_ID;
-  const activeConversation = assistantSelected ? assistantConversation : selected;
+  const activeConversation = assistantSelected ? assistant : selected;
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    const items = [assistantConversation, ...conversations];
+    const items = [assistant, ...conversations];
     return value
       ? items.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
       : items;
-  }, [conversations, query]);
+  }, [assistant, conversations, query]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -58,6 +60,12 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
       if (!response.ok) throw new Error(result.error ?? "Could not load conversations");
       const nextConversations = result.conversations ?? [];
       setConversations(nextConversations);
+      const assistantResponse = await fetch("/api/v1/assistant/conversations", { cache: "no-store" });
+      if (assistantResponse.ok) {
+        const snapshot = await assistantResponse.json() as AssistantConversationSnapshot | null;
+        const latest = snapshot?.messages.at(-1);
+        if (latest && snapshot) setAssistant({ ...assistantConversation, preview: latest.content, lastMessageAt: snapshot.updatedAt });
+      }
       setSelectedId((current) => current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null));
       setError("");
     } catch (reason) {
@@ -86,11 +94,14 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
    * chat view to remote conversation state; state updates occur after fetches resolve. */
   useEffect(() => { void loadConversations(); }, [loadConversations]);
   useEffect(() => {
+    const timer = window.setInterval(() => void loadConversations(), 4_000);
+    return () => window.clearInterval(timer);
+  }, [loadConversations]);
+  useEffect(() => {
     if (!selectedId || assistantSelected) return;
     void loadMessages(selectedId);
     const timer = window.setInterval(() => {
       void loadMessages(selectedId, true);
-      void loadConversations();
     }, 4_000);
     return () => window.clearInterval(timer);
   }, [assistantSelected, loadConversations, loadMessages, selectedId]);

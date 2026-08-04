@@ -8,13 +8,16 @@ import { MetaRow } from "@/components/meta-row";
 import { Tabs } from "@/components/tabs";
 import { getQuest, invites } from "@/data/mock-data";
 import { isQuestPast } from "@/lib/activity-time";
+import { canSeeDemoContent } from "@/lib/demo-access";
+import { useUser } from "@/components/user-context";
 
 /** Invitations are kept as a focused activity view so they can be surfaced
  * from Activities without creating a second, competing top-level destination. */
 export function InviteList() {
   const [tab, setTab] = useState("Received");
   const { inviteDecisions, decideInvite } = useAppState();
-  const receivedInvites = invites.flatMap((invite) => {
+  const { user } = useUser();
+  const receivedInvites = canSeeDemoContent(user) ? invites.flatMap((invite) => {
     const quest = getQuest(invite.questSlug);
     if (!quest) return [];
     const decision = inviteDecisions[invite.id];
@@ -23,11 +26,11 @@ export function InviteList() {
     // are no longer actionable.
     if (decision === "accepted") return [];
     return [{ invite, quest, decision, expired: !decision && isQuestPast(quest) }];
-  });
+  }) : [];
 
   return (
     <>
-      <p className="demo-page-note"><strong>Demo preview:</strong> these invitations are examples. Accepting or rejecting them does not message anyone.</p>
+      {canSeeDemoContent(user) ? <p className="demo-page-note"><strong>Demo preview:</strong> these invitations are examples. Accepting or rejecting them does not message anyone.</p> : null}
       <Tabs tabs={["Received", "Sent"]} active={tab} onChange={setTab} />
 
       {tab === "Sent" ? (

@@ -350,6 +350,8 @@ export interface QuestRun {
   validation: ValidationResult | null;
   safety: SafetyReview | null;
   coordination: CoordinationPlan | null;
+  /** Public identity snapshots for participants visible to the current viewer. */
+  participantProfiles?: QuestParticipantProfile[];
   /** Optimized, generated thumbnail. Null/undefined means use the local fallback image. */
   imageUrl?: string | null;
   noMatch?: {
@@ -358,6 +360,13 @@ export interface QuestRun {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QuestParticipantProfile {
+  candidateId: string;
+  displayName: string;
+  photoUrl: string | null;
+  proposedRole: string;
 }
 
 export interface AgentRunAudit {

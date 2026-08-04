@@ -15,11 +15,13 @@ import { listUserQuests } from "@/features/assistant/client";
 import { isQuestPast, isQuestRunPast } from "@/lib/activity-time";
 import { useUser } from "@/components/user-context";
 import type { QuestRun } from "@/server/domain/schemas";
+import { canSeeDemoContent } from "@/lib/demo-access";
 
 export default function MyQuestsPage() {
   const [tab, setTab] = useState("Upcoming");
   const { activityDecisions, inviteDecisions } = useAppState();
   const { user } = useUser();
+  const showDemo = canSeeDemoContent(user);
   const [engineRuns, setEngineRuns] = useState<QuestRun[]>([]);
   useEffect(() => {
     let active = true;
@@ -30,15 +32,15 @@ export default function MyQuestsPage() {
     });
     return () => { active = false; };
   }, [user.id]);
-  const acceptedSlugs = new Set([
+  const acceptedSlugs = new Set(showDemo ? [
     ...Object.entries(activityDecisions).filter(([, decision]) => decision === "accepted").map(([slug]) => slug),
     ...invites.filter((invite) => inviteDecisions[invite.id] === "accepted").map((invite) => invite.questSlug),
-  ]);
-  const acceptedQuests = quests.filter((quest) => acceptedSlugs.has(quest.slug));
-  const demoUpcoming = [quests[0], quests[2]].filter((quest) => !isQuestPast(quest));
+  ] : []);
+  const acceptedQuests = showDemo ? quests.filter((quest) => acceptedSlugs.has(quest.slug)) : [];
+  const demoUpcoming = showDemo ? [quests[0], quests[2]].filter((quest) => !isQuestPast(quest)) : [];
   // Keep the demo history honest: an activity is only past after its actual
   // start time, rather than because it happens to be the third fixture.
-  const demoPast = [quests[1]].filter((quest) => isQuestPast(quest));
+  const demoPast = showDemo ? [quests[1]].filter((quest) => isQuestPast(quest)) : [];
   const visibleQuests = tab === "Upcoming"
     ? uniqueQuests([...demoUpcoming, ...acceptedQuests.filter((quest) => !isQuestPast(quest))])
     : uniqueQuests([...demoPast, ...acceptedQuests.filter((quest) => isQuestPast(quest))]);

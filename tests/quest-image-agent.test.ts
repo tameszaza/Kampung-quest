@@ -60,6 +60,40 @@ describe("Gemini quest image agent", () => {
 
     await expect(agent.generate({ quest })).resolves.toBeNull();
   });
+
+  it("waits and retries a temporary rate limit, but does not retry a daily quota", async () => {
+    let attempts = 0;
+    const retrying = new GeminiQuestImageAgent({
+      apiKey: "key",
+      model: "gemini-test-image",
+      baseURL: "https://example.test/v1",
+      minRequestIntervalMs: 0,
+      maxRetryDelayMs: 1_000,
+      fetch: async () => {
+        attempts += 1;
+        if (attempts === 1) return new Response("retry in 0s", { status: 429, headers: { "retry-after": "0" } });
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: {
+          mimeType: "image/png", data: Buffer.from("retried").toString("base64"),
+        } }] } }] }), { status: 200 });
+      },
+    });
+    await expect(retrying.generate({ quest })).resolves.toMatchObject({ mimeType: "image/png" });
+    expect(attempts).toBe(2);
+
+    attempts = 0;
+    const daily = new GeminiQuestImageAgent({
+      apiKey: "key",
+      model: "gemini-test-image",
+      baseURL: "https://example.test/v1",
+      minRequestIntervalMs: 0,
+      fetch: async () => {
+        attempts += 1;
+        return new Response("daily quota exhausted", { status: 429 });
+      },
+    });
+    await expect(daily.generate({ quest })).resolves.toBeNull();
+    expect(attempts).toBe(1);
+  });
 });
 
 describe("quest image storage", () => {

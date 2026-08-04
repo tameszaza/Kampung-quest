@@ -8,9 +8,11 @@ import { DesktopQuestCard } from "@/components/desktop-quest-card";
 import { useUser } from "@/components/user-context";
 import { quests } from "@/data/mock-data";
 import { SafeImage } from "@/components/safe-image";
+import { canSeeDemoContent } from "@/lib/demo-access";
 
 export default function HomePage() {
   const { user } = useUser();
+  const showDemo = canSeeDemoContent(user);
   const firstName = user.fullName.split(/\s+/)[0] || user.fullName;
   return (
     <div className="page-container home-page">
@@ -45,7 +47,9 @@ export default function HomePage() {
             <Link href="/my-quests">View all</Link>
           </div>
           <div className="home-desktop-quest-grid" aria-label="Upcoming quests">
-            {quests.slice(0, 3).map((quest) => <DesktopQuestCard key={quest.slug} quest={quest} />)}
+            {showDemo ? quests.slice(0, 3).map((quest) => <DesktopQuestCard key={quest.slug} quest={quest} />) : (
+              <div className="empty-state home-quest-empty"><span aria-hidden="true">✓</span><h2>No upcoming quests</h2><p>Your accepted matches will appear here.</p></div>
+            )}
           </div>
 
           <section className="home-desktop-wellbeing">
@@ -59,14 +63,14 @@ export default function HomePage() {
           <section className="home-connections-card">
             <div className="home-desktop-card-heading"><div><p>Your community</p><h2>Connections</h2></div><Icon name="connections" size={28} /></div>
             <div className="home-connection-people">
-              <div className="home-connection-avatars" aria-hidden="true">
+              {showDemo ? <div className="home-connection-avatars" aria-hidden="true">
                 <span><Image src="/assets/profile-anne.jpg" alt="" fill sizes="44px" /></span>
                 <span><Image src="/assets/profile-david.jpg" alt="" fill sizes="44px" /></span>
                 <span><Image src="/assets/profile-john.jpg" alt="" fill sizes="44px" /></span>
                 <span className="home-connection-count">+9</span>
-              </div>
-              <strong>12 friendly connections</strong>
-              <small>People you can share moments with</small>
+              </div> : <span className="home-connection-empty" aria-hidden="true"><Icon name="connections" size={30} /></span>}
+              <strong>{showDemo ? "12 friendly connections" : "No connections yet"}</strong>
+              <small>{showDemo ? "People you can share moments with" : "Accepted matches will appear here"}</small>
             </div>
             <Link className="secondary-button" href="/messages">View Connections <Icon name="chevron" size={18} /></Link>
           </section>
@@ -84,10 +88,10 @@ export default function HomePage() {
       <div className="home-layout">
         <section className="home-primary">
           <section className="dashboard-stats" aria-label="Your Senior Quest summary">
-            <Link href="/my-quests"><span>Upcoming Activities</span><strong>2</strong><small>View your schedule</small></Link>
-            <Link href="/messages"><span>New Messages</span><strong>2</strong><small>Unread messages</small></Link>
-            <Link href="/quests"><span>New Matches</span><strong>3</strong><small>Activities for you</small></Link>
-            <Link href="/quests?tab=Invited"><span>Invites</span><strong>2</strong><small>Pending invitations</small></Link>
+            <Link href="/my-quests"><span>Upcoming Activities</span><strong>{showDemo ? 2 : 0}</strong><small>View your schedule</small></Link>
+            <Link href="/messages"><span>New Messages</span><strong>0</strong><small>Unread messages</small></Link>
+            <Link href="/quests"><span>New Matches</span><strong>{showDemo ? 3 : 0}</strong><small>Activities for you</small></Link>
+            <Link href="/quests?tab=Invited"><span>Invites</span><strong>{showDemo ? 2 : 0}</strong><small>Pending invitations</small></Link>
           </section>
           <Link className="assistant-home-callout" href="/messages?assistant=1">
             <span aria-hidden="true">♥</span>
@@ -95,21 +99,23 @@ export default function HomePage() {
             <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
           </Link>
 
-          <Link className="invite-banner" href="/quests?tab=Invited">
+          {showDemo ? <Link className="invite-banner" href="/quests?tab=Invited">
             <span className="invite-gift" aria-hidden="true">🎁</span>
             <span>
               <strong>2 demo quest invites</strong>
               <small>Preview only — no real invitations were sent</small>
             </span>
             <span className="banner-action">View Invites</span>
-          </Link>
+          </Link> : null}
 
           <div className="section-heading">
             <h2>Recommended for You</h2>
             <Link href="/quests">See all</Link>
           </div>
           <div className="home-recommendation dashboard-quest-grid">
-            {quests.slice(0, 3).map((quest) => <QuestCard key={quest.slug} quest={quest} compact />)}
+            {showDemo ? quests.slice(0, 3).map((quest) => <QuestCard key={quest.slug} quest={quest} compact />) : (
+              <div className="empty-state home-quest-empty"><span aria-hidden="true">✓</span><h2>No recommendations yet</h2><p>Start a conversation to find a suitable activity.</p></div>
+            )}
           </div>
 
           <section className="status-section">
@@ -126,7 +132,7 @@ export default function HomePage() {
           <h2>Your Community</h2>
           <Link href="/needs"><Icon name="needs" /><span><strong>What I&apos;ve shared</strong><small>Review your Senior Quest memory</small></span><Icon name="chevron" /></Link>
           <Link href="/quests"><Icon name="quests" /><span><strong>My Recommendations</strong><small>Quests prepared by the engine</small></span><Icon name="chevron" /></Link>
-          <Link href="/quests?tab=Invited"><Icon name="invite" /><span><strong>My Invites</strong><small>2 demo invitations</small></span><Icon name="chevron" /></Link>
+          <Link href="/quests?tab=Invited"><Icon name="invite" /><span><strong>My Invites</strong><small>{showDemo ? "2 demo invitations" : "No pending invitations"}</small></span><Icon name="chevron" /></Link>
         </aside>
       </div>
     </div>

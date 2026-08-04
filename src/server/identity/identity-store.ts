@@ -46,7 +46,7 @@ export interface IdentityStore {
   listContacts(userId: string, query?: string): Promise<ChatContact[]>;
   listBlockedUsers(userId: string): Promise<ChatContact[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
-  createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary>;
+  createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string; systemInitiated?: boolean }): Promise<ConversationSummary>;
   deleteConversation(userId: string, conversationId: string): Promise<void>;
   leaveConversation(userId: string, conversationId: string): Promise<void>;
   blockUser(userId: string, blockedUserId: string): Promise<void>;
@@ -247,7 +247,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
   }
 
-  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary> {
+  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string; systemInitiated?: boolean }): Promise<ConversationSummary> {
     this.requireUser(userId);
     const participantIds = [...new Set(input.participantIds.filter((id) => id !== userId))];
     participantIds.forEach((id) => this.requireUser(id));
@@ -263,7 +263,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       this.deletedConversations.delete(deletionKey(userId, existing.id));
       return this.toSummary(userId, existing);
     }
-    if (input.type === "direct" && !this.canStartDirectMessage(userId, participantIds[0])) {
+    if (input.type === "direct" && !input.systemInitiated && !this.canStartDirectMessage(userId, participantIds[0])) {
       throw new Error("This person is not accepting new direct messages");
     }
     const now = new Date().toISOString();

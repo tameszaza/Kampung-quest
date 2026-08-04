@@ -31,6 +31,11 @@ export type AssistantRecommendationObserver = (event: QuestPipelineEvent | {
   kind: "agent" | "system";
 }) => Promise<void> | void;
 
+export interface AssistantRecommendationOptions {
+  /** Demo neighbours are reserved for the explicit `test` showcase account. */
+  allowDemoNeighbors?: boolean;
+}
+
 const DEMO_NEIGHBOURS = [
   {
     candidateId: "demo_anne",
@@ -127,6 +132,7 @@ export class AssistantRecommendationService {
   async recommend(
     command: AssistantRecommendationCommand,
     observe?: AssistantRecommendationObserver,
+    options?: AssistantRecommendationOptions,
   ): Promise<AssistantRecommendationResult> {
     const idempotencyPrefix = `assistant:${command.candidateId}:${command.requestKey ?? command.conversationId}`;
     let idempotencyKey = idempotencyPrefix;
@@ -189,7 +195,7 @@ export class AssistantRecommendationService {
     });
     let seededCandidateCount = 0;
     try {
-      seededCandidateCount = this.dependencies.demoSeedEnabled
+      seededCandidateCount = (options?.allowDemoNeighbors ?? this.dependencies.demoSeedEnabled)
         ? await this.ensureDemoNeighbours(command)
         : 0;
     } catch (error) {

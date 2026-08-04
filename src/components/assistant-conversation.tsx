@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { useUser } from "@/components/user-context";
 import {
   confirmAssistantConversation,
@@ -418,6 +419,7 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
   const proposal = quest.proposal;
   if (!proposal) return null;
   const needsHumanReview = quest.status === "human_review";
+  const includesDemoNeighbour = proposal.proposedParticipants.some((participant) => participant.candidateId.startsWith("demo_"));
   return <section className="assistant-result">
     <span className="result-kicker"><Icon name={needsHumanReview ? "shield" : "check"} size={18} /> {needsHumanReview ? "Coordinator review required" : "Agent-checked quest ready"}</span>
     <h2>{proposal.quest.title}</h2>
@@ -430,8 +432,9 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
     <div className="result-people">
       <h3>Everyone has a role</h3>
       {proposal.proposedParticipants.map((participant) => {
-        const name = candidateName(participant.candidateId, ownCandidateId);
-        return <div key={participant.candidateId}><span>{name.slice(0, 1)}</span><p><strong>{name}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>;
+        const profile = quest.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
+        const name = profile?.displayName ?? candidateName(participant.candidateId, ownCandidateId);
+        return <div key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={40} className="result-person-avatar" /><p><strong>{name}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>;
       })}
     </div>
     {needsHumanReview ? <p className="assistant-note">No invitation was prepared. A human coordinator must review this proposal and its safety or constraint checks first.</p> : null}
@@ -439,7 +442,7 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
       <Link className="primary-button" href={`/quests/${quest.runId}`}>{needsHumanReview ? "Review quest details" : "View quest details"}</Link>
       <button className="text-button" type="button" onClick={() => void onStartAgain()}>Tell me something new</button>
     </div>
-    <p className="demo-disclosure">Demo neighbours are clearly labeled data profiles; no real messages are sent.</p>
+    {includesDemoNeighbour ? <p className="demo-disclosure">Demo neighbours are clearly labeled data profiles; no real messages are sent.</p> : null}
   </section>;
 }
 

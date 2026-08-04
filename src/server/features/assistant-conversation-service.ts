@@ -32,6 +32,7 @@ interface AssistantConversationDependencies {
   store: KampungStore;
   agents: AgentRuntime;
   recommendations?: AssistantRecommendationService;
+  allowDemoNeighbors?: (candidateId: string) => Promise<boolean>;
 }
 
 export class AssistantConversationService {
@@ -221,7 +222,11 @@ export class AssistantConversationService {
       };
       let result;
       try {
-        result = await recommendationService.recommend(recommendationCommand, observeRecommendation);
+        result = await recommendationService.recommend(recommendationCommand, observeRecommendation, {
+          allowDemoNeighbors: this.dependencies.allowDemoNeighbors
+            ? await this.dependencies.allowDemoNeighbors(current.candidateId)
+            : undefined,
+        });
       } catch (error) {
         const failedEvent = current.events.at(-1);
         const retryableStage = failedEvent?.status === "failed"
@@ -237,7 +242,11 @@ export class AssistantConversationService {
           message: `${failedEvent.stage === "safety" ? "Safety Guardian" : "Matchmaker"} timed out; retrying once`,
           kind: "agent",
         }, onEvent);
-        result = await recommendationService.recommend(recommendationCommand, observeRecommendation);
+        result = await recommendationService.recommend(recommendationCommand, observeRecommendation, {
+          allowDemoNeighbors: this.dependencies.allowDemoNeighbors
+            ? await this.dependencies.allowDemoNeighbors(current.candidateId)
+            : undefined,
+        });
       }
       const finalStatus = result.quest.status === "no_match" ? "no_match" : "complete";
       const completed: AssistantConversationSnapshot = {

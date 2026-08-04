@@ -16,6 +16,7 @@ import type {
   KampungStore,
   MemoryUpdateAttempt,
 } from "@/server/repositories/kampung-store";
+import { canViewQuestRun } from "@/server/quest/quest-access";
 
 interface MemoryRow {
   profile: MemoryCard["profile"];
@@ -118,6 +119,16 @@ export class PostgresKampungStore implements KampungStore {
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     };
+  }
+
+  async findLatestAssistantConversation(candidateId: string): Promise<AssistantConversationSnapshot | null> {
+    const result = await this.pool.query<{ conversation_id: string }>(
+      `SELECT conversation_id FROM assistant.conversations
+       WHERE candidate_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+      [candidateId],
+    );
+    const conversationId = result.rows[0]?.conversation_id;
+    return conversationId ? this.findAssistantConversation(conversationId) : null;
   }
 
   async saveAssistantConversation(
@@ -552,11 +563,17 @@ export class PostgresKampungStore implements KampungStore {
       `SELECT payload
        FROM quest.quest_runs
        WHERE initiating_candidate_id = $1
+          OR payload->'proposal'->'proposedParticipants' @> jsonb_build_array(jsonb_build_object('candidateId', $1))
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(payload->'coordination'->'invitations', '[]'::jsonb)) AS invitation
+            WHERE invitation->>'candidateId' = $1
+          )
        ORDER BY created_at DESC
        LIMIT $2`,
       [candidateId, Math.min(50, Math.max(1, limit))],
     );
-    return result.rows.map((row) => row.payload);
+    return result.rows.map((row) => row.payload).filter((run) => canViewQuestRun(run, candidateId));
   }
 
   async listAcceptedCandidateIds(): Promise<string[]> {

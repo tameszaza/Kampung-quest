@@ -363,7 +363,7 @@ export class PostgresIdentityStore implements IdentityStore {
     }));
   }
 
-  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string }): Promise<ConversationSummary> {
+  async createConversation(userId: string, input: { type: "direct" | "group"; participantIds: string[]; title?: string; systemInitiated?: boolean }): Promise<ConversationSummary> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -398,10 +398,10 @@ export class PostgresIdentityStore implements IdentityStore {
             [participantIds[0]],
           );
           const target = privacy.rows[0];
-          if (target?.profile_visibility === "private" || target?.message_privacy === "nobody") {
+          if (!input.systemInitiated && (target?.profile_visibility === "private" || target?.message_privacy === "nobody")) {
             throw new Error("This person is not accepting new direct messages");
           }
-          if (target?.profile_visibility === "connections" || target?.message_privacy === "connections") {
+          if (!input.systemInitiated && (target?.profile_visibility === "connections" || target?.message_privacy === "connections")) {
             throw new Error("You can message this person after you have an existing connection");
           }
         }

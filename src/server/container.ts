@@ -17,9 +17,11 @@ import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/a
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
 import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
+import { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
 import { createQuestImageStorage, type QuestImageStorage } from "@/server/quest/quest-image-storage";
+import { identityStore } from "@/server/identity/container";
 
 const globals = globalThis as typeof globalThis & {
   kampungStore?: KampungStore;
@@ -112,11 +114,14 @@ function createAgentDependencies() {
 
 const agentDependencies = createAgentDependencies();
 
+const questChatNotifier = new QuestChatNotifier(identityStore, kampungStore);
+
 export const kampungQuestEngine = new KampungQuestEngine({
   store: kampungStore,
   ...agentDependencies,
   invitations: new MockInvitationAdapter(),
   venues: new MockVenueAdapter(),
+  chatNotifier: questChatNotifier,
 });
 
 export const assistantRecommendationService = new AssistantRecommendationService({
@@ -131,6 +136,7 @@ export const assistantConversationService = new AssistantConversationService({
   store: kampungStore,
   agents: agentDependencies.agents,
   recommendations: assistantRecommendationService,
+  allowDemoNeighbors: async (candidateId) => (await identityStore.findUserById(candidateId))?.username === "test",
 });
 
 export const runtimeConfiguration = {

@@ -4,6 +4,7 @@ import { Icon } from "@/components/icons";
 import { ActivityActions } from "@/components/activity-actions";
 import { isQuestRunPast } from "@/lib/activity-time";
 import type { QuestRun } from "@/server/domain/schemas";
+import { useUser } from "@/components/user-context";
 
 export function questImage(run: QuestRun) {
   if (run.imageUrl) return run.imageUrl;
@@ -13,6 +14,10 @@ export function questImage(run: QuestRun) {
     return "/assets/digital-help.jpg";
   }
   return "/assets/cooking.jpg";
+}
+
+export function questImageLabel(run: QuestRun) {
+  return run.imageUrl ? "Generated thumbnail" : "Preview artwork";
 }
 
 export function questDate(run: QuestRun) {
@@ -27,15 +32,17 @@ export function questDate(run: QuestRun) {
 }
 
 export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compact?: boolean }) {
+  const { user } = useUser();
   const quest = run.proposal?.quest;
   if (!quest) return null;
+  const invitationStatus = run.coordination?.invitations.find((invitation) => invitation.candidateId === user.id)?.status;
   return (
     <article className={`quest-card engine-quest-card${compact ? " compact" : ""}`}>
       <Link className="quest-card-link" href={`/quests/${run.runId}`}>
         <div className="quest-card-image">
           <Image src={questImage(run)} alt="" fill sizes="(max-width: 767px) 100vw, 420px" />
           <span className={`image-badge quest-status-${run.status}`}>
-            {run.status === "human_review" ? "Needs review" : "Recommended"}
+            {run.status === "human_review" ? "Needs review" : questImageLabel(run)}
           </span>
         </div>
         <div className="quest-card-body">
@@ -45,7 +52,10 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
           <div className="meta-row"><Icon name="shield" size={19} /><span>{run.safety?.status === "approved" ? "Safety checked" : "Human review required"}</span></div>
         </div>
       </Link>
-      <ActivityActions activityId={run.runId} />
+      <ActivityActions
+        activityId={run.runId}
+        initialDecision={invitationStatus === "accepted" || invitationStatus === "declined" ? invitationStatus : undefined}
+      />
     </article>
   );
 }

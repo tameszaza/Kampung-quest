@@ -256,6 +256,9 @@ The application defaults to the hosted Gemini provider and fails visibly when it
 is unavailable. `AGENT_PROVIDER=deterministic` is an explicit development/test double; it is
 never selected as a provider-failure fallback.
 
+Demo quest and invitation fixtures are shown only to the account whose display name is exactly
+`test`. Other members see empty persisted activity states until they create or accept a real quest.
+
 ## Coordination events
 
 The demo event endpoint accepts:

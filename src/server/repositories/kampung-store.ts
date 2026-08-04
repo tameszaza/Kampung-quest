@@ -7,6 +7,7 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
+import { canViewQuestRun } from "@/server/quest/quest-access";
 
 export interface ActivateMemoryInput {
   attemptId: string;
@@ -25,6 +26,7 @@ export interface MemoryUpdateAttempt {
 export interface KampungStore {
   createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
   findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null>;
+  findLatestAssistantConversation(candidateId: string): Promise<AssistantConversationSnapshot | null>;
   saveAssistantConversation(
     conversation: AssistantConversationSnapshot,
     expectedRevision: number,
@@ -81,6 +83,13 @@ export class InMemoryKampungStore implements KampungStore {
   async findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null> {
     const conversation = this.assistantConversations.get(conversationId);
     return conversation ? structuredClone(conversation) : null;
+  }
+
+  async findLatestAssistantConversation(candidateId: string): Promise<AssistantConversationSnapshot | null> {
+    const latest = [...this.assistantConversations.values()]
+      .filter((conversation) => conversation.candidateId === candidateId)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
+    return latest ? structuredClone(latest) : null;
   }
 
   async saveAssistantConversation(
@@ -224,7 +233,7 @@ export class InMemoryKampungStore implements KampungStore {
 
   async listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]> {
     return [...this.questRuns.values()]
-      .filter((run) => run.initiatingCandidateId === candidateId)
+      .filter((run) => canViewQuestRun(run, candidateId))
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
       .slice(0, Math.min(50, Math.max(1, limit)))
       .map((run) => structuredClone(run));
