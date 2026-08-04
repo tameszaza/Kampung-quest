@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
+import { createClientRequestId } from "@/lib/client-request-id";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { questParticipantStatus } from "@/lib/quest-participant-status";
 import { useUser } from "@/components/user-context";
@@ -141,7 +142,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
     if (!conversation || thinking) return;
     setThinking(true);
     setError(null);
-    pendingTurnId.current ??= crypto.randomUUID();
+    pendingTurnId.current ??= createClientRequestId();
     try {
       const updated = await sendAssistantTurn(conversation, answer, pendingTurnId.current);
       setConversation(updated);

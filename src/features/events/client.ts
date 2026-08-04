@@ -4,6 +4,7 @@ import type {
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 import type { ChatContact } from "@/server/identity/types";
+import { createClientRequestId } from "@/lib/client-request-id";
 
 async function json<T>(response: Response): Promise<T> {
   const payload = await response.json() as T & { error?: string; issues?: Array<{ message: string }> };
@@ -37,7 +38,7 @@ export async function updateEventRoster(input: {
 export async function confirmEventRoster(runId: string, expectedRevision: number): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/roster`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify({ expectedRevision }),
   }));
 }
@@ -58,7 +59,7 @@ export async function respondToEventInvitation(input: {
 }): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/invitations/${encodeURIComponent(input.invitationId)}/respond`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify(input),
   }));
 }
@@ -71,7 +72,7 @@ export async function transitionEventInvitation(input: {
 }): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/invitations/${encodeURIComponent(input.invitationId)}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify(input),
   }));
 }
@@ -83,7 +84,7 @@ export async function transitionEventQuest(input: {
 }): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/lifecycle`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify({ action: input.action, expectedRevision: input.expectedRevision }),
   }));
 }
@@ -113,7 +114,7 @@ export async function sendEventCoordinationMessage(input: {
     body: JSON.stringify({
       body: input.body,
       expectedRevision: input.expectedRevision,
-      clientMessageId: input.clientMessageId ?? crypto.randomUUID(),
+      clientMessageId: input.clientMessageId ?? createClientRequestId(),
     }),
   }));
 }
@@ -121,7 +122,7 @@ export async function sendEventCoordinationMessage(input: {
 export async function confirmEventRequirements(runId: string, expectedRevision: number): Promise<EventCoordinationThread> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/coordination/requirements`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify({ expectedRevision }),
   }));
 }
@@ -136,7 +137,7 @@ export async function proposeEventArrangement(input: {
 }): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/arrangements`, {
     method: "POST",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify(input),
   }));
 }
@@ -144,7 +145,7 @@ export async function proposeEventArrangement(input: {
 export async function suggestEventArrangement(runId: string, expectedRevision: number): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/arrangements`, {
     method: "PUT",
-    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify({ expectedRevision }),
   }));
 }
@@ -159,7 +160,7 @@ export async function decideEventArrangement(input: {
     `/api/v1/event-quests/${encodeURIComponent(input.runId)}/arrangements/${encodeURIComponent(input.arrangementId)}`,
     {
       method: "POST",
-      headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+      headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
       body: JSON.stringify({ action: input.action, expectedRevision: input.expectedRevision }),
     },
   ));
