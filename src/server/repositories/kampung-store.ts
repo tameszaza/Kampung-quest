@@ -5,6 +5,7 @@ import type {
   CoordinationEventRecord,
   MemoryCard,
   MemoryUpdateCommand,
+  QuestProposal,
   QuestRun,
 } from "@/server/domain/schemas";
 import type { EventCoordinationState } from "@/server/domain/event-coordination";
@@ -31,6 +32,7 @@ export interface KampungStore {
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
   listAllEventCoordinationStates(limit?: number): Promise<EventCoordinationState[]>;
   saveQuestRunWithFormation(run: QuestRun, state: EventCoordinationState, expectedUpdatedAt: string): Promise<QuestRun>;
+  syncQuestProposal?(runId: string, proposal: QuestProposal): Promise<void>;
   createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
   findAssistantConversation(conversationId: string): Promise<AssistantConversationSnapshot | null>;
   findLatestAssistantConversation(candidateId: string): Promise<AssistantConversationSnapshot | null>;
@@ -94,6 +96,16 @@ export class InMemoryKampungStore implements KampungStore {
     this.questRuns.set(run.runId, structuredClone(run));
     this.eventCoordinationStates.set(run.runId, structuredClone(state));
     return structuredClone(run);
+  }
+
+  async syncQuestProposal(runId: string, proposal: QuestProposal): Promise<void> {
+    const current = this.questRuns.get(runId);
+    if (!current) return;
+    this.questRuns.set(runId, structuredClone({
+      ...current,
+      proposal: structuredClone(proposal),
+      updatedAt: new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(),
+    }));
   }
 
   async createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState> {

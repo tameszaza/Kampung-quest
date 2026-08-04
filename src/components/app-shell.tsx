@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppState } from "@/components/app-state";
 import { Icon, type IconName } from "@/components/icons";
 import { useUser } from "@/components/user-context";
+import { listEventActivities } from "@/features/events/client";
 import { authClient } from "@/lib/auth-client";
 import { SafeImage } from "@/components/safe-image";
 
@@ -32,8 +33,28 @@ function isActive(pathname: string, matches: string[]) {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { toast } = useAppState();
+  const { toast, showToast } = useAppState();
   const { user } = useUser();
+  const [unreadActivityCount, setUnreadActivityCount] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const knownActivityNotifications = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadUnreadMessages = async () => {
+      try {
+        const response = await fetch("/api/chat/conversations", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = await response.json() as { conversations?: Array<{ unreadCount?: number }> };
+        if (active) setUnreadMessages((result.conversations ?? []).reduce((total, item) => total + (item.unreadCount ?? 0), 0));
+      } catch {
+        // Navigation badges are best effort and must never block the shell.
+      }
+    };
+    void loadUnreadMessages();
+    const timer = window.setInterval(() => void loadUnreadMessages(), 4_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
 
   async function logOut() {
     await authClient.signOut();
@@ -50,6 +71,39 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [user.preferences.highContrast, user.preferences.textSize]);
 
+  useEffect(() => {
+    let active = true;
+    async function refreshActivityNotifications() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const activities = await listEventActivities();
+        if (!active) return;
+        window.dispatchEvent(new CustomEvent("event-activities-refreshed", { detail: activities }));
+        const unread = activities.notifications.filter((notification) => notification.readAt === null);
+        const previous = knownActivityNotifications.current;
+        if (previous) {
+          const newest = unread.find((notification) => !previous.has(notification.notificationId));
+          if (newest) showToast(newest.title);
+        }
+        knownActivityNotifications.current = new Set(unread.map((notification) => notification.notificationId));
+        setUnreadActivityCount(unread.length);
+      } catch {
+        // Notification refresh is best effort and must not interrupt navigation.
+      }
+    }
+    const refresh = () => void refreshActivityNotifications();
+    refresh();
+    const timer = window.setInterval(refresh, 5_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [showToast]);
+
   return (
     <div className="app-shell">
       <aside className="desktop-nav">
@@ -63,12 +117,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                aria-label={item.label}
+                aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
                 title={item.label}
                 className={isActive(pathname, item.match) ? "active" : ""}
               >
                 <Icon name={item.icon} size={21} />
                 <span>{item.label}</span>
+                {item.href === "/quests" && unreadActivityCount ? <b className="nav-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
+                {item.href === "/messages" && unreadMessages ? <span className="nav-badge" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</span> : null}
               </Link>
             ))}
           </nav>
@@ -92,9 +148,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.href}
             href={item.href}
             className={isActive(pathname, item.match) ? "active" : ""}
+            aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
           >
             <Icon name={item.icon} size={23} />
             <span>{item.label}</span>
+            {item.href === "/quests" && unreadActivityCount ? <b className="nav-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
           </Link>
         ))}
         <button className="mobile-create" type="button" onClick={() => router.push("/messages?assistant=1")} aria-label="Talk to Senior Quest">
@@ -105,9 +163,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.href}
             href={item.href}
             className={isActive(pathname, item.match) ? "active" : ""}
+            aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
           >
             <Icon name={item.icon} size={23} />
             <span>{item.label}</span>
+            {item.href === "/messages" && unreadMessages ? <span className="nav-badge" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</span> : null}
           </Link>
         ))}
       </nav>

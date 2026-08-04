@@ -9,6 +9,7 @@ import type {
   CoordinationEventRecord,
   MemoryCard,
   MemoryUpdateCommand,
+  QuestProposal,
   QuestRun,
 } from "@/server/domain/schemas";
 import type { EventCoordinationState } from "@/server/domain/event-coordination";
@@ -738,12 +739,22 @@ export class PostgresKampungStore implements KampungStore {
        SET payload = jsonb_set(
          jsonb_set(payload, '{imageUrl}', to_jsonb($2::text), true),
          '{updatedAt}', to_jsonb($3::text), true
-       ), updated_at = $3
-       WHERE run_id = $1 AND updated_at = $4
+       ), updated_at = $3::timestamptz
+       WHERE run_id = $1 AND updated_at = $4::timestamptz
        RETURNING run_id`,
       [runId, imageUrl, updatedAt, expectedUpdatedAt],
     );
     return result.rowCount === 1;
+  }
+
+  async syncQuestProposal(runId: string, proposal: QuestProposal): Promise<void> {
+    const current = await this.findQuestRun(runId);
+    if (!current) return;
+    await this.saveQuestRun({
+      ...current,
+      proposal: structuredClone(proposal),
+      updatedAt: new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(),
+    });
   }
 
   async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {

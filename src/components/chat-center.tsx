@@ -6,7 +6,7 @@ import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
-import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
+import type { ChatContact, ChatMessage, ChatProfile, ConversationSummary } from "@/server/identity/types";
 import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
@@ -40,6 +40,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
   const [assistantResetToken, setAssistantResetToken] = useState(0);
   const [confirmAction, setConfirmAction] = useState<"leave" | "block" | "delete" | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [profile, setProfile] = useState<ChatProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
@@ -142,6 +144,22 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
     }
   }
 
+  async function openChatProfile(userId: string | null | undefined, conversationId: string) {
+    if (!userId) return;
+    setProfileLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/chat/profiles/${encodeURIComponent(userId)}?conversationId=${encodeURIComponent(conversationId)}`, { cache: "no-store" });
+      const result = await response.json() as { profile?: ChatProfile; error?: string };
+      if (!response.ok || !result.profile) throw new Error(result.error ?? "Could not load this profile");
+      setProfile(result.profile);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load this profile");
+    } finally {
+      setProfileLoading(false);
+    }
+  }
+
   async function completeChatAction(actionOverride?: "unblock") {
     if (!selected || actionBusy) return;
     const action = actionOverride ?? confirmAction;
@@ -219,7 +237,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
             <div className="chat-header-stack">
               <header className="chat-header">
                 <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
-                {assistantSelected ? <AssistantAvatar size={48} /> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group={activeConversation.type === "group"} />}
+                {assistantSelected ? <AssistantAvatar size={48} /> : activeConversation.type === "direct" ? <button className="chat-profile-trigger" type="button" onClick={() => void openChatProfile(activeConversation.otherUserId, activeConversation.id)} aria-label={`Open ${activeConversation.title}'s profile`}><Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} /></button> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />}
                 <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "group" ? `${activeConversation.memberCount} members` : "Community member"}</p></span>
                 <div className="chat-header-actions">
                   <button
@@ -276,6 +294,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
           <div className="chat-placeholder"><span aria-hidden="true">💚</span><h2>Your messages, all in one place</h2><p>Choose a conversation to read and reply.</p></div>
         )}
       </section>
+      {profileLoading ? <div className="profile-loading" role="status">Loading profile…</div> : null}
+      {profile ? <ChatProfileDialog profile={profile} onClose={() => setProfile(null)} /> : null}
       {creating ? <NewConversationSheet onClose={() => setCreating(false)} onCreated={(conversation) => { setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]); setCreating(false); openConversation(conversation.id); }} /> : null}
     </div>
   );
@@ -353,6 +373,24 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
 
 function AssistantAvatar({ size }: { size: number }) {
   return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true">♥</span>;
+}
+
+function ChatProfileDialog({ profile, onClose }: { profile: ChatProfile; onClose: () => void }) {
+  return <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="create-sheet chat-profile-sheet" role="dialog" aria-modal="true" aria-labelledby="chat-profile-title">
+      <button className="icon-button sheet-close" type="button" onClick={onClose} aria-label="Close profile"><Icon name="close" /></button>
+      <div className="chat-profile-hero"><Avatar src={profile.photoUrl} name={profile.fullName} size={86} /><h2 id="chat-profile-title">{profile.fullName}</h2>{profile.username ? <p>@{profile.username}</p> : null}</div>
+      <dl className="chat-profile-details">
+        <div><dt>Full name</dt><dd>{profile.fullName}</dd></div>
+        <div><dt>Email</dt><dd>{profile.email || "Not shared"}</dd></div>
+        <div><dt>Phone</dt><dd>{profile.phone || "Not shared"}</dd></div>
+      </dl>
+      <section className="emergency-profile-card">
+        <h3>Emergency contact</h3>
+        {profile.emergencyContact ? <dl className="chat-profile-details"><div><dt>Name</dt><dd>{profile.emergencyContact.name}</dd></div><div><dt>Relationship</dt><dd>{profile.emergencyContact.relationship}</dd></div><div><dt>Phone</dt><dd>{profile.emergencyContact.phone}</dd></div>{profile.emergencyContact.email ? <div><dt>Email</dt><dd>{profile.emergencyContact.email}</dd></div> : null}</dl> : <p>No emergency contact added.</p>}
+      </section>
+    </section>
+  </div>;
 }
 
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {

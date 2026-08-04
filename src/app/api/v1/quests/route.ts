@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { kampungStore } from "@/server/container";
+import { kampungQuestEngine, kampungStore } from "@/server/container";
 import { boundedLimit, errorResponse } from "@/server/http/responses";
 import { requireUser } from "@/server/identity/session";
 import { identityStore } from "@/server/identity/container";
@@ -16,7 +16,9 @@ export async function GET(request: Request) {
     if (candidateId !== user.id) return NextResponse.json({ error: "You cannot view another member's quests" }, { status: 403 });
     const limit = boundedLimit(url.searchParams.get("limit"), 20);
     const runs = await kampungStore.listQuestRuns(candidateId, limit);
-    return NextResponse.json(await Promise.all(runs.map((run) => withQuestParticipantProfiles(run, identityStore))));
+    const currentRuns = (await Promise.all(runs.map((run) => kampungQuestEngine.getQuest(run.runId))))
+      .filter((run): run is NonNullable<typeof run> => Boolean(run));
+    return NextResponse.json(await Promise.all(currentRuns.map((run) => withQuestParticipantProfiles(run, identityStore))));
   } catch (error) {
     return errorResponse(error);
   }

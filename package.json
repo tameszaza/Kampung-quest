@@ -12,6 +12,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:reset": "node scripts/reset-database.mjs",
     "db:reset-users": "node scripts/reset-users.mjs",
+    "db:seed-test-users": "node --env-file-if-exists=.env --import tsx scripts/seed-test-users.ts",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node .next/standalone/server.js",
     "lint": "eslint .",
@@ -37,6 +38,7 @@
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.0",
     "eslint-config-next": "16.2.12",
+    "tsx": "^4.20.6",
     "typescript": "5.9.3",
     "vitest": "4.1.10"
   },

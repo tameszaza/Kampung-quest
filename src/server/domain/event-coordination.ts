@@ -96,12 +96,24 @@ export interface EventMembership {
 export interface EventNotification {
   notificationId: string;
   userId: string;
-  kind: "invitation" | "invitation_response" | "arrangement" | "change" | "cancellation";
+  kind:
+    | "invitation"
+    | "invitation_response"
+    | "arrangement"
+    | "change"
+    | "cancellation"
+    | "availability_shared"
+    | "availability_confirmed";
   title: string;
   body: string;
   readAt: string | null;
   deduplicationKey: string;
   createdAt: string;
+}
+
+export interface EventNotificationView extends EventNotification {
+  runId: string;
+  questTitle: string;
 }
 
 export interface CoordinationRequirements {
@@ -183,6 +195,25 @@ export interface EventCoordinationState {
   updatedAt: string;
 }
 
+export interface EventQuestView extends EventCoordinationState {
+  viewer: {
+    role: "organizer" | "pending_invitee" | "participant";
+    canChat: boolean;
+    pendingInvitationId: string | null;
+  };
+  participantProgress: EventParticipantProgress[];
+}
+
+export interface EventParticipantProgress {
+  userId: string;
+  displayName: string;
+  photoUrl: string | null;
+  invitationStatus: EventInvitationStatus | "organizer";
+  membershipStatus: EventMembershipStatus | null;
+  availabilityStatus: "not_shared" | "awaiting_confirmation" | "confirmed";
+  updatedAt: string | null;
+}
+
 export const rosterUpdateRequestSchema = z.object({
   action: z.enum(["add", "remove"]),
   userId: z.string().min(1),
@@ -253,6 +284,7 @@ export interface EventInvitationView extends EventInvitation {
 
 export interface UserEventActivities {
   unreadCount: number;
+  notifications: EventNotificationView[];
   suggested: EventActivityCard[];
   invitations: EventInvitationView[];
   sentInvitations: EventInvitationView[];

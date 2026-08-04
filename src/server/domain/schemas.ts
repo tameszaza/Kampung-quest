@@ -365,6 +365,9 @@ export interface ProposeQuestCommand {
   candidateLimit?: number;
   idempotencyKey?: string;
   conversationId?: string;
+  /** Prior suggestions for this member, used to keep new recommendations novel. */
+  avoidQuestTitles?: string[];
+  avoidParticipantSets?: string[][];
 }
 
 export interface QuestRun {

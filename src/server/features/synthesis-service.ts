@@ -6,9 +6,18 @@ import type {
   RetrievedCandidate,
 } from "@/server/domain/schemas";
 
+export interface QuestSynthesisOptions {
+  /** Participant combinations already shown to the initiating member. */
+  avoidParticipantSets?: string[][];
+}
+
 export class QuestSynthesisService {
-  synthesize(initiator: CandidateProfile, candidates: RetrievedCandidate[]): QuestProposal {
-    const selectedProfiles = this.selectCompatibleGroup(initiator, candidates);
+  synthesize(
+    initiator: CandidateProfile,
+    candidates: RetrievedCandidate[],
+    options: QuestSynthesisOptions = {},
+  ): QuestProposal {
+    const selectedProfiles = this.selectCompatibleGroup(initiator, candidates, options.avoidParticipantSets ?? []);
     if (selectedProfiles.length < 2) throw new Error("No eligible candidates share an availability window");
 
     const window = this.sharedWindow(selectedProfiles);
@@ -55,15 +64,34 @@ export class QuestSynthesisService {
     };
   }
 
-  private selectCompatibleGroup(initiator: CandidateProfile, candidates: RetrievedCandidate[]): CandidateProfile[] {
-    const selected = [initiator];
-    for (const candidate of candidates) {
-      const trial = [...selected, candidate.profile];
-      const maximum = Math.min(...trial.map((profile) => profile.constraints.maximumGroupSize));
-      if (trial.length <= maximum && this.sharedWindow(trial)) selected.push(candidate.profile);
-      if (selected.length === 5) break;
+  private selectCompatibleGroup(
+    initiator: CandidateProfile,
+    candidates: RetrievedCandidate[],
+    avoidParticipantSets: string[][],
+  ): CandidateProfile[] {
+    // Rotate the ranked candidates for a new conversation. The first group is
+    // still the best match; subsequent groups deliberately explore the next
+    // compatible neighbours instead of returning the exact same roster.
+    const attempts = Math.max(1, candidates.length);
+    let fallback = [initiator];
+    for (let offset = 0; offset < attempts; offset += 1) {
+      const ordered = [...candidates.slice(offset), ...candidates.slice(0, offset)];
+      const selected = [initiator];
+      for (const candidate of ordered) {
+        const trial = [...selected, candidate.profile];
+        const maximum = Math.min(...trial.map((profile) => profile.constraints.maximumGroupSize));
+        if (trial.length <= maximum && this.sharedWindow(trial)) selected.push(candidate.profile);
+        if (selected.length === 5) break;
+      }
+      if (selected.length > fallback.length) fallback = selected;
+      if (selected.length >= 2 && !this.isAvoidedSet(selected, avoidParticipantSets)) return selected;
     }
-    return selected;
+    return fallback;
+  }
+
+  private isAvoidedSet(profiles: CandidateProfile[], avoidParticipantSets: string[][]): boolean {
+    const selected = profiles.map((profile) => profile.candidateId).sort().join("|");
+    return avoidParticipantSets.some((set) => [...set].sort().join("|") === selected);
   }
 
   private sharedWindow(profiles: CandidateProfile[]): AvailabilityWindow | null {

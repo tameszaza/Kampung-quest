@@ -29,6 +29,7 @@
 }
 
 .bottom-nav > a {
+  position: relative;
   min-width: 0;
   min-height: 62px;
   border-radius: 12px;
@@ -40,6 +41,23 @@
   gap: 4px;
   font-size: 10px;
   font-weight: 650;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 24px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--danger);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .bottom-nav > a.active {
@@ -152,6 +170,15 @@
   .desktop-nav nav a span,
   .desktop-create-label {
     display: none;
+  }
+
+  .desktop-nav nav a .nav-badge {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 20px;
+    height: 20px;
+    display: grid;
   }
 
   .desktop-nav nav a:hover,

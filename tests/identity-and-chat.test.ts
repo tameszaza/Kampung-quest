@@ -85,6 +85,25 @@ describe("member preferences and chat", () => {
     expect((await store.listMessages(maria.id, group.id)).at(-1)?.receipt).toBe("read");
   });
 
+  it("updates account details and only exposes chat profile details to conversation members", async () => {
+    const store = new InMemoryIdentityStore();
+    const maria = await store.createUser(member("maria-profile@example.com"));
+    const lee = await store.createUser({ ...member("lee-profile@example.com"), fullName: "Lee Profile" });
+    const outsider = await store.createUser({ ...member("outsider-profile@example.com"), fullName: "Other Profile" });
+    const updated = await store.updateProfile(lee.id, {
+      fullName: "Lee Updated",
+      phone: "+6561234567",
+      emergencyContact: { name: "Sam Lee", relationship: "Sibling", phone: "+6567654321", email: "sam@example.com" },
+    });
+    expect(updated).toMatchObject({ fullName: "Lee Updated", phone: "+6561234567" });
+    const direct = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
+    await expect(store.getChatProfile(outsider.id, lee.id, direct.id)).rejects.toThrow("not found");
+    await expect(store.getChatProfile(maria.id, lee.id, direct.id)).resolves.toMatchObject({
+      fullName: "Lee Updated",
+      emergencyContact: { name: "Sam Lee", phone: "+6567654321" },
+    });
+  });
+
   it("shows demo welcome chats only for the exact test display name", async () => {
     const store = new InMemoryIdentityStore();
     const testUser = await store.createUser({ ...member("chat-test@example.com"), fullName: "Test", username: "test" });

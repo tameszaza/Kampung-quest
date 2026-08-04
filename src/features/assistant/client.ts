@@ -8,6 +8,7 @@ import type {
   QuestRun,
 } from "@/server/domain/schemas";
 import type { QuestNotification } from "@/server/quest/quest-notifications";
+import { createClientRequestId } from "@/lib/client-request-id";
 
 async function responseJson<T>(response: Response): Promise<T> {
   const payload = await response.json() as T & { error?: string };
@@ -96,7 +97,7 @@ export async function replayAssistantEvents(
 export async function sendAssistantTurn(
   conversation: AssistantConversationSnapshot,
   answer: AssistantAnswer,
-  clientTurnId = crypto.randomUUID(),
+  clientTurnId = createClientRequestId(),
 ): Promise<AssistantConversationSnapshot> {
   const response = await fetch(
     `/api/v1/assistant/conversations/${encodeURIComponent(conversation.conversationId)}/turns`,
