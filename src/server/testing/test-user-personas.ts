@@ -186,6 +186,22 @@ export function createTestCandidateProfile(persona: TestUserPersona, candidateId
   };
 }
 
+export function refreshTestCandidateAvailability(
+  persona: TestUserPersona,
+  current: CandidateProfile,
+  now = new Date(),
+): CandidateProfile {
+  const refreshed = createTestCandidateProfile(persona, current.candidateId, now);
+  return {
+    ...structuredClone(current),
+    constraints: {
+      ...structuredClone(current.constraints),
+      availableWindows: refreshed.constraints.availableWindows,
+      recurringAvailabilityRules: refreshed.constraints.recurringAvailabilityRules,
+    },
+  };
+}
+
 export function createTestPersonaNarrative(persona: TestUserPersona): string {
   const requirements = [
     persona.indoorRequired ? "indoor venue required" : "indoor or outdoor venue",

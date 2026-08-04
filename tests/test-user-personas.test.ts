@@ -5,7 +5,12 @@ import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provid
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { candidateProfileSchema } from "@/server/domain/schemas";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
-import { createTestCandidateProfile, TEST_USER_PASSWORD, TEST_USER_PERSONAS } from "@/server/testing/test-user-personas";
+import {
+  createTestCandidateProfile,
+  refreshTestCandidateAvailability,
+  TEST_USER_PASSWORD,
+  TEST_USER_PERSONAS,
+} from "@/server/testing/test-user-personas";
 
 describe("test user personas", () => {
   it("defines fifteen unique login-capable fixtures in the planned role distribution", () => {
@@ -46,6 +51,22 @@ describe("test user personas", () => {
     }
     expect([...primarySchedules.values()].every((schedules) => schedules.size === 1)).toBe(true);
     expect(new Set([...primarySchedules.values()].map((schedules) => [...schedules][0])).size).toBe(3);
+  });
+
+  it("refreshes persona availability without replacing an active quest request", () => {
+    const persona = TEST_USER_PERSONAS.find((candidate) => candidate.fixtureKey === "cook_host")!;
+    const current = createTestCandidateProfile(persona, "alice", new Date("2026-07-01T00:00:00.000Z"));
+    current.need = "I want to cook Wagyu with neighbours";
+    current.interests = ["outdoor cooking"];
+    current.offers = ["I can host"];
+
+    const refreshed = refreshTestCandidateAvailability(persona, current, new Date("2026-08-04T00:00:00.000Z"));
+
+    expect(refreshed.need).toBe(current.need);
+    expect(refreshed.interests).toEqual(current.interests);
+    expect(refreshed.offers).toEqual(current.offers);
+    expect(refreshed.constraints.availableWindows).toHaveLength(84);
+    expect(refreshed.constraints.recurringAvailabilityRules).toHaveLength(7);
   });
 
   it("keeps the intended strong matches and removes each single-rule near-match", async () => {

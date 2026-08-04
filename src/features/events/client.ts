@@ -1,5 +1,4 @@
 import type {
-  EventCoordinationState,
   EventCoordinationThread,
   EventQuestView,
   UserEventActivities,
@@ -27,7 +26,7 @@ export async function updateEventRoster(input: {
   action: "add" | "remove";
   userId: string;
   expectedRevision: number;
-}): Promise<EventCoordinationState> {
+}): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/roster`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
@@ -35,7 +34,7 @@ export async function updateEventRoster(input: {
   }));
 }
 
-export async function confirmEventRoster(runId: string, expectedRevision: number): Promise<EventCoordinationState> {
+export async function confirmEventRoster(runId: string, expectedRevision: number): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/roster`, {
     method: "POST",
     headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
@@ -56,7 +55,7 @@ export async function respondToEventInvitation(input: {
   invitationId: string;
   response: "accept" | "decline";
   expectedRevision: number;
-}): Promise<EventCoordinationState> {
+}): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/invitations/${encodeURIComponent(input.invitationId)}/respond`, {
     method: "POST",
     headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
@@ -69,7 +68,7 @@ export async function transitionEventInvitation(input: {
   invitationId: string;
   action: "expire" | "withdraw" | "replace" | "cancel";
   expectedRevision: number;
-}): Promise<EventCoordinationState> {
+}): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/invitations/${encodeURIComponent(input.invitationId)}`, {
     method: "POST",
     headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
@@ -81,7 +80,7 @@ export async function transitionEventQuest(input: {
   runId: string;
   action: "cancel" | "start" | "complete" | "reopen";
   expectedRevision: number;
-}): Promise<EventCoordinationState> {
+}): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/lifecycle`, {
     method: "POST",
     headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
@@ -134,7 +133,7 @@ export async function proposeEventArrangement(input: {
   venueName: string;
   venueAddress: string | null;
   expectedRevision: number;
-}): Promise<EventCoordinationState> {
+}): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/arrangements`, {
     method: "POST",
     headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
@@ -142,7 +141,7 @@ export async function proposeEventArrangement(input: {
   }));
 }
 
-export async function suggestEventArrangement(runId: string, expectedRevision: number): Promise<EventCoordinationState> {
+export async function suggestEventArrangement(runId: string, expectedRevision: number): Promise<EventQuestView> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/arrangements`, {
     method: "PUT",
     headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
@@ -155,7 +154,7 @@ export async function decideEventArrangement(input: {
   arrangementId: string;
   action: "approve" | "reject" | "confirm";
   expectedRevision: number;
-}): Promise<EventCoordinationState> {
+}): Promise<EventQuestView> {
   return json(await fetch(
     `/api/v1/event-quests/${encodeURIComponent(input.runId)}/arrangements/${encodeURIComponent(input.arrangementId)}`,
     {

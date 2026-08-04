@@ -161,6 +161,47 @@ describe("EventCoordinator", () => {
     ]);
   });
 
+  it("refreshes stale roster validation when profile availability changes", async () => {
+    let profileAvailabilityFits = false;
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveParticipant: async (userId) => ({
+        participant: {
+          candidateId: userId,
+          proposedRole: "supporting_participant",
+          needsAddressed: ["Would enjoy a community lunch"],
+          contributionsUsed: ["can help prepare ingredients"],
+        },
+        explanation: ["Selected by you"],
+      }),
+      validateRoster: async () => profileAvailabilityFits
+        ? { valid: true, errors: [] }
+        : {
+            valid: false,
+            errors: [{
+              candidateId: "sofia",
+              field: "availability",
+              message: "Proposed time is outside the participant's availability.",
+            }],
+          },
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    const stale = await coordinator.updateRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      action: "add",
+      userId: "sofia",
+    });
+    expect(stale.rosterValidation.valid).toBe(false);
+
+    profileAvailabilityFits = true;
+    const refreshed = await coordinator.getStateForUser(stale.runId, "maria");
+
+    expect(refreshed.rosterValidation).toEqual({ valid: true, errors: [] });
+  });
+
   it("expands recurring availability only inside the explicitly supplied horizon", () => {
     const windows = expandAvailability({
       explicitWindows: [{

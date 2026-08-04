@@ -8,6 +8,7 @@ import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-sto
 import {
   createTestCandidateProfile,
   createTestPersonaNarrative,
+  refreshTestCandidateAvailability,
   TEST_USER_PASSWORD,
   TEST_USER_PERSONAS,
 } from "@/server/testing/test-user-personas";
@@ -107,9 +108,11 @@ try {
     });
     await identityStore.updatePreferences(authUser.id, { accessibilityNeeds: [...persona.accessibilityNeeds] });
 
-    const profile = createTestCandidateProfile(persona, authUser.id);
-    const narrative = createTestPersonaNarrative(persona);
     const current = await kampungStore.findMemory(authUser.id);
+    const profile = current
+      ? refreshTestCandidateAvailability(persona, current.profile)
+      : createTestCandidateProfile(persona, authUser.id);
+    const narrative = current?.narrative ?? createTestPersonaNarrative(persona);
     if (current && current.narrative === narrative && isDeepStrictEqual(current.profile, profile)) {
       result.reusedMemories += 1;
     } else {

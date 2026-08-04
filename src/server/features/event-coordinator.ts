@@ -132,6 +132,11 @@ export class EventCoordinator {
       throw new Error("Event coordination state was not found");
     }
     const safe = structuredClone(current) as EventQuestView;
+    if (organizer && current.lifecycle === "forming") {
+      safe.rosterValidation = this.dependencies.validateRoster
+        ? await this.dependencies.validateRoster(current.proposal)
+        : this.basicRosterValidation(current.proposal);
+    }
     safe.viewer = {
       role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : "participant",
       canChat: this.canCoordinate(current, userId),
