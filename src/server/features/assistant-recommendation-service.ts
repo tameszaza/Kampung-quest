@@ -235,11 +235,25 @@ export class AssistantRecommendationService {
         seededCandidateCount,
       };
     }
-    const quest = await this.dependencies.engine.proposeQuest({
+    let quest = await this.dependencies.engine.proposeQuest({
       initiatingCandidateId: command.candidateId,
       idempotencyKey,
       conversationId: command.conversationId,
     }, observe ? (event) => observe(event) : undefined);
+
+    // The production container always supplies EventCoordinator. Keep the
+    // lightweight standalone engine useful for local recommendation tests and
+    // scripts by representing a validated proposal as a formation even when
+    // no coordinator persistence is configured.
+    if (!this.dependencies.engine.usesEventCoordination
+      && quest.status === "awaiting_acceptance"
+      && quest.coordination) {
+      quest = await this.dependencies.store.saveQuestRun({
+        ...quest,
+        status: "forming",
+        coordination: null,
+      });
+    }
 
     return {
       memory,
@@ -260,6 +274,7 @@ export class AssistantRecommendationService {
         offers: [...neighbour.offers],
         constraints: {
           availableWindows: command.constraints.availableWindows,
+          recurringAvailabilityRules: command.constraints.recurringAvailabilityRules,
           maximumDistanceM: 2_000,
           minimumGroupSize: 2,
           maximumGroupSize: 4,

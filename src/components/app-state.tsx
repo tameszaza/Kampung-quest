@@ -11,18 +11,16 @@ import {
   type ReactNode,
 } from "react";
 
-type InviteDecision = "accepted" | "declined";
-export type ActivityDecision = "accepted" | "declined";
-
 type AppStateValue = {
   savedQuests: Set<string>;
-  activityDecisions: Record<string, ActivityDecision>;
-  inviteDecisions: Record<string, InviteDecision>;
   toast: string | null;
   toggleSaved: (slug: string) => void;
-  decideActivity: (activityId: string, decision: ActivityDecision) => void;
-  decideInvite: (inviteId: string, decision: InviteDecision) => void;
   showToast: (message: string) => void;
+  /** Compatibility state for legacy/demo cards; server-owned event pages do not use it. */
+  activityDecisions: Record<string, "accepted" | "declined">;
+  inviteDecisions: Record<string, "accepted" | "declined">;
+  decideActivity: (id: string, decision: "accepted" | "declined") => void;
+  decideInvite: (id: string, decision: "accepted" | "declined") => void;
 };
 
 const STORAGE_KEY = "senior-quest-ui-state";
@@ -30,15 +28,15 @@ const AppStateContext = createContext<AppStateValue | null>(null);
 
 type StoredState = {
   savedQuests?: string[];
-  activityDecisions?: Record<string, ActivityDecision>;
-  inviteDecisions?: Record<string, InviteDecision>;
+  activityDecisions?: Record<string, "accepted" | "declined">;
+  inviteDecisions?: Record<string, "accepted" | "declined">;
 };
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [savedQuests, setSavedQuests] = useState<Set<string>>(new Set());
-  const [activityDecisions, setActivityDecisions] = useState<Record<string, ActivityDecision>>({});
-  const [inviteDecisions, setInviteDecisions] = useState<Record<string, InviteDecision>>({});
   const [toast, setToast] = useState<string | null>(null);
+  const [activityDecisions, setActivityDecisions] = useState<Record<string, "accepted" | "declined">>({});
+  const [inviteDecisions, setInviteDecisions] = useState<Record<string, "accepted" | "declined">>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(false);
 
@@ -92,34 +90,34 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const decideActivity = useCallback((activityId: string, decision: ActivityDecision) => {
-    setActivityDecisions((current) => ({ ...current, [activityId]: decision }));
+  const decideActivity = useCallback((id: string, decision: "accepted" | "declined") => {
+    setActivityDecisions((current) => ({ ...current, [id]: decision }));
   }, []);
 
-  const decideInvite = useCallback((inviteId: string, decision: InviteDecision) => {
-    setInviteDecisions((current) => ({ ...current, [inviteId]: decision }));
+  const decideInvite = useCallback((id: string, decision: "accepted" | "declined") => {
+    setInviteDecisions((current) => ({ ...current, [id]: decision }));
   }, []);
 
   const value = useMemo<AppStateValue>(
     () => ({
       savedQuests,
-      activityDecisions,
-      inviteDecisions,
       toast,
       toggleSaved,
+      showToast,
+      activityDecisions,
+      inviteDecisions,
       decideActivity,
       decideInvite,
-      showToast,
     }),
     [
       savedQuests,
-      activityDecisions,
-      inviteDecisions,
       toast,
       toggleSaved,
+      showToast,
+      activityDecisions,
+      inviteDecisions,
       decideActivity,
       decideInvite,
-      showToast,
     ],
   );
 

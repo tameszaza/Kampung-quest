@@ -22,6 +22,8 @@ import type {
   AssistantWorkflowEvent,
   QuestRun,
 } from "@/server/domain/schemas";
+import type { AvailabilityWindow, WeeklyAvailabilityRule } from "@/server/domain/schemas";
+import { expandAvailability } from "@/server/features/availability-service";
 
 const CONVERSATION_KEY = "senior-quest-ai-conversation-id";
 const LEGACY_DRAFT_KEY = "senior-quest-assistant-draft";
@@ -364,16 +366,129 @@ function AnswerControl({ embedded, field, text, setText, disabled, suggestedRepl
 }
 
 function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnswer: (answer: AssistantAnswer) => void }) {
+  const [mode, setMode] = useState<"specific" | "weekly">("specific");
   const [start, setStart] = useState(tomorrowAt(11));
   const [end, setEnd] = useState(tomorrowAt(14));
-  return <form className="assistant-choice-panel" onSubmit={(event) => {
+  const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
+  const [days, setDays] = useState<number[]>([]);
+  const [weeklyStart, setWeeklyStart] = useState("09:00");
+  const [weeklyEnd, setWeeklyEnd] = useState("12:00");
+  const [validFrom, setValidFrom] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+  const [patternText, setPatternText] = useState("");
+  const [patternError, setPatternError] = useState("");
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Singapore";
+  const specificSelection = specificAvailabilityWindows(windows, start, end, timeZone);
+
+  function addWindow() {
+    if (Date.parse(end) <= Date.parse(start)) return;
+    const next = { start: new Date(start).toISOString(), end: new Date(end).toISOString(), timeZone };
+    setWindows((items) => [...items, next].sort((left, right) => Date.parse(left.start) - Date.parse(right.start)));
+  }
+
+  function applyPreset(preset: "weekday_mornings" | "tuesday_evening") {
+    if (preset === "weekday_mornings") {
+      setDays([1, 2, 3, 4, 5]);
+      setWeeklyStart("09:00");
+      setWeeklyEnd("12:00");
+    } else {
+      setDays([2]);
+      setWeeklyStart("17:00");
+      setWeeklyEnd("20:00");
+    }
+  }
+
+  function interpretPattern() {
+    const interpreted = parseWeeklyPattern(patternText);
+    if (!interpreted) {
+      setPatternError("Try a pattern such as ‘weekday mornings’, ‘Tuesday evening’, or ‘weekends afternoon’. ");
+      return;
+    }
+    setDays(interpreted.days);
+    setWeeklyStart(interpreted.start);
+    setWeeklyEnd(interpreted.end);
+    setPatternError("");
+  }
+
+  return <form className="assistant-choice-panel availability-panel" onSubmit={(event) => {
     event.preventDefault();
-    onAnswer({ field: "availability", value: { start: new Date(start).toISOString(), end: new Date(end).toISOString() } });
+    if (mode === "specific") {
+      if (!specificSelection.length) return;
+      onAnswer({ field: "availability", value: { availableWindows: specificSelection, recurringAvailabilityRules: [] } });
+      return;
+    }
+    const rule: WeeklyAvailabilityRule = {
+      kind: "weekly_recurrence",
+      daysOfWeek: days,
+      startLocalTime: weeklyStart,
+      endLocalTime: weeklyEnd,
+      timeZone,
+      validFrom,
+      validUntil,
+    };
+    const availableWindows = expandAvailability({
+      explicitWindows: [],
+      recurringRules: [rule],
+      horizon: { start: validFrom, end: validUntil },
+    });
+    onAnswer({ field: "availability", value: { availableWindows, recurringAvailabilityRules: [rule] } });
   }}>
-    <label>From<input type="datetime-local" required value={start} onChange={(event) => setStart(event.target.value)} /></label>
-    <label>Until<input type="datetime-local" required value={end} onChange={(event) => setEnd(event.target.value)} /></label>
-    <button className="primary-button" type="submit" disabled={disabled || Date.parse(end) <= Date.parse(start)}>Use this time</button>
+    <div className="availability-mode" role="group" aria-label="Availability type"><button type="button" className={mode === "specific" ? "active" : ""} onClick={() => setMode("specific")}>Specific times</button><button type="button" className={mode === "weekly" ? "active" : ""} onClick={() => setMode("weekly")}>Weekly pattern</button></div>
+    <div className="availability-heading"><strong>When are you available?</strong><small>These times help us find a match. They are not the activity schedule.</small></div>
+    {mode === "specific" ? <>
+      <label>Available from<input type="datetime-local" required value={start} onChange={(event) => setStart(event.target.value)} /></label>
+      <label>Available until<input type="datetime-local" required value={end} onChange={(event) => setEnd(event.target.value)} /></label>
+      <button className="secondary-button" type="button" disabled={disabled || Date.parse(end) <= Date.parse(start)} onClick={addWindow}>Add available time</button>
+      {windows.length ? <ul className="availability-list">{windows.map((window, index) => <li key={`${window.start}-${window.end}`}><span>{displayDate(window.start, window.end)}</span><button type="button" onClick={() => setWindows((items) => items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></li>)}</ul> : null}
+      <button className="primary-button" type="submit" disabled={disabled || specificSelection.length === 0}>Confirm {specificSelection.length || ""} available time{specificSelection.length === 1 ? "" : "s"}</button>
+    </> : <>
+      <div className="availability-natural-entry"><label>Describe a weekly pattern (optional)<input type="text" value={patternText} onChange={(event) => setPatternText(event.target.value)} placeholder="For example, weekday mornings" /></label><button className="secondary-button" type="button" disabled={!patternText.trim()} onClick={interpretPattern}>Interpret</button></div>
+      {patternError ? <p className="field-error" role="alert">{patternError}</p> : null}
+      <div className="assistant-suggestions availability-presets"><button type="button" onClick={() => applyPreset("weekday_mornings")}>Weekday mornings</button><button type="button" onClick={() => applyPreset("tuesday_evening")}>Tuesday evening</button></div>
+      <fieldset className="weekday-picker"><legend>Available days</legend>{[[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"]].map(([day, label]) => <label key={day}><input type="checkbox" checked={days.includes(day as number)} onChange={() => setDays((items) => items.includes(day as number) ? items.filter((item) => item !== day) : [...items, day as number].sort())} /><span>{label}</span></label>)}</fieldset>
+      <label>From<input type="time" value={weeklyStart} required onChange={(event) => setWeeklyStart(event.target.value)} /></label>
+      <label>Until<input type="time" value={weeklyEnd} required onChange={(event) => setWeeklyEnd(event.target.value)} /></label>
+      <label>Starting on<input type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} /></label>
+      <label>Ending on<input type="date" value={validUntil} required onChange={(event) => setValidUntil(event.target.value)} /></label>
+      {days.length && validFrom && validUntil ? <div className="availability-interpretation"><strong>Please confirm this interpretation</strong><p>Every {days.map((day) => ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][day]).join(", ")} from {weeklyStart} to {weeklyEnd}, {validFrom} through {validUntil} ({timeZone}).</p></div> : null}
+      <button className="primary-button" type="submit" disabled={disabled || !days.length || !validFrom || !validUntil || validUntil < validFrom || weeklyEnd <= weeklyStart}>Confirm weekly availability</button>
+    </>}
   </form>;
+}
+
+function parseWeeklyPattern(value: string): { days: number[]; start: string; end: string } | null {
+  const normalized = value.toLowerCase().trim();
+  const dayNames = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const days = normalized.includes("weekday")
+    ? [1, 2, 3, 4, 5]
+    : normalized.includes("weekend")
+      ? [6, 7]
+      : dayNames.flatMap((name, index) => normalized.includes(name) ? [index + 1] : []);
+  const period = normalized.includes("morning")
+    ? { start: "09:00", end: "12:00" }
+    : normalized.includes("afternoon")
+      ? { start: "12:00", end: "16:00" }
+      : normalized.includes("evening")
+        ? { start: "17:00", end: "20:00" }
+        : null;
+  return days.length && period ? { days, ...period } : null;
+}
+
+export function specificAvailabilityWindows(
+  savedWindows: AvailabilityWindow[],
+  currentStart: string,
+  currentEnd: string,
+  timeZone: string,
+): AvailabilityWindow[] {
+  if (savedWindows.length) return savedWindows;
+  const start = Date.parse(currentStart);
+  const end = Date.parse(currentEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  return [{
+    start: new Date(start).toISOString(),
+    end: new Date(end).toISOString(),
+    timeZone,
+  }];
 }
 
 function ReviewCard({ conversation, onEdit, onConfirm }: {
@@ -386,7 +501,9 @@ function ReviewCard({ conversation, onEdit, onConfirm }: {
     ["Current request", brief.currentGoal ?? "Not provided", "goal"],
     ["Interests", brief.interests?.join(", ") || "Nothing specific", "interests"],
     ["What I can offer", brief.offers?.join(", ") || "Nothing specific", "offers"],
-    ["When", displayDate(brief.availableWindows?.[0]?.start, brief.availableWindows?.[0]?.end), "availability"],
+    ["Available times", brief.recurringAvailabilityRules?.length
+      ? `${brief.recurringAvailabilityRules.length} weekly pattern${brief.recurringAvailabilityRules.length === 1 ? "" : "s"} · ${brief.availableWindows?.length ?? 0} matching windows`
+      : brief.availableWindows?.map((window) => displayDate(window.start, window.end)).join("; ") || "Not chosen", "availability"],
     ["Group", `${brief.minimumGroupSize}–${brief.maximumGroupSize} people`, "group_size"],
     ["Setting", brief.indoorRequired ? "Indoors" : "Indoor or outdoor", "indoor"],
     ["Stairs", brief.stairsAllowed ? "Comfortable" : "No stairs", "stairs"],
@@ -426,7 +543,7 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
     <h2>{proposal.quest.title}</h2>
     <p>{proposal.quest.description}</p>
     <div className="result-facts">
-      <span><Icon name="calendar" />{displayDate(proposal.quest.proposedTimeWindow.start, proposal.quest.proposedTimeWindow.end)}</span>
+      <span><Icon name="calendar" /><strong>Provisional availability:</strong> {displayDate(proposal.quest.proposedTimeWindow.start, proposal.quest.proposedTimeWindow.end)} · not scheduled</span>
       <span><Icon name="clock" />About {proposal.quest.durationMinutes} minutes</span>
       <span><Icon name="people" />{proposal.proposedParticipants.length} people</span>
     </div>

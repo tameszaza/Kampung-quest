@@ -88,8 +88,8 @@ For direct API use:
 
 1. Start an AI conversation with `POST /api/v1/assistant/conversations`, append answers under its `/turns` route, then confirm it under `/confirm`; the legacy complete-brief endpoint remains available at `POST /api/v1/assistant/recommend`.
 2. Inspect eligible matches with `GET /api/v1/candidates/{candidateId}/retrieve`.
-3. Run synthesis, validation, safety review and coordination with `POST /api/v1/quests/propose/{candidateId}`.
-4. List recommendations with `GET /api/v1/quests?candidateId={candidateId}`, read durable quest state with `GET /api/v1/quests/{questId}`, and submit demo coordination events to `POST /api/v1/quests/{questId}/events`.
+3. Run synthesis, validation, and safety review with `POST /api/v1/quests/propose/{candidateId}`. Approved proposals enter editable formation; synthesis does not send invitations.
+4. Use `/api/v1/event-quests/{questId}` and its roster, coordination, arrangement, and lifecycle routes for durable event coordination. Invitations are handled under `/api/v1/invitations`, while `/api/v1/activities` returns user-centric Suggested, Invited, and My Activities views. The old `/api/v1/quests/{questId}/events` demo mutation endpoint is retired with HTTP 410.
 
 Example profile:
 
@@ -180,7 +180,7 @@ Add the equivalent HTTPS URI for production. A first Google sign-in opens the pr
 screen with Google name, email, and photo prefilled. The name and photo remain editable; the
 verified Google email is locked. Returning members go straight back into their existing account.
 
-Route handlers call one `KampungQuestEngine` interface. The engine owns ordered orchestration while injected adapters provide PostgreSQL, embeddings and AI-agent runs. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
+Route handlers call a small application-owned domain interface: `KampungQuestEngine` owns memory, retrieval, synthesis, validation, and safety orchestration; `EventCoordinator` owns the post-synthesis roster, invitation, membership, private coordination, arrangement, notification, and recovery lifecycle. Both use the same injected `KampungStore`, with optimistic revisions and atomic state/audit/outbox writes. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
 
 ## Core engine storage
 
@@ -190,7 +190,7 @@ One PostgreSQL instance contains four logical schemas:
 | --- | --- |
 | `memory` | Authoritative conversation events, exact constraints, versioned Markdown, normalized facts and agent audit records |
 | `retrieval` | Rebuildable need, interest and offer embeddings tied to an exact active memory version |
-| `quest` | Quest runs, proposals, safety/validation results and immutable coordination events |
+| `quest` | Quest runs, proposals, safety/validation results, event-coordination aggregates, immutable audit events and delivery outbox |
 | `assistant` | AI conversation transcripts, authoritative brief drafts and replayable workflow events |
 
 The Personal Memory Micro-Agent is invoked only when new information arrives. It receives the active Markdown snapshot, current soft facts, authoritative constraints and the new narrative. A new snapshot becomes active only after all three embeddings are stored. Failed model or embedding work remains recorded while the previous active memory stays usable.

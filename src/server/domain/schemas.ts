@@ -4,15 +4,30 @@ export const availabilityWindowSchema = z
   .object({
     start: z.iso.datetime({ offset: true }),
     end: z.iso.datetime({ offset: true }),
+    timeZone: z.string().min(1).optional(),
   })
   .refine((window) => Date.parse(window.end) > Date.parse(window.start), {
     message: "Availability end must be after start",
     path: ["end"],
   });
 
+export const weeklyAvailabilityRuleSchema = z.object({
+  kind: z.literal("weekly_recurrence"),
+  daysOfWeek: z.array(z.number().int().min(1).max(7)).min(1),
+  startLocalTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  endLocalTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  timeZone: z.string().min(1),
+  validFrom: z.string().date(),
+  validUntil: z.string().date(),
+}).refine((rule) => Date.parse(rule.validUntil) >= Date.parse(rule.validFrom), {
+  message: "Recurring availability end must not precede its start",
+  path: ["validUntil"],
+});
+
 export const constraintsSchema = z
   .object({
     availableWindows: z.array(availabilityWindowSchema).min(1),
+    recurringAvailabilityRules: z.array(weeklyAvailabilityRuleSchema).optional(),
     maximumDistanceM: z.number().int().positive().default(1000),
     minimumGroupSize: z.number().int().min(2).default(2),
     maximumGroupSize: z.number().int().min(2).max(5).default(5),
@@ -43,6 +58,7 @@ export const candidateProfileSchema = z.object({
 });
 
 export type AvailabilityWindow = z.infer<typeof availabilityWindowSchema>;
+export type WeeklyAvailabilityRule = z.infer<typeof weeklyAvailabilityRuleSchema>;
 export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
 
 export const assistantRecommendationRequestSchema = z.object({
@@ -77,6 +93,7 @@ export const questBriefDraftSchema = z.object({
   interests: z.array(z.string().min(1)).optional(),
   offers: z.array(z.string().min(1)).optional(),
   availableWindows: z.array(availabilityWindowSchema).min(1).optional(),
+  recurringAvailabilityRules: z.array(weeklyAvailabilityRuleSchema).optional(),
   minimumGroupSize: z.number().int().min(2).optional(),
   maximumGroupSize: z.number().int().min(2).max(5).optional(),
   indoorRequired: z.boolean().optional(),
@@ -101,6 +118,7 @@ export const confirmedQuestBriefSchema = questBriefDraftSchema.required({
 }).extend({
   interests: z.array(z.string().min(1)).default([]),
   offers: z.array(z.string().min(1)).default([]),
+  recurringAvailabilityRules: z.array(weeklyAvailabilityRuleSchema).default([]),
 }).refine((brief) => brief.minimumGroupSize <= brief.maximumGroupSize, {
   message: "Minimum group size cannot exceed maximum group size",
   path: ["minimumGroupSize"],
@@ -122,7 +140,13 @@ export const assistantAnswerSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("goal"), value: z.string().min(3) }),
   z.object({ field: z.literal("interests"), value: z.string().min(1).nullable() }),
   z.object({ field: z.literal("offers"), value: z.string().min(1).nullable() }),
-  z.object({ field: z.literal("availability"), value: availabilityWindowSchema }),
+  z.object({ field: z.literal("availability"), value: z.union([
+    availabilityWindowSchema,
+    z.object({
+      availableWindows: z.array(availabilityWindowSchema).min(1),
+      recurringAvailabilityRules: z.array(weeklyAvailabilityRuleSchema).default([]),
+    }),
+  ]) }),
   z.object({ field: z.literal("group_size"), value: z.object({
     minimum: z.number().int().min(2),
     maximum: z.number().int().min(2).max(5),
@@ -328,6 +352,7 @@ export interface CoordinationEventRecord extends CoordinationEventCommand {
 export type QuestStatus =
   | "processing"
   | "no_match"
+  | "forming"
   | "awaiting_acceptance"
   | "confirmed"
   | "human_review"

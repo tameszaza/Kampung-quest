@@ -15,6 +15,11 @@ export function errorResponse(error: unknown): NextResponse {
       ? 429
       : message.includes("not found")
         ? 404
+        : message.startsWith("Only the ")
+          || message.includes("not allowed")
+          || message.includes("another participant's")
+          || message.includes("only to your own")
+          ? 403
         : message.includes("already exists")
           ? 409
           : message.includes("provider unavailable")

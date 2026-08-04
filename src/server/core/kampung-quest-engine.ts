@@ -23,6 +23,7 @@ import type {
   ValidationResult,
 } from "@/server/domain/schemas";
 import { ConstraintValidator } from "@/server/features/validation-service";
+import type { EventCoordinator } from "@/server/features/event-coordinator";
 import type { KampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageStorage } from "@/server/quest/quest-image-storage";
 import type { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
@@ -37,6 +38,7 @@ interface KampungQuestEngineDependencies {
   imageAgent?: QuestImageAgent;
   imageStorage?: QuestImageStorage;
   chatNotifier?: QuestChatNotifier;
+  eventCoordinator?: EventCoordinator;
 }
 
 const OPEN_QUEST_MATCH_THRESHOLD = 0.72;
@@ -60,6 +62,11 @@ export class KampungQuestEngine {
   constructor(private readonly dependencies: KampungQuestEngineDependencies) {
     this.invitations = dependencies.invitations ?? new MockInvitationAdapter();
     this.venues = dependencies.venues ?? new MockVenueAdapter();
+  }
+
+  /** Exposes whether this engine is backed by the event aggregate. */
+  get usesEventCoordination(): boolean {
+    return Boolean(this.dependencies.eventCoordinator);
   }
 
   async recordMemory(command: MemoryUpdateCommand): Promise<MemoryCard> {
@@ -138,6 +145,57 @@ export class KampungQuestEngine {
   ): Promise<QuestRun | null> {
     const candidate = await this.dependencies.store.findMemory(candidateId);
     if (!candidate || candidate.profile.memoryStatus !== "active") return null;
+
+    // Event coordination owns forming rosters. A newly prepared participant can
+    // join a compatible, not-yet-started formation without bypassing its
+    // organizer confirmation flow. This keeps the legacy QuestRun path below
+    // available for older records and tests while new quests use the event
+    // aggregate as the source of truth.
+    if (this.dependencies.eventCoordinator) {
+      const [candidateEmbeddings, states] = await Promise.all([
+        this.dependencies.store.findEmbeddings(candidateId),
+        this.dependencies.store.listAllEventCoordinationStates(OPEN_QUEST_SCAN_LIMIT),
+      ]);
+      const candidateVectors = this.embeddingMap(candidateEmbeddings);
+      if (candidateVectors.need && this.hasSignal(candidateVectors.need)) {
+        for (const state of states) {
+          if (state.lifecycle !== "forming"
+            || state.initiatorId === candidateId
+            || Date.parse(state.proposal.quest.proposedTimeWindow.end) <= Date.now()
+            || state.roster.some((member) => member.userId === candidateId)
+            || state.memberships.some((member) => member.userId === candidateId
+              && !["withdrawn", "replaced", "cancelled", "completed"].includes(member.status))) continue;
+          if (state.roster.length >= candidate.profile.constraints.maximumGroupSize) continue;
+          const score = await this.groupCompatibilityScore(
+            candidateVectors,
+            state.roster.map((member) => member.userId),
+          );
+          if (score === null || score < OPEN_QUEST_MATCH_THRESHOLD) continue;
+          try {
+            const updated = await this.dependencies.eventCoordinator.updateRoster({
+              runId: state.runId,
+              actorId: state.initiatorId,
+              expectedRevision: state.revision,
+              action: "add",
+              userId: candidateId,
+            });
+            await observe?.({
+              stage: "retrieval",
+              status: "completed",
+              message: "A compatible future activity is ready for the organizer to review",
+              kind: "system",
+            });
+            return this.dependencies.store.findQuestRun(updated.runId);
+          } catch (error) {
+            logger.info("quest.event_roster_match.skipped", {
+              runId: state.runId,
+              candidateId,
+              error: safeErrorMessage(error),
+            });
+          }
+        }
+      }
+    }
 
     const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
     if (acceptedCandidateIds.has(candidateId)) return null;
@@ -516,18 +574,18 @@ export class KampungQuestEngine {
       });
       await observe?.({ stage: "safety", status: "completed", message: safety.status === "approved" ? "Safety review approved" : "Safety review requires attention", kind: "agent" });
       const approved = safety.status === "approved";
-      if (approved) {
+      if (approved && !this.dependencies.eventCoordinator) {
         await Promise.all(proposal.proposedParticipants.map((participant) =>
           this.invitations.send({ runId, candidateId: participant.candidateId })
         ));
       }
-      const completedRun: QuestRun = {
+      const finalRun: QuestRun = {
         ...base,
-        status: approved ? "awaiting_acceptance" : "human_review",
+        status: approved && this.dependencies.eventCoordinator ? "forming" : approved ? "awaiting_acceptance" : "human_review",
         proposal,
         validation,
         safety,
-        coordination: approved
+        coordination: approved && !this.dependencies.eventCoordinator
           ? {
               questId: runId,
               state: "awaiting_acceptance",
@@ -536,12 +594,14 @@ export class KampungQuestEngine {
                 status: "pending",
               })),
               nextAction: "Collect explicit acceptance, then confirm the venue and exact schedule.",
-            }
+          }
           : null,
         imageUrl: QUEST_IMAGE_PLACEHOLDER,
         updatedAt: new Date().toISOString(),
       };
-      const saved = await this.dependencies.store.saveQuestRun(completedRun);
+      const saved = approved && this.dependencies.eventCoordinator
+        ? await this.dependencies.eventCoordinator.activateFormation(finalRun, base.updatedAt)
+        : await this.dependencies.store.saveQuestRun(finalRun);
       this.queueQuestImage(saved);
       return saved;
     } catch (error) {

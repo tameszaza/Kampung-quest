@@ -1,4 +1,4 @@
-import { EngineQuestDetail } from "@/components/engine-quest-views";
+import { EventQuestDetail } from "@/components/event-quest-detail";
 import { QuestDetail } from "@/components/quest-detail";
 import { quests } from "@/data/mock-data";
 import { currentUser } from "@/server/identity/session";
@@ -14,5 +14,5 @@ export default async function QuestDetailsPage({ params, searchParams }: { param
     if (user?.username !== "test") notFound();
     return <QuestDetail quest={featuredQuest} showActivityActions={showActivityActions} />;
   }
-  return <EngineQuestDetail runId={slug} showActivityActions={showActivityActions} />;
+  return <EventQuestDetail runId={slug} showActivityActions={showActivityActions} />;
 }

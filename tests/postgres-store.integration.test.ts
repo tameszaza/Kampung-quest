@@ -4,6 +4,7 @@ import type { CandidateProfile } from "@/server/domain/schemas";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
+import { EventCoordinator } from "@/server/features/event-coordinator";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
 import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
 
@@ -50,15 +51,22 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
       store: store!,
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
+      eventCoordinator: new EventCoordinator({ store: store! }),
     });
     await engine.recordMemory({ profile: profile(firstId), narrative: "First participant" });
     await engine.recordMemory({ profile: profile(secondId), narrative: "Second participant" });
     const run = await engine.proposeQuest({ initiatingCandidateId: firstId });
-    for (const participant of run.proposal?.proposedParticipants ?? []) {
-      await engine.applyCoordinationEvent({
+    const coordinator = new EventCoordinator({ store: store! });
+    let state = (await store!.findEventCoordinationState(run.runId))!;
+    state = await coordinator.confirmRoster({ runId: run.runId, actorId: firstId, expectedRevision: state.revision, idempotencyKey: `integration-roster-${suffix}` });
+    for (const invitation of state.invitations) {
+      state = await coordinator.respondToInvitation({
         runId: run.runId,
-        type: "participant_accepted",
-        candidateId: participant.candidateId,
+        invitationId: invitation.invitationId,
+        actorId: invitation.guestId,
+        response: "accept",
+        expectedRevision: state.revision,
+        idempotencyKey: `integration-accept-${invitation.guestId}`,
       });
     }
 
@@ -68,7 +76,12 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
       embeddings: new DeterministicEmbeddingProvider(),
     });
     expect((await restartedEngine.getMemory(firstId))?.retrievalReady).toBe(true);
-    expect((await restartedEngine.getQuest(run.runId))?.status).toBe("confirmed");
+    expect((await restartedEngine.getQuest(run.runId))?.status).toBe("forming");
+    const restartedCoordinator = new EventCoordinator({ store: store! });
+    const persistedState = await restartedCoordinator.getStateForUser(run.runId, firstId);
+    expect(persistedState.memberships).toHaveLength(run.proposal?.proposedParticipants.length ?? 0);
+    expect(persistedState.auditEvents.length).toBeGreaterThan(1);
+    expect(persistedState.outbox.length).toBeGreaterThan(0);
     const persistedRunIds = (await store!.listQuestRuns(firstId, 10)).map((item) => item.runId);
     expect(persistedRunIds).toContain(run.runId);
   });

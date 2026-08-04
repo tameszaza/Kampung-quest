@@ -74,7 +74,7 @@ describe("Senior Quest assistant recommendations", () => {
     expect(result.provider).toBe("deterministic");
     expect(result.memory.profile.candidateId).toBe("maria");
     expect(result.memory.retrievalReady).toBe(true);
-    expect(result.quest.status).toBe("awaiting_acceptance");
+    expect(result.quest.status).toBe("forming");
     expect(result.quest.validation?.valid).toBe(true);
     expect(result.quest.safety?.status).toBe("approved");
     expect(result.quest.proposal?.proposedParticipants).toContainEqual(
@@ -142,7 +142,7 @@ describe("Senior Quest assistant recommendations", () => {
     const result = await assistant.recommend(later);
     const laterAnne = await store.findMemory("demo_anne");
 
-    expect(result.quest.status).toBe("awaiting_acceptance");
+    expect(result.quest.status).toBe("forming");
     expect(result.quest.proposal?.proposedParticipants.length).toBeGreaterThanOrEqual(2);
     expect(laterAnne?.profile.constraints.languages).toEqual(firstAnne?.profile.constraints.languages);
     expect(laterAnne?.profile.distanceFromInitiatorM).toBe(firstAnne?.profile.distanceFromInitiatorM);
@@ -218,7 +218,7 @@ describe("Senior Quest assistant recommendations", () => {
     const versionBeforeRetry = (await store.findMemory("maria"))?.version;
     const recovered = await assistant.recommend(command());
 
-    expect(recovered.quest.status).toBe("awaiting_acceptance");
+    expect(recovered.quest.status).toBe("forming");
     expect(recovered.quest.idempotencyKey).toBe(`assistant:maria:conversation_001:retry:${failedRun?.runId}`);
     expect(recovered.memory.version).toBe(versionBeforeRetry);
     expect(failedRun?.status).toBe("failed");
