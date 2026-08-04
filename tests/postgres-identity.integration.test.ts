@@ -47,6 +47,9 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
     });
     createdIds.push(maria.id, lee.id);
     expect(maria.dateOfBirth).toBe("1950-05-12");
+    const seededChats = await store!.listConversations(maria.id);
+    expect(seededChats.some((conversation) => conversation.title === "Anne Lim")).toBe(false);
+    expect(seededChats.some((conversation) => conversation.title === "Cooking Buddies")).toBe(false);
 
     const updated = await store!.updatePreferences(maria.id, { highContrast: true, textSize: "extra-large" });
     expect(updated.preferences).toMatchObject({ highContrast: true, textSize: "extra-large" });
@@ -68,6 +71,11 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
       title: "Integration Friends",
     });
     expect(group).toMatchObject({ type: "group", memberCount: 3, title: "Integration Friends" });
+
+    await store!.ensureQuestGroupConversation("quest-integration", "Quest Group", [maria.id]);
+    await store!.ensureQuestGroupConversation("quest-integration", "Quest Group", [maria.id, lee.id]);
+    const questGroup = (await store!.listConversations(lee.id)).find((conversation) => conversation.title === "Quest Group");
+    expect(questGroup).toMatchObject({ type: "group", memberCount: 2 });
 
     const safetyDirect = await store!.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
     await store!.blockUser(maria.id, lee.id);

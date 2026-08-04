@@ -53,6 +53,21 @@ describe("quest chat notifications", () => {
 
     const direct = (await identity.listConversations(first.id)).find((conversation) => conversation.title === "Second Member");
     expect((await identity.listMessages(first.id, direct!.id)).at(-1)?.body).toContain("accepted the role");
+    const questGroup = (await identity.listConversations(second.id)).find((conversation) => conversation.title === "Mystery Book Club");
+    expect(questGroup).toMatchObject({ type: "group", memberCount: 1 });
+
+    await notifier.participantAccepted({
+      ...run,
+      coordination: {
+        ...run.coordination!,
+        invitations: [
+          { candidateId: first.id, status: "accepted" },
+          { candidateId: second.id, status: "accepted" },
+        ],
+      },
+    }, first.id);
+    const expandedGroup = (await identity.listConversations(first.id)).find((conversation) => conversation.title === "Mystery Book Club");
+    expect(expandedGroup).toMatchObject({ type: "group", memberCount: 2 });
   });
 });
 

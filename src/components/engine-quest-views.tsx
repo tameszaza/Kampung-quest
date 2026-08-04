@@ -97,6 +97,9 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
     ? proposal.quest.venueRequirements.map((item) => item.replaceAll("_", " ")).join(", ")
     : "Venue to be confirmed";
   const invitationStatus = run.coordination?.invitations.find((invitation) => invitation.candidateId === user.id)?.status;
+  const participantCount = proposal.proposedParticipants.length;
+  const canRespond = showActivityActions && run.status === "awaiting_acceptance" && invitationStatus === "pending";
+  const hasDecision = invitationStatus === "accepted" || invitationStatus === "declined";
 
   return (
     <div className={`detail-page engine-detail-page${showActivityActions ? "" : " without-action"}`}>
@@ -110,7 +113,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
             <div className="detail-fact"><Icon name="calendar" /><span><small>Date and time</small><strong>{questDate(run)}</strong></span></div>
             <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {proposal.quest.durationMinutes} minutes</strong></span></div>
             <div className="detail-fact"><Icon name="pin" /><span><small>Venue requirements</small><strong>{venueRequirements}</strong></span></div>
-            <div className="detail-fact"><Icon name="people" /><span><small>Group size</small><strong>{proposal.quest.groupSize} people</strong></span></div>
+            <div className="detail-fact"><Icon name="people" /><span><small>Group size</small><strong>{participantCount} people</strong></span></div>
           </div>
           <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => {
             const profile = run.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
@@ -130,7 +133,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
             {run.safety?.conditions.length ? <ul>{run.safety.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : null}
           </section>
           {run.status === "human_review" ? <p className="assistant-note">A coordinator needs to review this match before any invitation is prepared.</p> : <p className="engine-safety"><Icon name="shield" size={20} /> Safety checks passed; invitations are ready for the participants.</p>}
-          {showActivityActions ? <div className="detail-action"><ActivityActions activityId={run.runId} initialDecision={invitationStatus === "accepted" || invitationStatus === "declined" ? invitationStatus : undefined} onDecision={(decision) => setState((current) => current.status !== "ready" || !current.value?.coordination ? current : { ...current, value: { ...current.value, coordination: { ...current.value.coordination, invitations: current.value.coordination.invitations.map((invitation) => invitation.candidateId === user.id ? { ...invitation, status: decision } : invitation) } } })} /></div> : null}
+          {canRespond || hasDecision ? <div className="detail-action"><ActivityActions activityId={run.runId} initialDecision={hasDecision ? invitationStatus : undefined} onDecision={(decision) => setState((current) => current.status !== "ready" || !current.value?.coordination ? current : { ...current, value: { ...current.value, coordination: { ...current.value.coordination, invitations: current.value.coordination.invitations.map((invitation) => invitation.candidateId === user.id ? { ...invitation, status: decision } : invitation) } } })} /></div> : null}
         </article>
       </div>
     </div>

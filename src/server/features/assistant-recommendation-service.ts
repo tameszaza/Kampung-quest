@@ -202,6 +202,39 @@ export class AssistantRecommendationService {
       await observe?.({ stage: "retrieval", status: "failed", message: "Neighbour demo availability could not be refreshed", kind: "system" });
       throw error;
     }
+    const joinedQuest = await this.dependencies.engine.joinOpenQuest(
+      command.candidateId,
+      idempotencyKey,
+      observe ? (event) => observe(event) : undefined,
+    );
+    if (joinedQuest) {
+      return {
+        memory,
+        quest: joinedQuest,
+        provider: this.dependencies.provider,
+        seededCandidateCount,
+      };
+    }
+    // An accepted member already has an active commitment. Return that run
+    // instead of synthesising a second proposal that can only end in an
+    // ineligible human-review state.
+    const activeAcceptedQuest = (await this.dependencies.store.listQuestRuns(command.candidateId, 50))
+      .find((run) =>
+        (run.status === "awaiting_acceptance" || run.status === "confirmed") &&
+        run.proposal !== null &&
+        Date.parse(run.proposal.quest.proposedTimeWindow.start) > Date.now() &&
+        run.coordination?.invitations.some((invitation) =>
+          invitation.candidateId === command.candidateId && invitation.status === "accepted",
+        ),
+      );
+    if (activeAcceptedQuest) {
+      return {
+        memory,
+        quest: activeAcceptedQuest,
+        provider: this.dependencies.provider,
+        seededCandidateCount,
+      };
+    }
     const quest = await this.dependencies.engine.proposeQuest({
       initiatingCandidateId: command.candidateId,
       idempotencyKey,

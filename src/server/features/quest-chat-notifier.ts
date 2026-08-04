@@ -27,6 +27,22 @@ export class QuestChatNotifier {
     if (!proposal || isDemo(candidateId)) return;
     const accepted = proposal.proposedParticipants.find((participant) => participant.candidateId === candidateId);
     if (!accepted) return;
+    const acceptedMemberIds = [...new Set([
+      candidateId,
+      ...(run.coordination?.invitations ?? [])
+        .filter((invitation) => invitation.status === "accepted")
+        .map((invitation) => invitation.candidateId)
+        .filter((participantId) => !isDemo(participantId)),
+    ])].filter((participantId) => !isDemo(participantId));
+    try {
+      await this.identityStore.ensureQuestGroupConversation(
+        run.runId,
+        proposal.quest.title,
+        acceptedMemberIds,
+      );
+    } catch {
+      // Group-chat creation is best effort; the acceptance itself is already durable.
+    }
     const recipients = proposal.proposedParticipants
       .map((participant) => participant.candidateId)
       .filter((participantId) => participantId !== candidateId && !isDemo(participantId));

@@ -72,7 +72,20 @@ export class GeminiSvgThumbnailAgent implements QuestImageAgent {
       });
       return { bytes: Buffer.from(sanitized.svg), mimeType: "image/svg+xml", model: this.options.model };
     } catch (error) {
-      logger.warn("quest_image.gemini_svg.error", { error: safeErrorMessage(error), elapsedMs: Date.now() - startedAt });
+      const providerError = error as {
+        status?: unknown;
+        code?: unknown;
+        type?: unknown;
+        request_id?: unknown;
+      };
+      logger.warn("quest_image.gemini_svg.error", {
+        error: safeErrorMessage(error),
+        status: typeof providerError.status === "number" ? providerError.status : null,
+        code: typeof providerError.code === "string" ? providerError.code : null,
+        type: typeof providerError.type === "string" ? providerError.type : null,
+        requestId: typeof providerError.request_id === "string" ? providerError.request_id : null,
+        elapsedMs: Date.now() - startedAt,
+      });
       return null;
     }
   }

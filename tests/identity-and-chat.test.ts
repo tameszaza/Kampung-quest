@@ -64,8 +64,8 @@ describe("member preferences and chat", () => {
     const maria = await store.createUser(member("maria@example.com"));
     const lee = await store.createUser({ ...member("lee@example.com"), fullName: "Lee Ming" });
     const welcomeChats = await store.listConversations(maria.id);
-    expect(welcomeChats.some((chat) => chat.type === "direct")).toBe(true);
-    expect(welcomeChats.some((chat) => chat.title === "Cooking Buddies")).toBe(true);
+    expect(welcomeChats.some((chat) => chat.title === "Anne Lim")).toBe(false);
+    expect(welcomeChats.some((chat) => chat.title === "Cooking Buddies")).toBe(false);
 
     const direct = await store.createConversation(maria.id, { type: "direct", participantIds: [lee.id] });
     const duplicate = await store.createConversation(lee.id, { type: "direct", participantIds: [maria.id] });
@@ -83,6 +83,32 @@ describe("member preferences and chat", () => {
     expect(history.at(-1)).toMatchObject({ body: "Shall we meet on Friday?", mine: false });
     await store.listMessages("community_anne", group.id);
     expect((await store.listMessages(maria.id, group.id)).at(-1)?.receipt).toBe("read");
+  });
+
+  it("shows demo welcome chats only for the exact test display name", async () => {
+    const store = new InMemoryIdentityStore();
+    const testUser = await store.createUser({ ...member("chat-test@example.com"), fullName: "Test", username: "test" });
+    const normalUser = await store.createUser({ ...member("chat-member@example.com"), fullName: "Chat Member", username: "chat.member" });
+    const testChats = await store.listConversations(testUser.id);
+    const normalChats = await store.listConversations(normalUser.id);
+    expect(testChats.some((chat) => chat.title === "Anne Lim")).toBe(true);
+    expect(testChats.some((chat) => chat.title === "Cooking Buddies")).toBe(true);
+    expect(normalChats.some((chat) => chat.title === "Anne Lim")).toBe(false);
+    expect(normalChats.some((chat) => chat.title === "Cooking Buddies")).toBe(false);
+  });
+
+  it("creates one quest group and adds each accepted member once", async () => {
+    const store = new InMemoryIdentityStore();
+    const first = await store.createUser({ ...member("quest-first@example.com"), fullName: "Quest First", username: "quest.first" });
+    const second = await store.createUser({ ...member("quest-second@example.com"), fullName: "Quest Second", username: "quest.second" });
+    await store.ensureQuestGroupConversation("quest_123", "Garden Friends", [first.id]);
+    await store.ensureQuestGroupConversation("quest_123", "Garden Friends", [first.id, second.id]);
+    const firstGroup = (await store.listConversations(first.id)).find((chat) => chat.title === "Garden Friends");
+    const secondGroup = (await store.listConversations(second.id)).find((chat) => chat.title === "Garden Friends");
+    expect(firstGroup).toMatchObject({ type: "group", memberCount: 2 });
+    expect(secondGroup?.id).toBe(firstGroup?.id);
+    await store.ensureQuestGroupConversation("quest_123", "Garden Friends", [second.id]);
+    expect((await store.listConversations(first.id)).filter((chat) => chat.title === "Garden Friends")).toHaveLength(1);
   });
 
   it("honors privacy choices when discovering people and starting chats", async () => {

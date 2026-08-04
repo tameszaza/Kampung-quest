@@ -4,7 +4,7 @@ import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-r
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
-import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
+import { KampungQuestEngine, QUEST_IMAGE_PLACEHOLDER } from "@/server/core/kampung-quest-engine";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageAgent } from "@/server/agents/quest-image-agent";
 
@@ -326,8 +326,9 @@ describe("KampungQuestEngine memory", () => {
     const imageAgent: QuestImageAgent = {
       generate: async () => ({ bytes: Buffer.from("image"), mimeType: "image/png", model: "test" }),
     };
+    const store = new InMemoryKampungStore();
     const engine = new KampungQuestEngine({
-      store: new InMemoryKampungStore(),
+      store,
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
       imageAgent,
@@ -342,7 +343,12 @@ describe("KampungQuestEngine memory", () => {
     const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
 
     expect(run.status).toBe("awaiting_acceptance");
-    expect(run.imageUrl).toBe("/api/quest-images/test-image");
+    expect(run.imageUrl).toBe(QUEST_IMAGE_PLACEHOLDER);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if ((await engine.getQuest(run.runId))?.imageUrl === "/api/quest-images/test-image") break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect((await engine.getQuest(run.runId))?.imageUrl).toBe("/api/quest-images/test-image");
   });
 
   it("atomically reserves an idempotency key before model work", async () => {
@@ -653,5 +659,166 @@ describe("KampungQuestEngine memory", () => {
       runId: run.runId,
       type: "quest_cancelled",
     })).rejects.toThrow("not valid");
+  });
+
+  it("adds a compatible third participant to an open future quest", async () => {
+    const store = new InMemoryKampungStore();
+    const invitations = new MockInvitationAdapter();
+    const engine = new KampungQuestEngine({
+      store,
+      invitations,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    const futureConstraints = {
+      ...profile("candidate_001").constraints,
+      availableWindows: [{
+        start: "2026-08-06T03:00:00.000Z",
+        end: "2026-08-06T06:00:00.000Z",
+      }],
+    };
+    const shared = {
+      need: "Wants companionship during a healthy lunch",
+      interests: ["cooking", "healthy eating"],
+      offers: ["can teach a low-sodium recipe"],
+    };
+    for (const candidateId of ["candidate_001", "candidate_002", "candidate_003"]) {
+      await engine.recordMemory({
+        profile: withProfile(candidateId, {
+          ...shared,
+          interests: candidateId === "candidate_003" ? [] : shared.interests,
+          constraints: futureConstraints,
+        }),
+        narrative: shared.need,
+      });
+    }
+    await store.saveQuestRun({
+      runId: "open-future-quest",
+      initiatingCandidateId: "candidate_001",
+      idempotencyKey: null,
+      status: "awaiting_acceptance",
+      proposal: {
+        quest: {
+          title: "Healthy Lunch Quest",
+          questType: "community_activity",
+          sharedGoal: "Share a healthy lunch together.",
+          description: "A friendly public lunch with a role for everyone.",
+          needsAddressed: [shared.need],
+          durationMinutes: 90,
+          groupSize: 2,
+          venueRequirements: ["approved_public_location", "indoor", "no_stairs"],
+          proposedTimeWindow: {
+            start: "2026-08-06T03:00:00.000Z",
+            end: "2026-08-06T04:30:00.000Z",
+          },
+        },
+        proposedParticipants: [
+          {
+            candidateId: "candidate_001",
+            proposedRole: "quest_host",
+            needsAddressed: [shared.need],
+            contributionsUsed: [shared.offers[0]],
+          },
+          {
+            candidateId: "candidate_002",
+            proposedRole: "participant_1",
+            needsAddressed: [shared.need],
+            contributionsUsed: [shared.offers[0]],
+          },
+        ],
+        reserveCandidates: [],
+        mutualBenefitExplanation: ["Everyone shares a need and contribution."],
+        confidence: 0.9,
+      },
+      validation: { valid: true, errors: [] },
+      safety: {
+        status: "approved",
+        riskLevel: "low",
+        conditions: [],
+        requiresHumanReview: false,
+      },
+      coordination: {
+        questId: "open-future-quest",
+        state: "awaiting_acceptance",
+        invitations: [
+          { candidateId: "candidate_001", status: "pending" },
+          { candidateId: "candidate_002", status: "pending" },
+        ],
+        nextAction: "Collect acceptance.",
+      },
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    });
+
+    const joined = await engine.joinOpenQuest("candidate_003", "assistant:candidate_003:conversation_003");
+
+    expect(joined?.runId).toBe("open-future-quest");
+    expect(joined?.status).toBe("awaiting_acceptance");
+    expect(joined?.proposal?.quest.groupSize).toBe(3);
+    expect(joined?.proposal?.proposedParticipants.map((participant) => participant.candidateId))
+      .toEqual(["candidate_001", "candidate_002", "candidate_003"]);
+    expect(joined?.coordination?.invitations).toContainEqual({ candidateId: "candidate_003", status: "pending" });
+    expect(invitations.sent).toContainEqual({ runId: "open-future-quest", candidateId: "candidate_003" });
+    expect((await store.findQuestByIdempotencyKey("assistant:candidate_003:conversation_003"))?.runId)
+      .toBe("open-future-quest");
+  });
+
+  it("does not add a participant after an activity has started", async () => {
+    const store = new InMemoryKampungStore();
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    const future = withProfile("candidate_001", {
+      constraints: {
+        ...profile("candidate_001").constraints,
+        availableWindows: [{
+          start: "2026-08-03T03:00:00.000Z",
+          end: "2026-08-03T06:00:00.000Z",
+        }],
+      },
+    });
+    await engine.recordMemory({ profile: future, narrative: future.need });
+    await engine.recordMemory({ profile: withProfile("candidate_002", { constraints: future.constraints }), narrative: future.need });
+    await engine.recordMemory({ profile: withProfile("candidate_003", { constraints: future.constraints }), narrative: future.need });
+    await store.saveQuestRun({
+      runId: "past-quest",
+      initiatingCandidateId: "candidate_001",
+      idempotencyKey: null,
+      status: "awaiting_acceptance",
+      proposal: {
+        quest: {
+          title: "Past Quest",
+          questType: "community_activity",
+          sharedGoal: "Meet neighbours.",
+          description: "A past activity.",
+          needsAddressed: [future.need],
+          durationMinutes: 60,
+          groupSize: 2,
+          venueRequirements: ["approved_public_location"],
+          proposedTimeWindow: { start: "2026-08-03T03:00:00.000Z", end: "2026-08-03T04:00:00.000Z" },
+        },
+        proposedParticipants: [
+          { candidateId: "candidate_001", proposedRole: "quest_host", needsAddressed: [future.need], contributionsUsed: [future.offers[0]] },
+          { candidateId: "candidate_002", proposedRole: "participant_1", needsAddressed: [future.need], contributionsUsed: [future.offers[0]] },
+        ],
+        reserveCandidates: [],
+        mutualBenefitExplanation: [],
+        confidence: 0.8,
+      },
+      validation: { valid: true, errors: [] },
+      safety: null,
+      coordination: {
+        questId: "past-quest",
+        state: "awaiting_acceptance",
+        invitations: [{ candidateId: "candidate_001", status: "pending" }, { candidateId: "candidate_002", status: "pending" }],
+        nextAction: "Collect acceptance.",
+      },
+      createdAt: "2026-08-02T00:00:00.000Z",
+      updatedAt: "2026-08-02T00:00:00.000Z",
+    });
+
+    expect(await engine.joinOpenQuest("candidate_003")).toBeNull();
   });
 });

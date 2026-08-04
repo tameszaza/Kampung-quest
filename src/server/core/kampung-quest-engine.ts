@@ -39,6 +39,10 @@ interface KampungQuestEngineDependencies {
   chatNotifier?: QuestChatNotifier;
 }
 
+const OPEN_QUEST_MATCH_THRESHOLD = 0.72;
+const OPEN_QUEST_SCAN_LIMIT = 50;
+export const QUEST_IMAGE_PLACEHOLDER = "/assets/quest-placeholder.svg";
+
 export interface QuestPipelineEvent {
   stage: "retrieval" | "synthesis" | "validation" | "safety";
   status: "started" | "completed" | "failed";
@@ -119,6 +123,145 @@ export class KampungQuestEngine {
 
   getMemory(candidateId: string): Promise<MemoryCard | null> {
     return this.dependencies.store.findMemory(candidateId);
+  }
+
+  /**
+   * Add a newly prepared participant to an existing future quest when their
+   * current need, interests, and offers are a strong vector match for the
+   * whole group. The transition is optimistic-lock protected so concurrent
+   * sign-ups cannot overfill or mutate the same quest.
+   */
+  async joinOpenQuest(
+    candidateId: string,
+    idempotencyKey?: string,
+    observe?: QuestPipelineObserver,
+  ): Promise<QuestRun | null> {
+    const candidate = await this.dependencies.store.findMemory(candidateId);
+    if (!candidate || candidate.profile.memoryStatus !== "active") return null;
+
+    const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+    if (acceptedCandidateIds.has(candidateId)) return null;
+
+    const [candidateEmbeddings, openRuns, cards] = await Promise.all([
+      this.dependencies.store.findEmbeddings(candidateId),
+      this.dependencies.store.listJoinableQuestRuns(OPEN_QUEST_SCAN_LIMIT),
+      this.dependencies.store.listMemories(),
+    ]);
+    const candidateVectors = this.embeddingMap(candidateEmbeddings);
+    // Need is required for a meaningful match. Interests/offers are optional
+    // preferences, so an empty embedding must not make an otherwise compatible
+    // participant look unrelated.
+    if (!candidateVectors.need || !this.hasSignal(candidateVectors.need)) return null;
+    const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+
+    await observe?.({
+      stage: "retrieval",
+      status: "started",
+      message: "Checking compatible activities that have not started",
+      kind: "system",
+    });
+
+    for (const run of openRuns) {
+      const proposal = run.proposal;
+      const coordination = run.coordination;
+      if (!proposal || !coordination) continue;
+      if (Date.parse(proposal.quest.proposedTimeWindow.start) <= Date.now()) continue;
+      if (run.initiatingCandidateId === candidateId) continue;
+      if (proposal.proposedParticipants.some((participant) => participant.candidateId === candidateId)) continue;
+      if (coordination.invitations.some((invitation) => invitation.candidateId === candidateId)) continue;
+      if (proposal.proposedParticipants.length >= candidate.profile.constraints.maximumGroupSize) continue;
+
+      const participantIds = proposal.proposedParticipants.map((participant) => participant.candidateId);
+      const groupScore = await this.groupCompatibilityScore(candidateVectors, participantIds);
+      if (groupScore === null || groupScore < OPEN_QUEST_MATCH_THRESHOLD) continue;
+
+      const updatedProposal = structuredClone(proposal);
+      updatedProposal.quest.groupSize = participantIds.length + 1;
+      updatedProposal.quest.needsAddressed = [
+        ...new Set([...updatedProposal.quest.needsAddressed, candidate.profile.need]),
+      ];
+      updatedProposal.proposedParticipants.push({
+        candidateId,
+        proposedRole: `participant_${participantIds.length + 1}`,
+        needsAddressed: [candidate.profile.need],
+        contributionsUsed: [candidate.profile.offers[0] ?? "participate and support the group"],
+      });
+      updatedProposal.mutualBenefitExplanation = [
+        ...updatedProposal.mutualBenefitExplanation,
+        `${candidate.profile.need} is compatible with the group's shared goal (match score ${this.round(groupScore)}).`,
+      ];
+
+      const validation = this.validator.validate(updatedProposal, profiles);
+      if (!validation.valid) continue;
+      const safety = await this.dependencies.agents.reviewSafety({
+        proposal: updatedProposal,
+        profiles,
+        auditContext: { questRunId: run.runId, participantAdded: candidateId },
+      });
+      if (safety.status !== "approved") continue;
+
+      const updatedCoordination = structuredClone(coordination);
+      updatedCoordination.state = "awaiting_acceptance";
+      updatedCoordination.invitations.push({ candidateId, status: "pending" });
+      updatedCoordination.nextAction = "Collect the new participant's acceptance, then confirm the updated group.";
+      const updatedRun: QuestRun = {
+        ...run,
+        participantIdempotencyKeys: idempotencyKey
+          ? [...new Set([...(run.participantIdempotencyKeys ?? []), idempotencyKey])]
+          : run.participantIdempotencyKeys,
+        status: "awaiting_acceptance",
+        proposal: updatedProposal,
+        validation,
+        safety,
+        coordination: updatedCoordination,
+        updatedAt: this.nextUpdatedAt(run.updatedAt),
+      };
+
+      let saved: QuestRun;
+      try {
+        saved = await this.dependencies.store.saveQuestRunWithEvent(updatedRun, {
+          eventId: `event_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+          runId: run.runId,
+          type: "participant_added",
+          candidateId,
+          occurredAt: new Date().toISOString(),
+        }, run.updatedAt);
+      } catch (error) {
+        // Another participant may have won the optimistic-lock race. Scan the
+        // remaining activities instead of surfacing a transient conflict.
+        logger.info("quest.participant_add.conflict", {
+          runId: run.runId,
+          candidateId,
+          error: safeErrorMessage(error),
+        });
+        continue;
+      }
+
+      try {
+        await this.invitations.send({ runId: saved.runId, candidateId });
+      } catch (error) {
+        logger.error("quest.participant_add.invitation_failed", {
+          runId: saved.runId,
+          candidateId,
+          error: safeErrorMessage(error),
+        });
+      }
+      await observe?.({
+        stage: "retrieval",
+        status: "completed",
+        message: "Added you to a compatible activity that has not started",
+        kind: "system",
+      });
+      return saved;
+    }
+
+    await observe?.({
+      stage: "retrieval",
+      status: "completed",
+      message: "No compatible future activity is open yet",
+      kind: "system",
+    });
+    return null;
   }
 
   async retrieveCandidates(command: RetrievalCommand): Promise<RetrievedCandidate[]> {
@@ -395,9 +538,12 @@ export class KampungQuestEngine {
               nextAction: "Collect explicit acceptance, then confirm the venue and exact schedule.",
             }
           : null,
+        imageUrl: QUEST_IMAGE_PLACEHOLDER,
         updatedAt: new Date().toISOString(),
       };
-      return this.dependencies.store.saveQuestRun(await this.attachQuestImage(completedRun));
+      const saved = await this.dependencies.store.saveQuestRun(completedRun);
+      this.queueQuestImage(saved);
+      return saved;
     } catch (error) {
       await observe?.({
         stage: activeStage,
@@ -412,6 +558,70 @@ export class KampungQuestEngine {
       });
       throw error;
     }
+  }
+
+  private embeddingMap(embeddings: Awaited<ReturnType<KampungStore["findEmbeddings"]>>): {
+    need?: number[];
+    interest?: number[];
+    offer?: number[];
+  } {
+    return {
+      need: embeddings.find((embedding) => embedding.kind === "need")?.vector,
+      interest: embeddings.find((embedding) => embedding.kind === "interest")?.vector,
+      offer: embeddings.find((embedding) => embedding.kind === "offer")?.vector,
+    };
+  }
+
+  private async groupCompatibilityScore(
+    candidate: { need?: number[]; interest?: number[]; offer?: number[] },
+    participantIds: string[],
+  ): Promise<number | null> {
+    const participantEmbeddings = await Promise.all(
+      participantIds.map(async (participantId) => this.embeddingMap(
+        await this.dependencies.store.findEmbeddings(participantId),
+      )),
+    );
+    const pairScores = participantEmbeddings.map((vectors) => {
+      if (!vectors.need || !this.hasSignal(vectors.need)) return null;
+      // Re-normalise weights when a member did not provide optional interests
+      // or offers. This keeps a strong need match from being penalised by a
+      // zero vector generated for an intentionally empty preference list.
+      const signals = [
+        { score: this.cosine(candidate.need, vectors.need), weight: 0.5 },
+        { score: this.cosineIfUsable(candidate.interest, vectors.interest), weight: 0.3 },
+        { score: this.cosineIfUsable(candidate.offer, vectors.offer), weight: 0.1 },
+        { score: this.cosineIfUsable(candidate.need, vectors.offer), weight: 0.1 },
+      ].filter((signal): signal is { score: number; weight: number } => signal.score !== null);
+      if (signals.length === 0) return null;
+      const totalWeight = signals.reduce((sum, signal) => sum + signal.weight, 0);
+      return signals.reduce((sum, signal) => sum + signal.score * signal.weight, 0) / totalWeight;
+    });
+    const validPairScores = pairScores.filter((score): score is number => score !== null);
+    if (validPairScores.length !== pairScores.length || validPairScores.length === 0) return null;
+    return validPairScores.reduce((sum, score) => sum + score, 0) / validPairScores.length;
+  }
+
+  private cosine(left: number[] | undefined, right: number[] | undefined): number {
+    if (!left || !right || left.length !== right.length || left.length === 0) return 0;
+    let dot = 0;
+    let leftMagnitude = 0;
+    let rightMagnitude = 0;
+    for (let index = 0; index < left.length; index += 1) {
+      dot += left[index] * right[index];
+      leftMagnitude += left[index] * left[index];
+      rightMagnitude += right[index] * right[index];
+    }
+    const denominator = Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude);
+    return denominator === 0 ? 0 : dot / denominator;
+  }
+
+  private cosineIfUsable(left: number[] | undefined, right: number[] | undefined): number | null {
+    if (!left || !right || !this.hasSignal(left) || !this.hasSignal(right)) return null;
+    return this.cosine(left, right);
+  }
+
+  private hasSignal(vector: number[]): boolean {
+    return vector.some((value) => Math.abs(value) > Number.EPSILON);
   }
 
   getQuest(runId: string): Promise<QuestRun | null> {
@@ -601,8 +811,28 @@ export class KampungQuestEngine {
   /**
    * Thumbnail generation is deliberately best effort. A model outage, quota
    * limit, or malformed image must never prevent a valid quest from being
-   * shown; the UI will use its local activity image when imageUrl is absent.
+   * shown; the UI uses a neutral placeholder until the generated SVG is ready.
    */
+  private queueQuestImage(run: QuestRun): void {
+    if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
+      logger.debug("quest_image.queue.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
+      return;
+    }
+    void this.attachQuestImage(run)
+      .then(async (generated) => {
+        if (!generated.imageUrl || generated.imageUrl === QUEST_IMAGE_PLACEHOLDER) return;
+        const saved = await this.dependencies.store.saveQuestImage(run.runId, generated.imageUrl, run.updatedAt);
+        if (!saved) {
+          logger.warn("quest_image.queue.conflict", { runId: run.runId, reason: "quest_changed_before_thumbnail_ready" });
+          return;
+        }
+        logger.info("quest_image.queue.saved", { runId: run.runId, imageUrl: generated.imageUrl });
+      })
+      .catch((error) => {
+        logger.error("quest_image.queue.error", { runId: run.runId, error: safeErrorMessage(error) });
+      });
+  }
+
   private async attachQuestImage(run: QuestRun): Promise<QuestRun> {
     if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
       logger.debug("quest_image.attach.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
@@ -615,7 +845,7 @@ export class KampungQuestEngine {
         variationKey: run.runId,
       });
       if (!generated) {
-        logger.warn("quest_image.attach.fallback", { runId: run.runId, reason: "agent_returned_empty" });
+        logger.warn("quest_image.attach.placeholder", { runId: run.runId, reason: "agent_returned_empty" });
         return run;
       }
       const imageUrl = await this.dependencies.imageStorage.save(generated);

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { FallbackQuestImageAgent } from "@/server/agents/fallback-quest-image-agent";
 import { GeminiSvgThumbnailAgent } from "@/server/agents/gemini-svg-thumbnail-agent";
-import { LocalQuestThumbnailAgent } from "@/server/agents/local-quest-thumbnail-agent";
+import { RetryingQuestImageAgent } from "@/server/agents/retrying-quest-image-agent";
 import { LocalQuestImageStorage } from "@/server/quest/quest-image-storage";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -58,34 +57,30 @@ describe("quest thumbnail providers", () => {
     await expect(agent.generate({ quest })).resolves.toBeNull();
   });
 
-  it("creates a deterministic, unique local illustration without a remote API", async () => {
-    const agent = new LocalQuestThumbnailAgent();
-    const first = await agent.generate({ quest, variationKey: "run-a" });
-    const same = await agent.generate({ quest, variationKey: "run-a" });
-    const different = await agent.generate({ quest, variationKey: "run-b" });
+  it("retries a temporary provider failure without selecting a stock/local image", async () => {
+    let attempts = 0;
+    const retrying = new RetryingQuestImageAgent({
+      generate: async () => {
+        attempts += 1;
+        return attempts === 3
+          ? { bytes: Buffer.from("<svg />"), mimeType: "image/svg+xml", model: "gemini-text-test" }
+          : null;
+      },
+    }, { delayMs: 0 });
 
-    expect(first?.model).toBe("local-quest-thumbnail");
-    expect(first?.mimeType).toBe("image/svg+xml");
-    expect(first?.bytes.length).toBeGreaterThan(500);
-    expect(first?.bytes.equals(same!.bytes)).toBe(true);
-    expect(first?.bytes.equals(different!.bytes)).toBe(false);
-  });
-
-  it("falls back to the local thumbnail when remote providers are unavailable", async () => {
-    const fallback = new FallbackQuestImageAgent([
-      { name: "remote", agent: { generate: async () => null } },
-      { name: "local", agent: new LocalQuestThumbnailAgent() },
-    ]);
-
-    await expect(fallback.generate({ quest, variationKey: "fallback" })).resolves.toMatchObject({
-      model: "local-quest-thumbnail",
-      mimeType: "image/svg+xml",
+    await expect(retrying.generate({ quest, variationKey: "retry" })).resolves.toMatchObject({
+      model: "gemini-text-test",
     });
+    expect(attempts).toBe(3);
   });
 
-  it("optimizes the local SVG fallback into the normal WebP storage path", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "quest-local-thumbnail-"));
-    const generated = await new LocalQuestThumbnailAgent().generate({ quest, variationKey: "storage" });
+  it("optimizes a generated SVG into the normal WebP storage path", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "quest-thumbnail-"));
+    const generated = {
+      bytes: Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1024\" height=\"576\" viewBox=\"0 0 1024 576\"><rect width=\"1024\" height=\"576\" fill=\"#dff5eb\"/></svg>"),
+      mimeType: "image/svg+xml",
+      model: "gemini-text-test",
+    };
     const url = await new LocalQuestImageStorage(directory).save(generated!);
 
     expect(url).toMatch(/^\/api\/quest-images\/[a-f0-9]{40}$/);

@@ -7,13 +7,7 @@ import type { QuestRun } from "@/server/domain/schemas";
 import { useUser } from "@/components/user-context";
 
 export function questImage(run: QuestRun) {
-  if (run.imageUrl) return run.imageUrl;
-  const text = `${run.proposal?.quest.title ?? ""} ${run.proposal?.quest.description ?? ""}`.toLowerCase();
-  if (text.includes("walk") || text.includes("exercise")) return "/assets/walk.jpg";
-  if (text.includes("digital") || text.includes("phone") || text.includes("technology")) {
-    return "/assets/digital-help.jpg";
-  }
-  return "/assets/cooking.jpg";
+  return run.imageUrl || "/assets/quest-placeholder.svg";
 }
 
 export function questDate(run: QuestRun) {
@@ -32,6 +26,9 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
   const quest = run.proposal?.quest;
   if (!quest) return null;
   const invitationStatus = run.coordination?.invitations.find((invitation) => invitation.candidateId === user.id)?.status;
+  const participantCount = run.proposal?.proposedParticipants.length ?? quest.groupSize;
+  const canRespond = run.status === "awaiting_acceptance" && invitationStatus === "pending";
+  const hasDecision = invitationStatus === "accepted" || invitationStatus === "declined";
   return (
     <article className={`quest-card engine-quest-card${compact ? " compact" : ""}`}>
       <Link className="quest-card-link" href={`/quests/${run.runId}`}>
@@ -43,15 +40,15 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
         </div>
         <div className="quest-card-body">
           <h2>{quest.title}</h2>
-          <div className="meta-row"><Icon name="people" size={19} /><span>{quest.groupSize} people</span></div>
+          <div className="meta-row"><Icon name="people" size={19} /><span>{participantCount} people</span></div>
           <div className="meta-row"><Icon name="calendar" size={19} /><span>{questDate(run)}</span></div>
           <div className="meta-row"><Icon name="shield" size={19} /><span>{run.safety?.status === "approved" ? "Safety checked" : "Human review required"}</span></div>
         </div>
       </Link>
-      <ActivityActions
+      {canRespond || hasDecision ? <ActivityActions
         activityId={run.runId}
-        initialDecision={invitationStatus === "accepted" || invitationStatus === "declined" ? invitationStatus : undefined}
-      />
+        initialDecision={hasDecision ? invitationStatus : undefined}
+      /> : null}
     </article>
   );
 }
@@ -72,7 +69,7 @@ export function EngineJoinedQuestCard({ run }: { run: QuestRun }) {
       <div className="joined-body">
         <h2>{quest.title}</h2>
         <div className="meta-row"><Icon name="calendar" size={19} /><span>{date}, {time}</span></div>
-        <div className="meta-row"><Icon name="people" size={19} /><span>{quest.groupSize} people</span></div>
+        <div className="meta-row"><Icon name="people" size={19} /><span>{run.proposal?.proposedParticipants.length ?? quest.groupSize} people</span></div>
         <div className="joined-footer"><span>Senior Quest match</span><Icon name="chevron" size={19} /></div>
       </div>
     </Link>

@@ -306,6 +306,7 @@ export interface CoordinationPlan {
 }
 
 export type CoordinationEventType =
+  | "participant_added"
   | "participant_accepted"
   | "participant_declined"
   | "participant_timed_out"
@@ -345,6 +346,8 @@ export interface QuestRun {
   runId: string;
   initiatingCandidateId: string;
   idempotencyKey: string | null;
+  /** Request keys used when additional participants were added to this run. */
+  participantIdempotencyKeys?: string[];
   status: QuestStatus;
   proposal: QuestProposal | null;
   validation: ValidationResult | null;
@@ -352,7 +355,7 @@ export interface QuestRun {
   coordination: CoordinationPlan | null;
   /** Public identity snapshots for participants visible to the current viewer. */
   participantProfiles?: QuestParticipantProfile[];
-  /** Optimized, generated thumbnail. Null/undefined means use the local fallback image. */
+  /** Optimized, generated thumbnail. The UI uses a neutral placeholder while it is pending. */
   imageUrl?: string | null;
   noMatch?: {
     reason: string;

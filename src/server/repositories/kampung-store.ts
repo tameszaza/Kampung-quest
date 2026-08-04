@@ -46,6 +46,8 @@ export interface KampungStore {
   }): Promise<Array<{ candidateId: string; similarity: number }>>;
   createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }>;
   saveQuestRun(run: QuestRun): Promise<QuestRun>;
+  /** Updates only the generated thumbnail when the run has not changed. */
+  saveQuestImage(runId: string, imageUrl: string, expectedUpdatedAt: string): Promise<boolean>;
   saveQuestRunWithEvent(
     run: QuestRun,
     event: CoordinationEventRecord,
@@ -54,6 +56,8 @@ export interface KampungStore {
   findQuestRun(runId: string): Promise<QuestRun | null>;
   findQuestByIdempotencyKey(key: string): Promise<QuestRun | null>;
   listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]>;
+  /** Active future quests that may accept another compatible participant. */
+  listJoinableQuestRuns(limit: number): Promise<QuestRun[]>;
   /** Candidates who accepted an invitation on a still-active quest. */
   listAcceptedCandidateIds(): Promise<string[]>;
   appendCoordinationEvent(event: CoordinationEventRecord): Promise<void>;
@@ -196,10 +200,24 @@ export class InMemoryKampungStore implements KampungStore {
     return structuredClone(run);
   }
 
+  async saveQuestImage(runId: string, imageUrl: string, expectedUpdatedAt: string): Promise<boolean> {
+    const current = this.questRuns.get(runId);
+    if (!current || current.updatedAt !== expectedUpdatedAt) return false;
+    const updated: QuestRun = {
+      ...current,
+      imageUrl,
+      updatedAt: new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(),
+    };
+    this.questRuns.set(runId, structuredClone(updated));
+    return true;
+  }
+
   async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {
     if (run.idempotencyKey) {
+      const idempotencyKey = run.idempotencyKey;
       const existing = [...this.questRuns.values()].find(
-        (candidate) => candidate.idempotencyKey === run.idempotencyKey,
+        (candidate) => candidate.idempotencyKey === idempotencyKey ||
+          candidate.participantIdempotencyKeys?.includes(idempotencyKey),
       );
       if (existing) return { run: structuredClone(existing), created: false };
     }
@@ -227,7 +245,9 @@ export class InMemoryKampungStore implements KampungStore {
   }
 
   async findQuestByIdempotencyKey(key: string): Promise<QuestRun | null> {
-    const run = [...this.questRuns.values()].find((candidate) => candidate.idempotencyKey === key);
+    const run = [...this.questRuns.values()].find(
+      (candidate) => candidate.idempotencyKey === key || candidate.participantIdempotencyKeys?.includes(key),
+    );
     return run ? structuredClone(run) : null;
   }
 
@@ -239,10 +259,19 @@ export class InMemoryKampungStore implements KampungStore {
       .map((run) => structuredClone(run));
   }
 
+  async listJoinableQuestRuns(limit: number): Promise<QuestRun[]> {
+    return [...this.questRuns.values()]
+      .filter(isJoinableQuestRun)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .slice(0, Math.min(50, Math.max(1, limit)))
+      .map((run) => structuredClone(run));
+  }
+
   async listAcceptedCandidateIds(): Promise<string[]> {
     const accepted = new Set<string>();
     for (const run of this.questRuns.values()) {
       if (!run.coordination || isTerminalQuestStatus(run.status)) continue;
+      if (run.proposal && Date.parse(run.proposal.quest.proposedTimeWindow.start) <= Date.now()) continue;
       for (const invitation of run.coordination.invitations) {
         if (invitation.status === "accepted") accepted.add(invitation.candidateId);
       }
@@ -265,4 +294,11 @@ export class InMemoryKampungStore implements KampungStore {
 
 function isTerminalQuestStatus(status: QuestRun["status"]): boolean {
   return status === "completed" || status === "cancelled" || status === "failed";
+}
+
+export function isJoinableQuestRun(run: QuestRun): boolean {
+  if (run.status !== "awaiting_acceptance" && run.status !== "confirmed") return false;
+  if (!run.proposal || !run.coordination) return false;
+  if (run.coordination.state !== "awaiting_acceptance" && run.coordination.state !== "confirmed") return false;
+  return Date.parse(run.proposal.quest.proposedTimeWindow.start) > Date.now();
 }

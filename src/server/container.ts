@@ -12,9 +12,8 @@ import {
   UnavailableEmbeddingProvider,
 } from "@/server/agents/unavailable-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
-import { FallbackQuestImageAgent } from "@/server/agents/fallback-quest-image-agent";
 import { GeminiSvgThumbnailAgent } from "@/server/agents/gemini-svg-thumbnail-agent";
-import { LocalQuestThumbnailAgent } from "@/server/agents/local-quest-thumbnail-agent";
+import { RetryingQuestImageAgent } from "@/server/agents/retrying-quest-image-agent";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
@@ -42,19 +41,11 @@ if (process.env.NODE_ENV !== "production") globals.kampungStore = kampungStore;
 
 const providerConfiguration = resolveProviderConfiguration(process.env);
 
-function createQuestImagePipeline(geminiSvgAgent?: GeminiSvgThumbnailAgent) {
-  const candidates = [] as Array<{ name: string; agent: GeminiSvgThumbnailAgent | LocalQuestThumbnailAgent }>;
-  if (geminiSvgAgent) candidates.push({ name: "gemini-text-svg", agent: geminiSvgAgent });
-  candidates.push({ name: "local", agent: new LocalQuestThumbnailAgent() });
-  return new FallbackQuestImageAgent(candidates);
-}
-
 function createAgentDependencies() {
   if (providerConfiguration.provider === "deterministic") {
     return {
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
-      imageAgent: createQuestImagePipeline(),
       imageStorage: createQuestImageStorage(),
     };
   }
@@ -66,7 +57,6 @@ function createAgentDependencies() {
     return {
       agents: new UnavailableAgentRuntime(reason),
       embeddings: new UnavailableEmbeddingProvider(reason),
-      imageAgent: createQuestImagePipeline(),
       imageStorage: createQuestImageStorage(),
     };
   }
@@ -116,7 +106,7 @@ function createAgentDependencies() {
       dimensions: providerConfiguration.embeddingDimensions,
       fetch: geminiFetch,
     }),
-    imageAgent: createQuestImagePipeline(geminiSvgAgent),
+    imageAgent: geminiSvgAgent ? new RetryingQuestImageAgent(geminiSvgAgent) : undefined,
     imageStorage: createQuestImageStorage(),
   };
 }

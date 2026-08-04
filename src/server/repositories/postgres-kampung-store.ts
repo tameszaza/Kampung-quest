@@ -11,10 +11,11 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
-import type {
-  ActivateMemoryInput,
-  KampungStore,
-  MemoryUpdateAttempt,
+import {
+  isJoinableQuestRun,
+  type ActivateMemoryInput,
+  type KampungStore,
+  type MemoryUpdateAttempt,
 } from "@/server/repositories/kampung-store";
 import { canViewQuestRun } from "@/server/quest/quest-access";
 
@@ -486,6 +487,21 @@ export class PostgresKampungStore implements KampungStore {
     return structuredClone(run);
   }
 
+  async saveQuestImage(runId: string, imageUrl: string, expectedUpdatedAt: string): Promise<boolean> {
+    const updatedAt = new Date(Math.max(Date.now(), Date.parse(expectedUpdatedAt) + 1)).toISOString();
+    const result = await this.pool.query(
+      `UPDATE quest.quest_runs
+       SET payload = jsonb_set(
+         jsonb_set(payload, '{imageUrl}', to_jsonb($2::text), true),
+         '{updatedAt}', to_jsonb($3::text), true
+       ), updated_at = $3
+       WHERE run_id = $1 AND updated_at = $4
+       RETURNING run_id`,
+      [runId, imageUrl, updatedAt, expectedUpdatedAt],
+    );
+    return result.rowCount === 1;
+  }
+
   async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {
     const inserted = await this.pool.query(
       `INSERT INTO quest.quest_runs
@@ -557,7 +573,7 @@ export class PostgresKampungStore implements KampungStore {
 
   async findQuestByIdempotencyKey(key: string): Promise<QuestRun | null> {
     const result = await this.pool.query<{ payload: QuestRun }>(
-      "SELECT payload FROM quest.quest_runs WHERE idempotency_key = $1",
+      "SELECT payload FROM quest.quest_runs WHERE idempotency_key = $1 OR payload->'participantIdempotencyKeys' ? $1",
       [key],
     );
     return result.rows[0]?.payload ?? null;
@@ -581,6 +597,21 @@ export class PostgresKampungStore implements KampungStore {
     return result.rows.map((row) => row.payload).filter((run) => canViewQuestRun(run, candidateId));
   }
 
+  async listJoinableQuestRuns(limit: number): Promise<QuestRun[]> {
+    const result = await this.pool.query<{ payload: QuestRun }>(
+      `SELECT payload
+       FROM quest.quest_runs
+       WHERE status IN ('awaiting_acceptance', 'confirmed')
+         AND payload->'proposal' IS NOT NULL
+         AND payload->'coordination' IS NOT NULL
+         AND (payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz > NOW()
+       ORDER BY updated_at DESC
+       LIMIT $1`,
+      [Math.min(50, Math.max(1, limit))],
+    );
+    return result.rows.map((row) => row.payload).filter(isJoinableQuestRun);
+  }
+
   async listAcceptedCandidateIds(): Promise<string[]> {
     const result = await this.pool.query<{ candidate_id: string }>(
       `SELECT DISTINCT invitation->>'candidateId' AS candidate_id
@@ -590,7 +621,11 @@ export class PostgresKampungStore implements KampungStore {
        ) AS invitation
        WHERE run.status IN ('awaiting_acceptance', 'confirmed', 'human_review')
          AND invitation->>'status' = 'accepted'
-         AND invitation->>'candidateId' IS NOT NULL`,
+         AND invitation->>'candidateId' IS NOT NULL
+         AND (
+           run.payload->'proposal' IS NULL
+           OR (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz > NOW()
+         )`,
     );
     return result.rows.map((row) => row.candidate_id);
   }

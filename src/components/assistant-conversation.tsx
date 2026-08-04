@@ -428,7 +428,7 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
     <div className="result-facts">
       <span><Icon name="calendar" />{displayDate(proposal.quest.proposedTimeWindow.start, proposal.quest.proposedTimeWindow.end)}</span>
       <span><Icon name="clock" />About {proposal.quest.durationMinutes} minutes</span>
-      <span><Icon name="people" />{proposal.quest.groupSize} people</span>
+      <span><Icon name="people" />{proposal.proposedParticipants.length} people</span>
     </div>
     <div className="result-people">
       <h3>Everyone has a role</h3>
