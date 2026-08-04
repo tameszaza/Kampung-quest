@@ -18,7 +18,8 @@ export async function POST(request: Request) {
 export async function GET() {
   try {
     const user = await requireUser();
-    const conversation = await kampungStore.findLatestAssistantConversation(user.id);
+    const current = await kampungStore.findLatestAssistantConversation(user.id);
+    const conversation = current ? await assistantConversationService.get(current.conversationId) : null;
     return NextResponse.json(conversation);
   } catch (error) {
     return errorResponse(error);

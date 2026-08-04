@@ -467,6 +467,12 @@ export class KampungQuestEngine {
         auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
       });
       if (synthesis.outcome === "no_match") {
+        logger.info("quest.recommendation.no_match", {
+          runId,
+          candidateCount: candidates.length,
+          minimumCandidatesRequired: Math.max(1, initiator.profile.constraints.minimumGroupSize - 1),
+          maximumCandidatesAllowed: Math.max(1, initiator.profile.constraints.maximumGroupSize - 1),
+        });
         await observe?.({ stage: "synthesis", status: "completed", message: "No strong match is available yet", kind: "agent" });
         return this.dependencies.store.saveQuestRun({
           ...base,
@@ -509,6 +515,12 @@ export class KampungQuestEngine {
           auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
         });
         if (synthesis.outcome === "no_match") {
+          logger.info("quest.recommendation.no_match_after_correction", {
+            runId,
+            candidateCount: candidates.length,
+            minimumCandidatesRequired: Math.max(1, initiator.profile.constraints.minimumGroupSize - 1),
+            maximumCandidatesAllowed: Math.max(1, initiator.profile.constraints.maximumGroupSize - 1),
+          });
           await observe?.({ stage: "synthesis", status: "completed", message: "No valid strong match is available yet", kind: "agent" });
           return this.dependencies.store.saveQuestRun({
             ...base,

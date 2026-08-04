@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const requiredEmail = z.string().trim().email("Enter a valid email address");
 const optionalPhone = z.union([z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"), z.literal("")]).optional();
+const optionalEmail = z.union([z.string().trim().email("Enter a valid email address"), z.literal("")]).optional();
 const usernameSchema = z.string().trim().min(3, "Use at least 3 characters").max(40)
   .regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u, "Use letters, numbers, spaces, dots, dashes, or underscores");
 
@@ -40,6 +41,19 @@ export const preferenceUpdateSchema = z.object({
   profileVisibility: z.enum(["community", "connections", "private"]).optional(),
   messagePrivacy: z.enum(["everyone", "connections", "nobody"]).optional(),
   showOnlineStatus: z.boolean().optional(),
+});
+
+const emergencyContactSchema = z.object({
+  name: z.string().trim().min(2, "Enter the contact's name").max(100),
+  relationship: z.string().trim().min(2, "Enter a relationship").max(60),
+  phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, "Enter a valid phone number"),
+  email: optionalEmail.nullable(),
+});
+
+export const profileUpdateSchema = z.object({
+  fullName: z.string().trim().min(2, "Enter your full name").max(100),
+  phone: optionalPhone.nullable(),
+  emergencyContact: emergencyContactSchema.nullable(),
 });
 
 export const profileCompletionSchema = z.object({

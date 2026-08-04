@@ -14,6 +14,7 @@ import {
   type QuestBriefDraft,
 } from "@/server/domain/schemas";
 import type { KampungStore } from "@/server/repositories/kampung-store";
+import { logger } from "@/server/observability/logger";
 
 const REQUIRED_FIELDS: AssistantBriefField[] = [
   "goal",
@@ -76,21 +77,48 @@ export class AssistantConversationService {
     // conversation when its candidate now appears in a live proposal. This
     // prevents older members from being left on a stale "No strong match yet"
     // card after a third participant makes the group viable.
-    const replacement = (await this.dependencies.store.listQuestRuns(conversation.candidateId, 50)).find((run) =>
+    const [questRuns, coordinationStates] = await Promise.all([
+      this.dependencies.store.listQuestRuns(conversation.candidateId, 50),
+      this.dependencies.store.listEventCoordinationStates(conversation.candidateId),
+    ]);
+    const liveRunStatuses = new Set(["forming", "human_review", "awaiting_acceptance", "confirmed"]);
+    const replacement = questRuns.find((run) =>
       run.proposal
-      && ["forming", "human_review", "awaiting_acceptance", "confirmed"].includes(run.status)
+      && liveRunStatuses.has(run.status)
       && Date.parse(run.proposal.quest.proposedTimeWindow.end) > Date.now()
       && run.proposal.proposedParticipants.some((participant) => participant.candidateId === conversation.candidateId),
     );
-    if (!replacement) return conversation;
+    const replacementState = coordinationStates.find((state) =>
+      ["forming", "human_review", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(state.lifecycle)
+      && Date.parse(state.proposal.quest.proposedTimeWindow.end) > Date.now()
+      && (state.initiatorId === conversation.candidateId
+        || state.roster.some((member) => member.userId === conversation.candidateId)
+        || state.invitations.some((invitation) => invitation.guestId === conversation.candidateId)
+        || state.memberships.some((membership) => membership.userId === conversation.candidateId)),
+    );
+    const replacementRun = replacement
+      ?? (replacementState ? questRuns.find((run) => run.runId === replacementState.runId) ?? await this.dependencies.store.findQuestRun(replacementState.runId) : null);
+    if (!replacementRun) return conversation;
 
     const refreshed = {
       ...conversation,
       status: "complete" as const,
-      questRunId: replacement.runId,
+      questRunId: replacementRun.runId,
+      messages: [
+        ...conversation.messages,
+        this.message(
+          "assistant",
+          `A compatible group has now formed for ${replacementRun.proposal?.quest.title ?? "your request"}. Review the updated participants and quest details below.`,
+        ),
+      ],
       error: null,
       updatedAt: new Date().toISOString(),
     };
+    logger.info("assistant.conversation.no_match_refreshed", {
+      conversationId: conversation.conversationId,
+      candidateId: conversation.candidateId,
+      replacementRunId: replacementRun.runId,
+    });
     try {
       return await this.dependencies.store.saveAssistantConversation(refreshed, conversation.revision);
     } catch {

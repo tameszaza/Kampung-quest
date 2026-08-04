@@ -21,6 +21,7 @@ import {
   availabilityWindowSchema,
 } from "@/server/domain/schemas";
 import { z } from "zod";
+import { QuestSynthesisService } from "@/server/features/synthesis-service";
 
 const coordinationAgentOutputSchema = z.object({
   reply: z.string().min(1),
@@ -143,6 +144,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
   private readonly coordinationAgent: Agent<unknown, typeof coordinationAgentOutputSchema>;
   private readonly runner: Runner;
+  private readonly capacityRecovery = new QuestSynthesisService();
 
   constructor(private readonly options: HostedAgentRuntimeOptions) {
     setTracingDisabled(true);
@@ -188,6 +190,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         "Use only participant aliases, stated needs, and stated contributions from the input.",
         "When avoidQuestTitles is non-empty, do not reuse any of those titles; create a genuinely distinct activity framing.",
         "When avoidParticipantSets is non-empty, prefer a compatible participant combination that is not one of those exact sets.",
+        "The candidates list excludes the initiating user. Group size includes the initiator, so an initiator who needs a minimum group of 3 only needs two compatible candidates; do not return no_match merely because the candidate count is one less than that minimum.",
         "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
         "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
         "In venueRequirements, always use the exact token approved_public_location; also use indoor or no_stairs exactly when participant constraints require them.",
@@ -290,8 +293,10 @@ export class HostedAgentRuntime implements AgentRuntime {
       avoidQuestTitles: input.avoidQuestTitles ?? [],
       avoidParticipantSets: input.avoidParticipantSets ?? [],
       rules: {
-        minimumGroupSize: 2,
-        maximumGroupSize: 5,
+        minimumGroupSize: input.initiator.constraints.minimumGroupSize,
+        maximumGroupSize: input.initiator.constraints.maximumGroupSize,
+        candidateCount: input.candidates.length,
+        groupSizeIncludesInitiator: true,
         maximumDurationMinutes: 120,
         publicVenueRequired: true,
         explicitConsentRequired: true,
@@ -300,6 +305,30 @@ export class HostedAgentRuntime implements AgentRuntime {
     }, input.auditContext));
     if (output.outcome === "no_match") {
       if (!output.reason) throw new Error("Agent returned no reason for a no-match outcome");
+      const minimumGroupSize = Math.max(
+        input.initiator.constraints.minimumGroupSize,
+        ...input.candidates.map((candidate) => candidate.profile.constraints.minimumGroupSize),
+      );
+      const capacityReason = /minimum\s+group|group\s+size|only\s+\d+\s+(?:candidate|participant)|not enough/i.test(output.reason);
+      if (capacityReason && input.candidates.length + 1 >= minimumGroupSize) {
+        // The initiator is not included in the candidates array. Recover from
+        // a model arithmetic mistake when there are enough people to satisfy
+        // the requested group size, while still preserving a true no-match if
+        // the deterministic compatibility checks cannot build a valid group.
+        try {
+          const proposal = this.capacityRecovery.synthesize(input.initiator, input.candidates, {
+            avoidParticipantSets: input.avoidParticipantSets,
+          });
+          return {
+            outcome: "proposal" as const,
+            primaryIntentRef: stableFactRef("need", input.initiator.need),
+            proposal,
+          };
+        } catch {
+          // Keep the provider's no-match result when compatibility, timing, or
+          // constraints genuinely prevent a safe fallback proposal.
+        }
+      }
       return { outcome: "no_match" as const, reason: output.reason, missingCapabilities: output.missingCapabilities };
     }
     if (!output.proposal || !output.primaryIntentRef) {

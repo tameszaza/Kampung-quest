@@ -302,6 +302,10 @@
   font-size: 14px;
 }
 
+.empty-state .primary-button {
+  margin-top: 22px;
+}
+
 .sheet-backdrop {
   position: fixed;
   z-index: 120;
