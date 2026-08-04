@@ -41,26 +41,6 @@ function assistant(candidateId: string) {
 }
 
 describe("quest chat notifications", () => {
-  it("updates the assistant thread and sends a direct match message", async () => {
-    const identity = new InMemoryIdentityStore();
-    const store = new InMemoryKampungStore();
-    const first = await identity.createUser(member("First Member", "first@example.com"));
-    const second = await identity.createUser(member("Second Member", "second@example.com"));
-    await store.createAssistantConversation(assistant(first.id));
-    const notifier = new QuestChatNotifier(identity, store);
-    const run = questRun(second.id, first.id);
-
-    await notifier.questCreated(run);
-
-    const updated = await store.findLatestAssistantConversation(first.id);
-    expect(updated?.status).toBe("complete");
-    expect(updated?.questRunId).toBe(run.runId);
-    expect(updated?.messages.at(-1)?.content).toContain("Mystery Book Club");
-    const direct = (await identity.listConversations(first.id)).find((conversation) => conversation.title === "Second Member");
-    expect(direct).toBeTruthy();
-    expect((await identity.listMessages(first.id, direct!.id)).at(-1)?.body).toContain("found a match");
-  });
-
   it("announces a newly accepted participant to the other invitees", async () => {
     const identity = new InMemoryIdentityStore();
     const store = new InMemoryKampungStore();

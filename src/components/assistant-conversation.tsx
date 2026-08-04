@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { ProfileAvatar } from "@/components/profile-avatar";
+import { questParticipantStatus } from "@/lib/quest-participant-status";
 import { useUser } from "@/components/user-context";
 import {
   confirmAssistantConversation,
@@ -434,7 +435,12 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
       {proposal.proposedParticipants.map((participant) => {
         const profile = quest.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
         const name = profile?.displayName ?? candidateName(participant.candidateId, ownCandidateId);
-        return <div key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={40} className="result-person-avatar" /><p><strong>{name}</strong><small>{friendlyRole(participant.proposedRole)}</small></p></div>;
+        const status = questParticipantStatus(
+          participant.candidateId,
+          ownCandidateId,
+          quest.coordination?.invitations.find((invitation) => invitation.candidateId === participant.candidateId)?.status,
+        );
+        return <div className="result-person-row" key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={40} className="result-person-avatar" /><p><strong>{name}</strong><small>{friendlyRole(participant.proposedRole)}</small></p><span className={`participant-status participant-status-${status.key}`}>{status.label}</span></div>;
       })}
     </div>
     {needsHumanReview ? <p className="assistant-note">No invitation was prepared. A human coordinator must review this proposal and its safety or constraint checks first.</p> : null}

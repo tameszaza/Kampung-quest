@@ -3312,7 +3312,11 @@
   gap: 10px;
 }
 
-.result-people > div > span {
+.result-people > div.result-person-row {
+  gap: 10px;
+}
+
+.result-people > div > .profile-avatar {
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -3341,6 +3345,8 @@
 }
 
 .result-people p {
+  min-width: 0;
+  flex: 1;
   margin: 0;
   display: grid;
 }
@@ -3668,14 +3674,59 @@
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
+}
+
+.engine-participant-name {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.engine-participant-name strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-participant-name small {
+  color: var(--muted);
+  font-size: 12px;
   text-transform: capitalize;
 }
 
-.engine-participants strong {
+.participant-status {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.participant-status-joining {
+  background: var(--green-100);
+  color: var(--green-800);
+}
+
+.participant-status-invited {
+  background: #fff2cf;
+  color: #765100;
+}
+
+.participant-status-pending,
+.participant-status-replaced {
+  background: var(--surface-soft);
   color: var(--muted);
-  font-size: 12px;
+}
+
+.participant-status-declined {
+  background: #ffefef;
+  color: #b4232c;
 }
 
 .engine-safety {

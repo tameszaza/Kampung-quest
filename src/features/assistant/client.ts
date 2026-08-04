@@ -7,6 +7,7 @@ import type {
   MemoryCard,
   QuestRun,
 } from "@/server/domain/schemas";
+import type { QuestNotification } from "@/server/quest/quest-notifications";
 
 async function responseJson<T>(response: Response): Promise<T> {
   const payload = await response.json() as T & { error?: string };
@@ -39,6 +40,11 @@ export async function listUserQuests(candidateId: string, limit = 20): Promise<Q
     { cache: "no-store" },
   );
   return responseJson<QuestRun[]>(response);
+}
+
+export async function listUserNotifications(limit = 50): Promise<QuestNotification[]> {
+  const response = await fetch(`/api/v1/notifications?limit=${encodeURIComponent(limit)}`, { cache: "no-store" });
+  return responseJson<QuestNotification[]>(response);
 }
 
 export async function getQuestRun(runId: string): Promise<QuestRun | null> {

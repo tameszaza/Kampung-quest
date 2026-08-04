@@ -26,6 +26,7 @@ import { ConstraintValidator } from "@/server/features/validation-service";
 import type { KampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageStorage } from "@/server/quest/quest-image-storage";
 import type { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
+import { logger, safeErrorMessage } from "@/server/observability/logger";
 
 interface KampungQuestEngineDependencies {
   store: KampungStore;
@@ -396,9 +397,7 @@ export class KampungQuestEngine {
           : null,
         updatedAt: new Date().toISOString(),
       };
-      const saved = await this.dependencies.store.saveQuestRun(await this.attachQuestImage(completedRun));
-      await this.dependencies.chatNotifier?.questCreated(saved);
-      return saved;
+      return this.dependencies.store.saveQuestRun(await this.attachQuestImage(completedRun));
     } catch (error) {
       await observe?.({
         stage: activeStage,
@@ -605,16 +604,25 @@ export class KampungQuestEngine {
    * shown; the UI will use its local activity image when imageUrl is absent.
    */
   private async attachQuestImage(run: QuestRun): Promise<QuestRun> {
-    if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) return run;
+    if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
+      logger.debug("quest_image.attach.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
+      return run;
+    }
+    logger.info("quest_image.attach.start", { runId: run.runId });
     try {
       const generated = await this.dependencies.imageAgent.generate({
         quest: run.proposal.quest,
         variationKey: run.runId,
       });
-      if (!generated) return run;
+      if (!generated) {
+        logger.warn("quest_image.attach.fallback", { runId: run.runId, reason: "agent_returned_empty" });
+        return run;
+      }
       const imageUrl = await this.dependencies.imageStorage.save(generated);
+      logger.info("quest_image.attach.success", { runId: run.runId, imageUrl, bytes: generated.bytes.length, mimeType: generated.mimeType });
       return { ...run, imageUrl };
-    } catch {
+    } catch (error) {
+      logger.error("quest_image.attach.error", { runId: run.runId, error: safeErrorMessage(error) });
       return run;
     }
   }

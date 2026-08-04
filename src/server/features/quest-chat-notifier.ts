@@ -1,9 +1,6 @@
-import { format } from "node:util";
 import type { QuestRun } from "@/server/domain/schemas";
 import type { IdentityStore } from "@/server/identity/identity-store";
 import type { KampungStore } from "@/server/repositories/kampung-store";
-
-type QuestParticipant = NonNullable<QuestRun["proposal"]>["proposedParticipants"][number];
 
 /**
  * Keeps the quest workflow and chat workflow loosely coupled. A failed chat
@@ -15,34 +12,6 @@ export class QuestChatNotifier {
     private readonly identityStore: IdentityStore,
     private readonly questStore: KampungStore,
   ) {}
-
-  async questCreated(run: QuestRun): Promise<void> {
-    try {
-      await this.questCreatedInternal(run);
-    } catch {
-      // Chat delivery is deliberately non-transactional with quest creation.
-    }
-  }
-
-  private async questCreatedInternal(run: QuestRun): Promise<void> {
-    const proposal = run.proposal;
-    if (!proposal) return;
-    const participants = proposal.proposedParticipants;
-    const initiator = participants.find((participant) => participant.candidateId === run.initiatingCandidateId);
-    if (initiator && !isDemo(run.initiatingCandidateId)) {
-      for (const participant of participants) {
-        if (participant.candidateId === run.initiatingCandidateId || isDemo(participant.candidateId)) continue;
-        await this.sendDirectUpdate(
-          run.initiatingCandidateId,
-          participant.candidateId,
-          await this.matchMessage(run, participant, "Senior Quest found a match for your request."),
-        );
-      }
-    }
-    await Promise.all(participants.filter((participant) => !isDemo(participant.candidateId)).map(async (participant) =>
-      this.updateAssistant(participant.candidateId, run, await this.matchMessageForRecipient(run, participant.candidateId)),
-    ));
-  }
 
   async participantAccepted(run: QuestRun, candidateId: string): Promise<void> {
     try {
@@ -110,23 +79,6 @@ export class QuestChatNotifier {
       // Assistant updates are best effort and are retried by the next quest
       // state transition. The direct chat remains the source of truth.
     }
-  }
-
-  private async matchMessage(run: QuestRun, participant: QuestParticipant, prefix: string): Promise<string> {
-    const name = await this.displayName(participant.candidateId);
-    return format(
-      "%s %s can join as %s on %s. Open the quest details to review the time and safety checks.",
-      prefix,
-      name,
-      roleName(participant.proposedRole),
-      run.proposal?.quest.title ?? "this activity",
-    );
-  }
-
-  private async matchMessageForRecipient(run: QuestRun, recipientId: string): Promise<string> {
-    const matched = run.proposal?.proposedParticipants.find((participant) => participant.candidateId !== recipientId && !isDemo(participant.candidateId));
-    if (!matched) return "Senior Quest found a match for your request. Open the quest details to review it.";
-    return this.matchMessage(run, matched, "Senior Quest found a new match for your request.");
   }
 
   private async displayName(candidateId: string): Promise<string> {

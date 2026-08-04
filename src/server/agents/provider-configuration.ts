@@ -18,8 +18,6 @@ export type ProviderConfiguration =
       ready: boolean;
       apiKey: string | undefined;
       baseURL: string | undefined;
-      imageBaseURL: string | undefined;
-      imageModel: string;
       useResponses: boolean;
       models: HostedModelConfiguration;
       embeddingDimensions: 1536;
@@ -39,8 +37,6 @@ export function resolveProviderConfiguration(
       ready: Boolean(apiKey),
       apiKey,
       baseURL: environment.OPENAI_BASE_URL || undefined,
-      imageBaseURL: undefined,
-      imageModel: "",
       useResponses: true,
       models: {
         memory: environment.OPENAI_MEMORY_MODEL ?? "gpt-5.6-luna",
@@ -61,9 +57,6 @@ export function resolveProviderConfiguration(
       apiKey,
       baseURL: environment.GEMINI_BASE_URL
         ?? "https://generativelanguage.googleapis.com/v1beta/openai/",
-      imageBaseURL: environment.GEMINI_IMAGE_BASE_URL
-        || "https://generativelanguage.googleapis.com/v1",
-      imageModel: environment.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-lite-image",
       useResponses: false,
       models: {
         memory: environment.GEMINI_MEMORY_MODEL ?? "gemini-3.1-flash-lite",

@@ -12,7 +12,9 @@ import {
   UnavailableEmbeddingProvider,
 } from "@/server/agents/unavailable-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
-import { GeminiQuestImageAgent, type QuestImageAgent } from "@/server/agents/quest-image-agent";
+import { FallbackQuestImageAgent } from "@/server/agents/fallback-quest-image-agent";
+import { GeminiSvgThumbnailAgent } from "@/server/agents/gemini-svg-thumbnail-agent";
+import { LocalQuestThumbnailAgent } from "@/server/agents/local-quest-thumbnail-agent";
 import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/adapters";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
@@ -20,7 +22,7 @@ import { AssistantConversationService } from "@/server/features/assistant-conver
 import { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
-import { createQuestImageStorage, type QuestImageStorage } from "@/server/quest/quest-image-storage";
+import { createQuestImageStorage } from "@/server/quest/quest-image-storage";
 import { identityStore } from "@/server/identity/container";
 
 const globals = globalThis as typeof globalThis & {
@@ -40,13 +42,20 @@ if (process.env.NODE_ENV !== "production") globals.kampungStore = kampungStore;
 
 const providerConfiguration = resolveProviderConfiguration(process.env);
 
+function createQuestImagePipeline(geminiSvgAgent?: GeminiSvgThumbnailAgent) {
+  const candidates = [] as Array<{ name: string; agent: GeminiSvgThumbnailAgent | LocalQuestThumbnailAgent }>;
+  if (geminiSvgAgent) candidates.push({ name: "gemini-text-svg", agent: geminiSvgAgent });
+  candidates.push({ name: "local", agent: new LocalQuestThumbnailAgent() });
+  return new FallbackQuestImageAgent(candidates);
+}
+
 function createAgentDependencies() {
   if (providerConfiguration.provider === "deterministic") {
     return {
       agents: new DeterministicAgentRuntime(),
       embeddings: new DeterministicEmbeddingProvider(),
-      imageAgent: undefined as QuestImageAgent | undefined,
-      imageStorage: undefined as QuestImageStorage | undefined,
+      imageAgent: createQuestImagePipeline(),
+      imageStorage: createQuestImageStorage(),
     };
   }
   if (!providerConfiguration.ready) {
@@ -57,8 +66,8 @@ function createAgentDependencies() {
     return {
       agents: new UnavailableAgentRuntime(reason),
       embeddings: new UnavailableEmbeddingProvider(reason),
-      imageAgent: undefined as QuestImageAgent | undefined,
-      imageStorage: undefined as QuestImageStorage | undefined,
+      imageAgent: createQuestImagePipeline(),
+      imageStorage: createQuestImageStorage(),
     };
   }
   const apiKey = providerConfiguration.apiKey;
@@ -84,6 +93,14 @@ function createAgentDependencies() {
         useResponses: providerConfiguration.useResponses,
         strictFeatureValidation: false,
       });
+  const geminiSvgAgent = providerConfiguration.provider === "gemini"
+    ? new GeminiSvgThumbnailAgent({
+        apiKey,
+        model: process.env.GEMINI_SVG_IMAGE_MODEL ?? providerConfiguration.models.memory,
+        baseURL: providerConfiguration.baseURL ?? "https://generativelanguage.googleapis.com/v1beta/openai/",
+        fetch: geminiFetch,
+      })
+    : undefined;
   return {
     agents: new HostedAgentRuntime({
       provider: providerConfiguration.provider,
@@ -99,16 +116,8 @@ function createAgentDependencies() {
       dimensions: providerConfiguration.embeddingDimensions,
       fetch: geminiFetch,
     }),
-    imageAgent: providerConfiguration.provider === "gemini"
-      ? new GeminiQuestImageAgent({
-          apiKey,
-          model: providerConfiguration.imageModel,
-          baseURL: providerConfiguration.imageBaseURL ?? "https://generativelanguage.googleapis.com/v1",
-        })
-      : undefined,
-    imageStorage: providerConfiguration.provider === "gemini"
-      ? createQuestImageStorage()
-      : undefined,
+    imageAgent: createQuestImagePipeline(geminiSvgAgent),
+    imageStorage: createQuestImageStorage(),
   };
 }
 

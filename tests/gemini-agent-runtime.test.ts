@@ -22,7 +22,7 @@ describe("Gemini agent output normalization", () => {
       .not.toContain("approved_public_location");
   });
 
-  it("waits for Gemini's retry delay instead of immediately spending another request", async () => {
+  it("does not wait or spend another request after a Gemini quota response", async () => {
     const settings = hostedRetrySettings("gemini");
     const decision = await settings.policy?.({
       error: new Error("429"),
@@ -37,12 +37,8 @@ describe("Gemini agent output normalization", () => {
       },
     });
 
-    expect(settings.maxRetries).toBe(1);
-    expect(decision).toEqual({
-      retry: true,
-      delayMs: 46_648,
-      reason: "Gemini requested a quota backoff",
-    });
+    expect(settings.maxRetries).toBe(0);
+    expect(decision).toBe(false);
   });
 
   it("turns a Gemini quota response into a useful user-facing error", () => {
@@ -50,6 +46,14 @@ describe("Gemini agent output normalization", () => {
       status: 429,
       headers: new Headers({ "retry-after": "47" }),
     })).toBe("Gemini request quota is temporarily exhausted. Please try again in about 47 seconds.");
+  });
+
+  it("normalizes a decimal retry hint without delaying the request", () => {
+    expect(hostedProviderErrorMessage("gemini", {
+      status: 429,
+      message: "Quota exhausted. Please retry in 1.5s.",
+      headers: new Headers(),
+    })).toBe("Gemini request quota is temporarily exhausted. Please try again in about 2 seconds.");
   });
 
   it("explains a daily Gemini quota without suggesting an immediate retry", () => {

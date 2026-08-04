@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { EngineQuestCard, questDate, questImage, questImageLabel } from "@/components/engine-quest-card";
+import { EngineQuestCard, questDate, questImage } from "@/components/engine-quest-card";
 import { ActivityActions } from "@/components/activity-actions";
 import { Icon } from "@/components/icons";
 import { QuestCard } from "@/components/quest-card";
@@ -14,6 +14,7 @@ import { useUser } from "@/components/user-context";
 import { useAppState } from "@/components/app-state";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { isQuestPast, isQuestRunPast } from "@/lib/activity-time";
+import { questParticipantStatus } from "@/lib/quest-participant-status";
 import { canSeeDemoContent } from "@/lib/demo-access";
 
 type LoadState<T> =
@@ -101,7 +102,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
     <div className={`detail-page engine-detail-page${showActivityActions ? "" : " without-action"}`}>
       <div className="detail-header-wrap"><header className="page-header"><Link className="icon-button" href="/quests" aria-label="Back to quests"><Icon name="back" /></Link><h1>Quest Details</h1><span /></header></div>
       <div className="detail-layout">
-        <div className="detail-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" /><span className="image-badge">{run.status === "human_review" ? "Needs review" : questImageLabel(run)}</span></div>
+        <div className="detail-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />{run.status === "human_review" && <span className="image-badge">Needs review</span>}</div>
         <article className="detail-content">
           <h1>{proposal.quest.title}</h1>
           <p className="detail-description">{proposal.quest.description}</p>
@@ -114,7 +115,12 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
           <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => {
             const profile = run.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
             const name = profile?.displayName ?? participantLabel(participant.candidateId, user.id);
-            return <div key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={36} /><span>{name}</span><strong>{participant.proposedRole.replaceAll("_", " ")}</strong></div>;
+            const status = questParticipantStatus(
+              participant.candidateId,
+              user.id,
+              run.coordination?.invitations.find((invitation) => invitation.candidateId === participant.candidateId)?.status,
+            );
+            return <div className="engine-participant" key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={36} /><span className="engine-participant-name"><strong>{name}</strong><small>{participant.proposedRole.replaceAll("_", " ")}</small></span><span className={`participant-status participant-status-${status.key}`}>{status.label}</span></div>;
           })}</section>
           <section className="engine-assurance">
             <h2>Checks and coordination</h2>
@@ -124,7 +130,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
             {run.safety?.conditions.length ? <ul>{run.safety.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : null}
           </section>
           {run.status === "human_review" ? <p className="assistant-note">A coordinator needs to review this match before any invitation is prepared.</p> : <p className="engine-safety"><Icon name="shield" size={20} /> Safety checks passed; invitations are ready for the participants.</p>}
-          {showActivityActions ? <div className="detail-action"><ActivityActions activityId={run.runId} initialDecision={invitationStatus === "accepted" || invitationStatus === "declined" ? invitationStatus : undefined} /></div> : null}
+          {showActivityActions ? <div className="detail-action"><ActivityActions activityId={run.runId} initialDecision={invitationStatus === "accepted" || invitationStatus === "declined" ? invitationStatus : undefined} onDecision={(decision) => setState((current) => current.status !== "ready" || !current.value?.coordination ? current : { ...current, value: { ...current.value, coordination: { ...current.value.coordination, invitations: current.value.coordination.invitations.map((invitation) => invitation.candidateId === user.id ? { ...invitation, status: decision } : invitation) } } })} /></div> : null}
         </article>
       </div>
     </div>

@@ -4,10 +4,11 @@ import { useAppState } from "@/components/app-state";
 import { Icon } from "@/components/icons";
 import { useState } from "react";
 
-export function ActivityActions({ activityId, acceptOnly = false, initialDecision }: {
+export function ActivityActions({ activityId, acceptOnly = false, initialDecision, onDecision }: {
   activityId: string;
   acceptOnly?: boolean;
   initialDecision?: "accepted" | "declined";
+  onDecision?: (decision: "accepted" | "declined") => void;
 }) {
   const { activityDecisions, decideActivity } = useAppState();
   const decision = activityDecisions[activityId] ?? initialDecision;
@@ -22,6 +23,7 @@ export function ActivityActions({ activityId, acceptOnly = false, initialDecisio
     if (busy) return;
     if (!activityId.startsWith("quest_")) {
       decideActivity(activityId, nextDecision);
+      onDecision?.(nextDecision);
       return;
     }
     setBusy(true);
@@ -35,6 +37,7 @@ export function ActivityActions({ activityId, acceptOnly = false, initialDecisio
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Your response could not be saved");
       decideActivity(activityId, nextDecision);
+      onDecision?.(nextDecision);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Your response could not be saved");
     } finally {

@@ -511,11 +511,16 @@ export class PostgresKampungStore implements KampungStore {
   }
 
   async findQuestRun(runId: string): Promise<QuestRun | null> {
-    const result = await this.pool.query<{ payload: QuestRun }>(
-      "SELECT payload FROM quest.quest_runs WHERE run_id = $1",
+    const result = await this.pool.query<{ payload: QuestRun; updated_at: Date | string }>(
+      "SELECT payload, updated_at FROM quest.quest_runs WHERE run_id = $1",
       [runId],
     );
-    return result.rows[0]?.payload ?? null;
+    const row = result.rows[0];
+    if (!row) return null;
+    // The database timestamp is the authoritative optimistic-lock version.
+    // Keeping it in the returned payload prevents stale JSON metadata from
+    // causing a false conflict after an out-of-band payload-only update.
+    return { ...row.payload, updatedAt: new Date(row.updated_at).toISOString() };
   }
 
   async saveQuestRunWithEvent(

@@ -24,17 +24,17 @@ export function hostedRetrySettings(
   provider: Exclude<AgentProviderName, "deterministic">,
 ): ModelRetrySettings {
   return {
-    maxRetries: provider === "gemini" ? 1 : 2,
+    // Gemini quota responses already include Google's retry guidance. Do not
+    // sleep and spend another request inside a chat turn; surface the quota
+    // state immediately so the member can try again later.
+    maxRetries: provider === "gemini" ? 0 : 2,
     backoff: { initialDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2, jitter: true },
     policy: ({ normalized, providerAdvice }) => {
       if (provider === "gemini" && normalized.statusCode === 429) {
-        const retryAfterMs = normalized.retryAfterMs ?? providerAdvice?.retryAfterMs;
-        if (retryAfterMs === undefined || retryAfterMs > 60_000) return false;
-        return {
-          retry: true,
-          delayMs: retryAfterMs + 250,
-          reason: "Gemini requested a quota backoff",
-        };
+        // Deliberately never wait/retry a quota response. providerAdvice is
+        // retained in the signature for the shared OpenAI policy shape.
+        void providerAdvice;
+        return false;
       }
       return normalized.isNetworkError
         || normalized.statusCode === 429
@@ -49,7 +49,7 @@ export function hostedProviderErrorMessage(
 ): string {
   if (provider === "gemini" && error && typeof error === "object" && "status" in error) {
     const status = error.status;
-    if (status === 429) {
+    if (status === 429 || status === "429") {
       const headers = "headers" in error ? error.headers : null;
       const getHeader = headers && typeof headers === "object" && "get" in headers
         && typeof headers.get === "function"
@@ -58,15 +58,39 @@ export function hostedProviderErrorMessage(
       if (getHeader("x-gemini-quota-period") === "day") {
         return "Gemini's daily request quota for this model is exhausted. It resets at midnight Pacific time.";
       }
-      const retryAfter = getHeader("retry-after");
-      const retrySeconds = retryAfter ? Number.parseInt(String(retryAfter), 10) : Number.NaN;
-      return Number.isFinite(retrySeconds)
+      const retrySeconds = parseRetryAfter(getHeader("retry-after"))
+        ?? parseRetryHint(errorMessage(error));
+      return retrySeconds !== null
         ? `Gemini request quota is temporarily exhausted. Please try again in about ${retrySeconds} seconds.`
         : "Gemini request quota is temporarily exhausted. Please try again later.";
     }
   }
   const message = error instanceof Error ? error.message : "Unknown hosted model error";
   return `${provider} provider unavailable: ${message}`;
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.max(1, Math.ceil(seconds));
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(1, Math.ceil((timestamp - Date.now()) / 1_000));
+}
+
+function parseRetryHint(message: string): number | null {
+  const match = message.match(/retry(?: again)? in\s+([0-9]+(?:\.[0-9]+)?)\s*(?:s|seconds?)/i);
+  if (!match?.[1]) return null;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) ? Math.max(1, Math.ceil(seconds)) : null;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return "";
 }
 
 interface HostedAgentRuntimeOptions {

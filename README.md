@@ -61,6 +61,16 @@ npm run typecheck
 npm run build
 ```
 
+## Image-generation diagnostics
+
+Thumbnail generation emits structured JSON events without API keys, prompts, or image bytes. Watch provider responses, retry decisions, quota classification, and storage results with:
+
+```bash
+docker compose logs -f api | grep 'quest_image'
+```
+
+Set `LOG_LEVEL=debug` for provider timing. Any remote refusal, quota error, timeout, or invalid SVG intentionally falls through to the next thumbnail provider.
+
 ## API workflow
 
 Member-facing APIs require the signed, HttpOnly session cookie managed by Better Auth under
@@ -207,9 +217,9 @@ GEMINI_API_KEY=your-server-side-key
 ```
 
 The defaults use `gemini-3.1-flash-lite` for memory, safety and recovery,
-`gemini-3.5-flash` for quest synthesis, `gemini-embedding-001` for retrieval, and
-`gemini-3.1-flash-lite-image` for generated quest thumbnails. The image model is used
-only for image generation; text agents continue to use the text-capable models above.
+`gemini-3.5-flash` for quest synthesis and `gemini-embedding-001` for retrieval. Quest
+thumbnails do not call a Gemini image model; when needed, the existing text-capable Gemini
+model creates a constrained SVG that is rendered locally.
 The application explicitly requests 1536-dimensional Gemini embeddings to match the
 PostgreSQL `vector(1536)` column. `GEMINI_BASE_URL` and every Gemini model name can be
 overridden through the environment variables shown in `.env.example`. Keep all provider
@@ -217,13 +227,17 @@ keys server-side; do not expose them through `NEXT_PUBLIC_` variables.
 
 ### Quest thumbnails
 
-When Gemini is configured, the quest engine invokes a small, best-effort image agent after a
-proposal is validated. It reuses `GEMINI_API_KEY` (there is no second credential), asks for a
-distinct, text-free 16:9 illustration based on the quest goal, and stores only an optimized
-1200×675 WebP in `QUEST_IMAGE_STORAGE_DIR`. Quest runs keep an opaque `/api/quest-images/...`
-URL, so the image bytes never enter the database. A timeout, quota error, or invalid response
-does not fail the quest; cards use the existing local activity thumbnail instead. Configure
-`GEMINI_IMAGE_MODEL` and `GEMINI_IMAGE_BASE_URL` only when overriding the documented defaults.
+The quest engine invokes a small, best-effort image pipeline after a proposal is validated. It
+asks the normal Gemini text model for a constrained self-contained SVG, then creates a
+deterministic illustrated SVG locally if the text provider is unavailable. Gemini image
+generation is not used. The local fallback is always available, so a provider quota/refusal
+never leaves a new quest with an unrelated stock thumbnail.
+
+All successful outputs are resized and stored as optimized 1200×675 WebP files in
+`QUEST_IMAGE_STORAGE_DIR`. Quest runs keep an opaque `/api/quest-images/...` URL, so image bytes
+never enter the database. A remote timeout, quota error, invalid SVG, or unsafe SVG response
+does not fail the quest. `GEMINI_SVG_IMAGE_MODEL` can override the text model used for SVG
+fallbacks.
 
 Embeddings from different providers, endpoints or models are not comparable, even when they
 have the same number of dimensions. Retrieval therefore records an embedding-space identifier

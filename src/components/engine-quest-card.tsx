@@ -16,10 +16,6 @@ export function questImage(run: QuestRun) {
   return "/assets/cooking.jpg";
 }
 
-export function questImageLabel(run: QuestRun) {
-  return run.imageUrl ? "Generated thumbnail" : "Preview artwork";
-}
-
 export function questDate(run: QuestRun) {
   const window = run.proposal?.quest.proposedTimeWindow;
   if (!window) return "Schedule to be confirmed";
@@ -41,9 +37,9 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
       <Link className="quest-card-link" href={`/quests/${run.runId}`}>
         <div className="quest-card-image">
           <Image src={questImage(run)} alt="" fill sizes="(max-width: 767px) 100vw, 420px" />
-          <span className={`image-badge quest-status-${run.status}`}>
-            {run.status === "human_review" ? "Needs review" : questImageLabel(run)}
-          </span>
+          {run.status === "human_review" && (
+            <span className={`image-badge quest-status-${run.status}`}>Needs review</span>
+          )}
         </div>
         <div className="quest-card-body">
           <h2>{quest.title}</h2>
