@@ -278,12 +278,15 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
           <AgentProgress events={latestEvents} />
         ) : null}
 
-        {conversation.status === "no_match" ? (
+        {/* Once the user chooses to adjust the request, the result card is no
+         * longer an active step. Keeping it mounted alongside the composer
+         * makes the two controls overlap in the embedded/mobile chat. */}
+        {conversation.status === "no_match" && !editingField ? (
           <section className="assistant-result review-needed">
             <span className="result-icon"><Icon name="people" size={30} /></span>
             <h2>No strong match yet</h2>
             <p>{quest?.noMatch?.reason ?? "The available neighbours cannot directly support this request yet. Your request has been saved."}</p>
-            <button className="secondary-button" type="button" onClick={() => setEditingField("goal")}>Adjust my request</button>
+            <button className="secondary-button" type="button" onClick={() => { setError(null); setText(""); setEditingField("goal"); }}>Adjust my request</button>
             <button className="text-button" type="button" onClick={() => void startAgain()}>Start a new conversation</button>
           </section>
         ) : null}

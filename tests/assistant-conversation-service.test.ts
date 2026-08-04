@@ -343,4 +343,22 @@ describe("Senior Quest AI conversation", () => {
     expect(completed.status).toBe("no_match");
     expect(completed.events.some((event) => event.message.includes("No strong match"))).toBe(true);
   });
+
+  it("moves a no-match adjustment back to review without another model request", async () => {
+    const service = orchestrated(false);
+    const ready = await readyConversation(service);
+    const noMatch = await service.confirm(ready.conversationId, { revision: ready.revision });
+    expect(noMatch.status).toBe("no_match");
+
+    const adjusted = await service.addTurn(noMatch.conversationId, {
+      clientTurnId: "no-match-adjustment",
+      revision: noMatch.revision,
+      answer: { field: "goal", value: "I would like a gentle gardening group" },
+    });
+
+    expect(adjusted.status).toBe("ready_for_review");
+    expect(adjusted.brief.currentGoal).toBe("I would like a gentle gardening group");
+    expect(adjusted.messages.at(-1)?.content).toContain("review the new summary");
+    expect(adjusted.error).toBeNull();
+  });
 });

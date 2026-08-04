@@ -112,6 +112,34 @@ export class AssistantConversationService {
           updatedAt: new Date().toISOString(),
         }, current.revision);
     const missingFields = this.missingFields(brief);
+
+    // A no-match result already contains a complete, confirmed brief. Editing
+    // the goal should return the member to review with the updated brief; it
+    // should not ask the hosted model to re-parse an otherwise complete
+    // transcript. Besides being faster, this keeps adjustment reliable when a
+    // provider returns a malformed structured response during a retry.
+    if (current.status === "no_match") {
+      const updated: AssistantConversationSnapshot = {
+        ...pending,
+        status: missingFields.length === 0 ? "ready_for_review" : "collecting",
+        revision: pending.revision + 1,
+        messages: [...messages, this.message(
+          "assistant",
+          missingFields.length === 0
+            ? "I updated your request. Please review the new summary before I search again."
+            : "I updated your request. Let’s finish the remaining details before I search again.",
+        )],
+        brief,
+        nextField: missingFields[0] ?? null,
+        suggestedReplies: [],
+        questRunId: null,
+        events: [],
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.dependencies.store.saveAssistantConversation(updated, pending.revision);
+    }
+
     let turn;
     try {
       turn = await this.dependencies.agents.conductConversation({
@@ -140,8 +168,8 @@ export class AssistantConversationService {
       brief: patchedBrief,
       nextField: ready ? null : this.safeNextField(turn.requestedField, patchedBrief),
       suggestedReplies: turn.suggestedReplies,
-      questRunId: current.status === "no_match" ? null : pending.questRunId,
-      events: current.status === "no_match" ? [] : pending.events,
+      questRunId: pending.questRunId,
+      events: pending.events,
       error: null,
       updatedAt: new Date().toISOString(),
     };
