@@ -8,11 +8,13 @@ interface EmbedMemoryInput {
 }
 
 export interface EmbeddingProvider {
+  readonly embeddingSpace?: { model: string; dimensions: number };
   embedMemory(input: EmbedMemoryInput): Promise<CandidateEmbedding[]>;
 }
 
 export class DeterministicEmbeddingProvider implements EmbeddingProvider {
   readonly model = "deterministic-embedding-v1";
+  readonly embeddingSpace = { model: this.model, dimensions: 1536 };
 
   async embedMemory(input: EmbedMemoryInput): Promise<CandidateEmbedding[]> {
     const sources = {
@@ -67,6 +69,10 @@ export class HostedEmbeddingProvider implements EmbeddingProvider {
       maxRetries: 2,
       timeout: 45_000,
     });
+  }
+
+  get embeddingSpace() {
+    return { model: this.embeddingSpaceId, dimensions: this.options.dimensions };
   }
 
   async embedMemory(input: EmbedMemoryInput): Promise<CandidateEmbedding[]> {

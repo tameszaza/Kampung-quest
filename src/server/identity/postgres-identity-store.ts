@@ -205,6 +205,19 @@ export class PostgresIdentityStore implements IdentityStore {
     return result.rows[0] ? this.mapUser(result.rows[0]) : null;
   }
 
+  async filterContactableUserIds(userIds: string[]): Promise<string[]> {
+    if (userIds.length === 0) return [];
+    const result = await this.pool.query<{ user_id: string }>(
+      `SELECT identity.user_id
+       FROM identity.users identity
+       JOIN auth."user" auth_user ON auth_user.id = identity.user_id
+       WHERE identity.onboarding_complete = true
+         AND identity.user_id = ANY($1::text[])`,
+      [userIds],
+    );
+    return result.rows.map((row) => row.user_id);
+  }
+
   async updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile> {
     const client = await this.pool.connect();
     try {

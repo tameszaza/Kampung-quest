@@ -2,14 +2,12 @@ import { OpenAIProvider } from "@openai/agents";
 import OpenAI from "openai";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import {
-  DeterministicEmbeddingProvider,
-  HostedEmbeddingProvider,
-} from "@/server/agents/embedding-provider";
+  createConfiguredEmbeddingProvider,
+} from "@/server/agents/configured-embedding-provider";
 import { createGeminiCompatibleFetch } from "@/server/agents/gemini-provider-fetch";
 import { HostedAgentRuntime } from "@/server/agents/openai-agent-runtime";
 import {
   UnavailableAgentRuntime,
-  UnavailableEmbeddingProvider,
 } from "@/server/agents/unavailable-agent-runtime";
 import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
 import { GeminiSvgThumbnailAgent } from "@/server/agents/gemini-svg-thumbnail-agent";
@@ -49,7 +47,7 @@ function createAgentDependencies() {
   if (providerConfiguration.provider === "deterministic") {
     return {
       agents: new DeterministicAgentRuntime(),
-      embeddings: new DeterministicEmbeddingProvider(),
+      embeddings: createConfiguredEmbeddingProvider(providerConfiguration),
       imageStorage: createQuestImageStorage(),
     };
   }
@@ -60,7 +58,7 @@ function createAgentDependencies() {
     const reason = `${keyName} is required when AGENT_PROVIDER=${providerConfiguration.provider}`;
     return {
       agents: new UnavailableAgentRuntime(reason),
-      embeddings: new UnavailableEmbeddingProvider(reason),
+      embeddings: createConfiguredEmbeddingProvider(providerConfiguration),
       imageStorage: createQuestImageStorage(),
     };
   }
@@ -102,14 +100,7 @@ function createAgentDependencies() {
       modelProvider,
       auditSink: (record) => kampungStore.recordAgentRun(record),
     }),
-    embeddings: new HostedEmbeddingProvider({
-      provider: providerConfiguration.provider,
-      apiKey,
-      baseURL: providerConfiguration.baseURL,
-      model: providerConfiguration.models.embedding,
-      dimensions: providerConfiguration.embeddingDimensions,
-      fetch: geminiFetch,
-    }),
+    embeddings: createConfiguredEmbeddingProvider(providerConfiguration, geminiFetch),
     imageAgent: geminiSvgAgent ? new RetryingQuestImageAgent(geminiSvgAgent) : undefined,
     imageStorage: createQuestImageStorage(),
   };
@@ -217,6 +208,7 @@ export const kampungQuestEngine = new KampungQuestEngine({
   venues: new MockVenueAdapter(),
   chatNotifier: questChatNotifier,
   eventCoordinator,
+  filterContactableCandidateIds: (candidateIds) => identityStore.filterContactableUserIds(candidateIds),
 });
 
 export const assistantRecommendationService = new AssistantRecommendationService({

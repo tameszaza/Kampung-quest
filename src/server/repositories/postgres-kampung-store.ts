@@ -14,6 +14,8 @@ import type {
 import type { EventCoordinationState } from "@/server/domain/event-coordination";
 import type {
   ActivateMemoryInput,
+  CandidateCommitment,
+  EmbeddingSearchInput,
   KampungStore,
   MemoryUpdateAttempt,
 } from "@/server/repositories/kampung-store";
@@ -690,20 +692,84 @@ export class PostgresKampungStore implements KampungStore {
     }));
   }
 
-  async searchEmbeddings(input: {
-    kind: CandidateEmbedding["kind"];
-    query: number[];
-    model: string;
-    dimensions: number;
-    limit: number;
-  }): Promise<Array<{ candidateId: string; similarity: number }>> {
+  async replaceActiveEmbeddings(
+    candidateId: string,
+    memoryVersion: number,
+    embeddings: CandidateEmbedding[],
+  ): Promise<void> {
+    if (embeddings.length !== 3 || embeddings.some((embedding) =>
+      embedding.candidateId !== candidateId
+      || embedding.memoryVersion !== memoryVersion
+      || embedding.dimensions !== 1536)) {
+      throw new Error("Exactly three embeddings for the active memory are required");
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const active = await client.query<{ active_version: number }>(
+        "SELECT active_version FROM memory.candidates WHERE candidate_id = $1 FOR UPDATE",
+        [candidateId],
+      );
+      if (Number(active.rows[0]?.active_version ?? 0) !== memoryVersion) {
+        throw new Error("Active memory changed during reindexing");
+      }
+      await client.query(
+        "UPDATE retrieval.candidate_embeddings SET active = false WHERE candidate_id = $1",
+        [candidateId],
+      );
+      for (const embedding of embeddings) {
+        await client.query(
+          `INSERT INTO retrieval.candidate_embeddings
+             (candidate_id, memory_version, kind, model, dimensions, embedding, active)
+           VALUES ($1, $2, $3, $4, $5, $6::vector, true)
+           ON CONFLICT (candidate_id, memory_version, kind) DO UPDATE SET
+             model = EXCLUDED.model,
+             dimensions = EXCLUDED.dimensions,
+             embedding = EXCLUDED.embedding,
+             active = true,
+             created_at = now()`,
+          [
+            candidateId,
+            memoryVersion,
+            embedding.kind,
+            embedding.model,
+            embedding.dimensions,
+            this.vectorLiteral(embedding.vector),
+          ],
+        );
+      }
+      await client.query(
+        `INSERT INTO retrieval.indexing_jobs
+           (job_id, candidate_id, memory_version, status, updated_at)
+         VALUES ($1, $2, $3, 'completed', now())`,
+        [`reindex_${randomUUID().replaceAll("-", "").slice(0, 16)}`, candidateId, memoryVersion],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async searchEmbeddings(input: EmbeddingSearchInput): Promise<Array<{ candidateId: string; similarity: number }>> {
+    if (input.candidateIds?.length === 0) return [];
     const result = await this.pool.query<{ candidate_id: string; similarity: string | number }>(
       `SELECT candidate_id, 1 - (embedding <=> $1::vector) AS similarity
        FROM retrieval.candidate_embeddings
        WHERE kind = $2 AND model = $3 AND dimensions = $4 AND active = true
+         AND ($6::text[] IS NULL OR candidate_id = ANY($6::text[]))
        ORDER BY embedding <=> $1::vector
        LIMIT $5`,
-      [this.vectorLiteral(input.query), input.kind, input.model, input.dimensions, input.limit],
+      [
+        this.vectorLiteral(input.query),
+        input.kind,
+        input.model,
+        input.dimensions,
+        input.limit,
+        input.candidateIds ?? null,
+      ],
     );
     return result.rows.map((row) => ({
       candidateId: row.candidate_id,
@@ -849,16 +915,69 @@ export class PostgresKampungStore implements KampungStore {
   }
 
   async listAcceptedCandidateIds(): Promise<string[]> {
-    const result = await this.pool.query<{ candidate_id: string }>(
-      `SELECT DISTINCT invitation->>'candidateId' AS candidate_id
-       FROM quest.quest_runs run
-       CROSS JOIN LATERAL jsonb_array_elements(COALESCE(run.payload->'coordination'->'invitations', '[]'::jsonb)) AS invitation
-       WHERE run.status IN ('awaiting_acceptance', 'confirmed', 'human_review')
-         AND invitation->>'status' = 'accepted'
-         AND invitation->>'candidateId' IS NOT NULL
-         AND (run.payload->'proposal' IS NULL OR (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz > NOW())`,
+    return [...new Set((await this.listAcceptedCommitments()).map((commitment) => commitment.candidateId))];
+  }
+
+  async listAcceptedCommitments(): Promise<CandidateCommitment[]> {
+    const result = await this.pool.query<{
+      candidate_id: string;
+      quest_id: string;
+      starts_at: string | Date | null;
+      ends_at: string | Date | null;
+    }>(
+      `WITH legacy AS (
+         SELECT invitation->>'candidateId' AS candidate_id,
+                run.run_id AS quest_id,
+                (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz AS starts_at,
+                (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'end')::timestamptz AS ends_at,
+                2 AS source_priority
+         FROM quest.quest_runs run
+         CROSS JOIN LATERAL jsonb_array_elements(
+           COALESCE(run.payload->'coordination'->'invitations', '[]'::jsonb)
+         ) AS invitation
+         WHERE run.status IN ('awaiting_acceptance', 'confirmed', 'human_review')
+           AND invitation->>'status' = 'accepted'
+           AND invitation->>'candidateId' IS NOT NULL
+           AND (run.payload->'proposal' IS NULL
+             OR (run.payload->'proposal'->'quest'->'proposedTimeWindow'->>'end')::timestamptz > NOW())
+       ), event_commitments AS (
+         SELECT membership.user_id AS candidate_id,
+                state.run_id AS quest_id,
+                COALESCE(
+                  (arrangement.payload->>'start')::timestamptz,
+                  (state.payload->'proposal'->'quest'->'proposedTimeWindow'->>'start')::timestamptz
+                ) AS starts_at,
+                COALESCE(
+                  (arrangement.payload->>'end')::timestamptz,
+                  (state.payload->'proposal'->'quest'->'proposedTimeWindow'->>'end')::timestamptz
+                ) AS ends_at,
+                1 AS source_priority
+         FROM quest.event_coordination_states state
+         JOIN quest.event_memberships membership ON membership.run_id = state.run_id
+         LEFT JOIN LATERAL (
+           SELECT payload FROM quest.event_arrangements candidate
+           WHERE candidate.run_id = state.run_id AND candidate.status = 'finalized'
+           ORDER BY candidate.version DESC LIMIT 1
+         ) arrangement ON true
+         WHERE state.lifecycle NOT IN ('completed', 'cancelled')
+           AND membership.status IN ('coordinating', 'awaiting_confirmation', 'confirmed')
+       )
+       SELECT DISTINCT ON (candidate_id, quest_id)
+              candidate_id, quest_id, starts_at, ends_at
+       FROM (SELECT * FROM legacy UNION ALL SELECT * FROM event_commitments) commitments
+       WHERE ends_at IS NULL OR ends_at > NOW()
+       ORDER BY candidate_id, quest_id, source_priority, starts_at NULLS FIRST`,
     );
-    return result.rows.map((row) => row.candidate_id);
+    return result.rows.map((row) => ({
+      candidateId: row.candidate_id,
+      questId: row.quest_id,
+      start: row.starts_at === null
+        ? null
+        : row.starts_at instanceof Date ? row.starts_at.toISOString() : new Date(row.starts_at).toISOString(),
+      end: row.ends_at === null
+        ? null
+        : row.ends_at instanceof Date ? row.ends_at.toISOString() : new Date(row.ends_at).toISOString(),
+    }));
   }
 
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {

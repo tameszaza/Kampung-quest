@@ -13,6 +13,7 @@
     "db:reset": "node scripts/reset-database.mjs",
     "db:reset-users": "node scripts/reset-users.mjs",
     "db:seed-test-users": "node --env-file-if-exists=.env --import tsx scripts/seed-test-users.ts",
+    "db:reindex": "node --env-file-if-exists=.env --import tsx scripts/reindex-candidates.ts",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node .next/standalone/server.js",
     "lint": "eslint .",

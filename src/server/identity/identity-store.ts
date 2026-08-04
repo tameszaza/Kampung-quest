@@ -42,6 +42,8 @@ export interface IdentityStore {
   updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile>;
   isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean>;
   findUserById(userId: string): Promise<StoredUser | null>;
+  /** Keep only login-enabled, onboarded recipients that can receive an invitation. */
+  filterContactableUserIds(userIds: string[]): Promise<string[]>;
   updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile>;
   listContacts(userId: string, query?: string): Promise<ChatContact[]>;
   listBlockedUsers(userId: string): Promise<ChatContact[]>;
@@ -207,6 +209,10 @@ export class InMemoryIdentityStore implements IdentityStore {
 
   async findUserById(userId: string): Promise<StoredUser | null> {
     return this.users.get(userId) ?? null;
+  }
+
+  async filterContactableUserIds(userIds: string[]): Promise<string[]> {
+    return userIds.filter((userId) => this.users.get(userId)?.onboardingComplete === true);
   }
 
   async updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile> {

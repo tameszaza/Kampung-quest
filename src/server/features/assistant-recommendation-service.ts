@@ -215,26 +215,6 @@ export class AssistantRecommendationService {
         seededCandidateCount,
       };
     }
-    // An accepted member already has an active commitment. Return that run
-    // instead of synthesising a second proposal that can only end in an
-    // ineligible human-review state.
-    const activeAcceptedQuest = (await this.dependencies.store.listQuestRuns(command.candidateId, 50))
-      .find((run) =>
-        (run.status === "awaiting_acceptance" || run.status === "confirmed") &&
-        run.proposal !== null &&
-        Date.parse(run.proposal.quest.proposedTimeWindow.start) > Date.now() &&
-        run.coordination?.invitations.some((invitation) =>
-          invitation.candidateId === command.candidateId && invitation.status === "accepted",
-        ),
-      );
-    if (activeAcceptedQuest) {
-      return {
-        memory,
-        quest: activeAcceptedQuest,
-        provider: this.dependencies.provider,
-        seededCandidateCount,
-      };
-    }
     let quest = await this.dependencies.engine.proposeQuest({
       initiatingCandidateId: command.candidateId,
       idempotencyKey,

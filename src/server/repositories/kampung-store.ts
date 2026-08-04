@@ -24,6 +24,24 @@ export interface MemoryUpdateAttempt {
   currentMemory: MemoryCard | null;
 }
 
+export interface EmbeddingSearchInput {
+  kind: CandidateEmbedding["kind"];
+  query: number[];
+  model: string;
+  dimensions: number;
+  limit: number;
+  /** Apply hard eligibility before nearest-neighbour limiting. */
+  candidateIds?: string[];
+}
+
+export interface CandidateCommitment {
+  candidateId: string;
+  questId: string;
+  /** Null means the commitment has no reliable schedule and remains exclusive. */
+  start: string | null;
+  end: string | null;
+}
+
 export interface KampungStore {
   createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
   findEventCoordinationState(runId: string): Promise<EventCoordinationState | null>;
@@ -44,13 +62,12 @@ export interface KampungStore {
   findMemory(candidateId: string): Promise<MemoryCard | null>;
   listMemories(): Promise<MemoryCard[]>;
   findEmbeddings(candidateId: string): Promise<CandidateEmbedding[]>;
-  searchEmbeddings(input: {
-    kind: CandidateEmbedding["kind"];
-    query: number[];
-    model: string;
-    dimensions: number;
-    limit: number;
-  }): Promise<Array<{ candidateId: string; similarity: number }>>;
+  replaceActiveEmbeddings(
+    candidateId: string,
+    memoryVersion: number,
+    embeddings: CandidateEmbedding[],
+  ): Promise<void>;
+  searchEmbeddings(input: EmbeddingSearchInput): Promise<Array<{ candidateId: string; similarity: number }>>;
   createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }>;
   saveQuestRun(run: QuestRun): Promise<QuestRun>;
   /** Updates only the generated thumbnail when the run has not changed. */
@@ -67,6 +84,8 @@ export interface KampungStore {
   listJoinableQuestRuns(limit: number): Promise<QuestRun[]>;
   /** Candidates who accepted an invitation on a still-active quest. */
   listAcceptedCandidateIds(): Promise<string[]>;
+  /** Accepted, non-terminal commitments with their best-known time window. */
+  listAcceptedCommitments(): Promise<CandidateCommitment[]>;
   appendCoordinationEvent(event: CoordinationEventRecord): Promise<void>;
   healthCheck(): Promise<{ database: boolean; vector: boolean }>;
   recordAgentRun(record: AgentRunAudit): Promise<void>;
@@ -217,15 +236,25 @@ export class InMemoryKampungStore implements KampungStore {
     return structuredClone(this.embeddings.get(candidateId) ?? []);
   }
 
-  async searchEmbeddings(input: {
-    kind: CandidateEmbedding["kind"];
-    query: number[];
-    model: string;
-    dimensions: number;
-    limit: number;
-  }): Promise<Array<{ candidateId: string; similarity: number }>> {
+  async replaceActiveEmbeddings(
+    candidateId: string,
+    memoryVersion: number,
+    embeddings: CandidateEmbedding[],
+  ): Promise<void> {
+    const memory = this.memories.get(candidateId);
+    if (!memory || memory.version !== memoryVersion) throw new Error("Active memory changed during reindexing");
+    if (embeddings.length !== 3 || embeddings.some((embedding) =>
+      embedding.candidateId !== candidateId || embedding.memoryVersion !== memoryVersion)) {
+      throw new Error("Reindexed embeddings do not match the active memory");
+    }
+    this.embeddings.set(candidateId, structuredClone(embeddings));
+  }
+
+  async searchEmbeddings(input: EmbeddingSearchInput): Promise<Array<{ candidateId: string; similarity: number }>> {
+    const allowedCandidateIds = input.candidateIds ? new Set(input.candidateIds) : null;
     return [...this.embeddings.entries()]
       .flatMap(([candidateId, embeddings]) =>
+        allowedCandidateIds && !allowedCandidateIds.has(candidateId) ? [] :
         embeddings
           .filter((embedding) =>
             embedding.kind === input.kind
@@ -328,15 +357,44 @@ export class InMemoryKampungStore implements KampungStore {
   }
 
   async listAcceptedCandidateIds(): Promise<string[]> {
-    const accepted = new Set<string>();
+    return [...new Set((await this.listAcceptedCommitments()).map((commitment) => commitment.candidateId))];
+  }
+
+  async listAcceptedCommitments(): Promise<CandidateCommitment[]> {
+    const commitments = new Map<string, CandidateCommitment>();
     for (const run of this.questRuns.values()) {
       if (!run.coordination || isTerminalQuestStatus(run.status)) continue;
-      if (run.proposal && Date.parse(run.proposal.quest.proposedTimeWindow.start) <= Date.now()) continue;
+      const window = run.proposal?.quest.proposedTimeWindow ?? null;
+      if (window && Date.parse(window.end) <= Date.now()) continue;
       for (const invitation of run.coordination.invitations) {
-        if (invitation.status === "accepted") accepted.add(invitation.candidateId);
+        if (invitation.status !== "accepted") continue;
+        const commitment = {
+          candidateId: invitation.candidateId,
+          questId: run.runId,
+          start: window?.start ?? null,
+          end: window?.end ?? null,
+        };
+        commitments.set(`${run.runId}:${invitation.candidateId}`, commitment);
       }
     }
-    return [...accepted];
+    for (const state of this.eventCoordinationStates.values()) {
+      if (["completed", "cancelled"].includes(state.lifecycle)) continue;
+      const finalized = [...state.arrangements]
+        .filter((arrangement) => arrangement.status === "finalized")
+        .sort((left, right) => right.version - left.version)[0];
+      const window = finalized ?? state.proposal.quest.proposedTimeWindow;
+      if (Date.parse(window.end) <= Date.now()) continue;
+      for (const membership of state.memberships) {
+        if (!["coordinating", "awaiting_confirmation", "confirmed"].includes(membership.status)) continue;
+        commitments.set(`${state.runId}:${membership.userId}`, {
+          candidateId: membership.userId,
+          questId: state.runId,
+          start: window.start,
+          end: window.end,
+        });
+      }
+    }
+    return [...commitments.values()].map((commitment) => structuredClone(commitment));
   }
 
   async appendCoordinationEvent(event: CoordinationEventRecord): Promise<void> {

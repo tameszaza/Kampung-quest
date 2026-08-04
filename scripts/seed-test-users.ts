@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { auth, betterAuthPool } from "@/lib/auth";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
-import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
+import { createConfiguredEmbeddingProvider } from "@/server/agents/configured-embedding-provider";
+import { resolveProviderConfiguration } from "@/server/agents/provider-configuration";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { PostgresIdentityStore } from "@/server/identity/postgres-identity-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
@@ -23,7 +24,7 @@ const kampungStore = new PostgresKampungStore(databaseUrl);
 const engine = new KampungQuestEngine({
   store: kampungStore,
   agents: new DeterministicAgentRuntime(),
-  embeddings: new DeterministicEmbeddingProvider(),
+  embeddings: createConfiguredEmbeddingProvider(resolveProviderConfiguration(process.env)),
 });
 const result = {
   createdAccounts: 0,

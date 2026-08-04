@@ -23,6 +23,7 @@ import type {
   AssistantWorkflowEvent,
   QuestRun,
 } from "@/server/domain/schemas";
+import { zonedLocalDateTimeToIso } from "@/lib/time-zone";
 import type { AvailabilityWindow, WeeklyAvailabilityRule } from "@/server/domain/schemas";
 import { expandAvailability } from "@/server/features/availability-service";
 
@@ -482,14 +483,14 @@ export function specificAvailabilityWindows(
   timeZone: string,
 ): AvailabilityWindow[] {
   if (savedWindows.length) return savedWindows;
-  const start = Date.parse(currentStart);
-  const end = Date.parse(currentEnd);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
-  return [{
-    start: new Date(start).toISOString(),
-    end: new Date(end).toISOString(),
-    timeZone,
-  }];
+  try {
+    const start = zonedLocalDateTimeToIso(currentStart, timeZone);
+    const end = zonedLocalDateTimeToIso(currentEnd, timeZone);
+    if (Date.parse(end) <= Date.parse(start)) return [];
+    return [{ start, end, timeZone }];
+  } catch {
+    return [];
+  }
 }
 
 function ReviewCard({ conversation, onEdit, onConfirm }: {

@@ -24,7 +24,7 @@ import type {
 } from "@/server/domain/schemas";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import type { EventCoordinator } from "@/server/features/event-coordinator";
-import type { KampungStore } from "@/server/repositories/kampung-store";
+import type { CandidateCommitment, KampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageStorage } from "@/server/quest/quest-image-storage";
 import type { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
 import { logger, safeErrorMessage } from "@/server/observability/logger";
@@ -39,6 +39,7 @@ interface KampungQuestEngineDependencies {
   imageStorage?: QuestImageStorage;
   chatNotifier?: QuestChatNotifier;
   eventCoordinator?: EventCoordinator;
+  filterContactableCandidateIds?: (candidateIds: string[]) => Promise<string[]>;
 }
 
 const OPEN_QUEST_MATCH_THRESHOLD = 0.72;
@@ -132,6 +133,96 @@ export class KampungQuestEngine {
     return this.dependencies.store.findMemory(candidateId);
   }
 
+  async getEmbeddingIndexStatus(): Promise<{
+    ready: boolean;
+    indexed: number;
+    stale: number;
+    staleCandidateIds: string[];
+  }> {
+    const target = this.dependencies.embeddings.embeddingSpace;
+    if (!target) return { ready: false, indexed: 0, stale: 0, staleCandidateIds: [] };
+    const cards = await this.dependencies.store.listMemories();
+    const candidateIds = cards.map((card) => card.profile.candidateId);
+    const contactableIds = this.dependencies.filterContactableCandidateIds
+      ? await this.dependencies.filterContactableCandidateIds(candidateIds)
+      : candidateIds;
+    const contactable = new Set(contactableIds);
+    const statuses = await Promise.all(cards
+      .filter((card) => contactable.has(card.profile.candidateId))
+      .map(async (card) => {
+        const embeddings = await this.dependencies.store.findEmbeddings(card.profile.candidateId);
+        const ready = embeddings.length === 3 && embeddings.every((embedding) =>
+          embedding.memoryVersion === card.version
+          && embedding.model === target.model
+          && embedding.dimensions === target.dimensions);
+        return { candidateId: card.profile.candidateId, ready };
+      }));
+    const staleCandidateIds = statuses.filter((status) => !status.ready).map((status) => status.candidateId);
+    return {
+      ready: staleCandidateIds.length === 0,
+      indexed: statuses.length - staleCandidateIds.length,
+      stale: staleCandidateIds.length,
+      staleCandidateIds,
+    };
+  }
+
+  async reindexActiveMemories(options?: { candidateIds?: string[] }): Promise<{
+    scanned: number;
+    reindexed: number;
+    skipped: number;
+    failures: Array<{ candidateId: string; error: string }>;
+  }> {
+    const target = this.dependencies.embeddings.embeddingSpace;
+    if (!target) throw new Error("The configured embedding provider does not expose its embedding space");
+    const selected = options?.candidateIds ? new Set(options.candidateIds) : null;
+    const cards = (await this.dependencies.store.listMemories())
+      .filter((card) => !selected || selected.has(card.profile.candidateId));
+    const candidateIds = cards.map((card) => card.profile.candidateId);
+    const contactableIds = this.dependencies.filterContactableCandidateIds
+      ? await this.dependencies.filterContactableCandidateIds(candidateIds)
+      : candidateIds;
+    const contactable = new Set(contactableIds);
+    let reindexed = 0;
+    let skipped = cards.length - contactable.size;
+    const failures: Array<{ candidateId: string; error: string }> = [];
+    for (const card of cards) {
+      if (!contactable.has(card.profile.candidateId)) continue;
+      const current = await this.dependencies.store.findEmbeddings(card.profile.candidateId);
+      const currentSpaceReady = current.length === 3 && current.every((embedding) =>
+        embedding.memoryVersion === card.version
+        && embedding.model === target.model
+        && embedding.dimensions === target.dimensions);
+      if (currentSpaceReady) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        const embeddings = await this.dependencies.embeddings.embedMemory({
+          candidateId: card.profile.candidateId,
+          memoryVersion: card.version,
+          memory: {
+            markdown: card.markdown,
+            need: card.profile.need,
+            interests: card.profile.interests,
+            offers: card.profile.offers,
+          },
+        });
+        await this.dependencies.store.replaceActiveEmbeddings(
+          card.profile.candidateId,
+          card.version,
+          embeddings,
+        );
+        reindexed += 1;
+      } catch (error) {
+        failures.push({
+          candidateId: card.profile.candidateId,
+          error: error instanceof Error ? error.message : "Unknown reindexing failure",
+        });
+      }
+    }
+    return { scanned: cards.length, reindexed, skipped, failures };
+  }
+
   /**
    * Add a newly prepared participant to an existing future quest when their
    * current need, interests, and offers are a strong vector match for the
@@ -145,6 +236,8 @@ export class KampungQuestEngine {
   ): Promise<QuestRun | null> {
     const candidate = await this.dependencies.store.findMemory(candidateId);
     if (!candidate || candidate.profile.memoryStatus !== "active") return null;
+    const commitments = await this.dependencies.store.listAcceptedCommitments();
+    const candidateCommitments = commitments.filter((commitment) => commitment.candidateId === candidateId);
 
     // Event coordination owns forming rosters. A newly prepared participant can
     // join a compatible, not-yet-started formation without bypassing its
@@ -165,6 +258,11 @@ export class KampungQuestEngine {
             || state.roster.some((member) => member.userId === candidateId)
             || state.memberships.some((member) => member.userId === candidateId
               && !["withdrawn", "replaced", "cancelled", "completed"].includes(member.status))) continue;
+          if (this.hasOverlappingCommitment(
+            candidateCommitments,
+            state.proposal.quest.proposedTimeWindow,
+            state.runId,
+          )) continue;
           if (state.roster.length >= candidate.profile.constraints.maximumGroupSize) continue;
           const score = await this.groupCompatibilityScore(
             candidateVectors,
@@ -197,9 +295,6 @@ export class KampungQuestEngine {
       }
     }
 
-    const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
-    if (acceptedCandidateIds.has(candidateId)) return null;
-
     const [candidateEmbeddings, openRuns, cards] = await Promise.all([
       this.dependencies.store.findEmbeddings(candidateId),
       this.dependencies.store.listJoinableQuestRuns(OPEN_QUEST_SCAN_LIMIT),
@@ -228,6 +323,11 @@ export class KampungQuestEngine {
       if (proposal.proposedParticipants.some((participant) => participant.candidateId === candidateId)) continue;
       if (coordination.invitations.some((invitation) => invitation.candidateId === candidateId)) continue;
       if (proposal.proposedParticipants.length >= candidate.profile.constraints.maximumGroupSize) continue;
+      if (this.hasOverlappingCommitment(
+        candidateCommitments,
+        proposal.quest.proposedTimeWindow,
+        run.runId,
+      )) continue;
 
       const participantIds = proposal.proposedParticipants.map((participant) => participant.candidateId);
       const groupScore = await this.groupCompatibilityScore(candidateVectors, participantIds);
@@ -331,14 +431,45 @@ export class KampungQuestEngine {
     const interest = embeddings.find((embedding) => embedding.kind === "interest");
     if (!need || !interest) throw new Error("Initiating candidate memory is not retrieval-ready");
 
-    const rawLimit = 10;
-    const [needMatches, offerMatches, interestMatches, cards, acceptedCandidateIdsResult] = await Promise.all([
+    const [cards, commitments] = await Promise.all([
+      this.dependencies.store.listMemories(),
+      this.dependencies.store.listAcceptedCommitments(),
+    ]);
+    const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+    const commitmentsByCandidate = this.commitmentsByCandidate(commitments);
+    const hardEligibleCandidateIds = cards
+      .map((card) => card.profile)
+      .filter((profile) => this.passesHardFilters(
+        initiatorCard.profile,
+        profile,
+        commitmentsByCandidate.get(profile.candidateId) ?? [],
+      ))
+      .map((profile) => profile.candidateId);
+    const eligibleCandidateIds = this.dependencies.filterContactableCandidateIds
+      ? await this.dependencies.filterContactableCandidateIds(hardEligibleCandidateIds)
+      : hardEligibleCandidateIds;
+    if (eligibleCandidateIds.length === 0) {
+      logger.info("quest.retrieval.completed", {
+        initiatingCandidateId: command.initiatingCandidateId,
+        activeProfiles: cards.length,
+        hardEligibleProfiles: hardEligibleCandidateIds.length,
+        contactableProfiles: 0,
+        vectorMatchedProfiles: 0,
+        returnedProfiles: 0,
+      });
+      return [];
+    }
+
+    const requestedLimit = Math.min(20, Math.max(1, command.limit ?? 15));
+    const rawLimit = Math.min(100, Math.max(requestedLimit, eligibleCandidateIds.length));
+    const [needMatches, offerMatches, interestMatches] = await Promise.all([
       this.dependencies.store.searchEmbeddings({
         kind: "need",
         query: need.vector,
         model: need.model,
         dimensions: need.dimensions,
         limit: rawLimit,
+        candidateIds: eligibleCandidateIds,
       }),
       this.dependencies.store.searchEmbeddings({
         kind: "offer",
@@ -346,6 +477,7 @@ export class KampungQuestEngine {
         model: need.model,
         dimensions: need.dimensions,
         limit: rawLimit,
+        candidateIds: eligibleCandidateIds,
       }),
       this.dependencies.store.searchEmbeddings({
         kind: "interest",
@@ -353,12 +485,9 @@ export class KampungQuestEngine {
         model: interest.model,
         dimensions: interest.dimensions,
         limit: rawLimit,
+        candidateIds: eligibleCandidateIds,
       }),
-      this.dependencies.store.listMemories(),
-      this.dependencies.store.listAcceptedCandidateIds(),
     ]);
-    const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
-    const acceptedCandidateIds = new Set(acceptedCandidateIdsResult);
     const scoreByCandidate = new Map<string, { need: number; offer: number; interest: number }>();
     for (const [key, matches] of [
       ["need", needMatches],
@@ -372,10 +501,14 @@ export class KampungQuestEngine {
       }
     }
 
-    return [...scoreByCandidate.entries()]
+    const results = [...scoreByCandidate.entries()]
       .flatMap(([candidateId, vectorScores]) => {
         const profile = profiles.get(candidateId);
-        if (!profile || !this.passesHardFilters(initiatorCard.profile, profile, acceptedCandidateIds)) return [];
+        if (!profile || !this.passesHardFilters(
+          initiatorCard.profile,
+          profile,
+          commitmentsByCandidate.get(candidateId) ?? [],
+        )) return [];
         const minimumGroupSize = Math.max(
           initiatorCard.profile.constraints.minimumGroupSize,
           profile.constraints.minimumGroupSize,
@@ -404,7 +537,17 @@ export class KampungQuestEngine {
         }];
       })
       .sort((left, right) => right.scores.total - left.scores.total)
-      .slice(0, Math.min(20, Math.max(1, command.limit ?? 15)));
+      .slice(0, requestedLimit);
+    logger.info("quest.retrieval.completed", {
+      initiatingCandidateId: command.initiatingCandidateId,
+      activeProfiles: cards.length,
+      hardEligibleProfiles: hardEligibleCandidateIds.length,
+      contactableProfiles: eligibleCandidateIds.length,
+      vectorMatchedProfiles: scoreByCandidate.size,
+      returnedProfiles: results.length,
+      embeddingModel: need.model,
+    });
+    return results;
   }
 
   async proposeQuest(command: ProposeQuestCommand, observe?: QuestPipelineObserver): Promise<QuestRun> {
@@ -543,9 +686,13 @@ export class KampungQuestEngine {
       // Retrieval and invitation happen in separate steps. Re-check here so a
       // participant who accepted another quest while this proposal was being
       // synthesized can never receive a second invitation.
-      const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
+      const activeCommitments = await this.dependencies.store.listAcceptedCommitments();
       const alreadyAcceptedParticipant = proposal.proposedParticipants.find((participant) =>
-        acceptedCandidateIds.has(participant.candidateId),
+        this.hasOverlappingCommitment(
+          activeCommitments.filter((commitment) => commitment.candidateId === participant.candidateId),
+          proposal.quest.proposedTimeWindow,
+          base.runId,
+        ),
       );
       if (alreadyAcceptedParticipant) {
         const eligibility = {
@@ -553,10 +700,10 @@ export class KampungQuestEngine {
           errors: [...validation.errors, {
             candidateId: alreadyAcceptedParticipant.candidateId,
             field: "eligibility",
-            message: "Participant has already accepted another active quest.",
+            message: "Participant has an overlapping accepted quest.",
           }],
         };
-        await observe?.({ stage: "validation", status: "failed", message: "A participant accepted another active quest", kind: "system" });
+        await observe?.({ stage: "validation", status: "failed", message: "A participant accepted an overlapping quest", kind: "system" });
         return this.dependencies.store.saveQuestRun({
           ...base,
           status: "human_review",
@@ -787,15 +934,19 @@ export class KampungQuestEngine {
         run.initiatingCandidateId,
         this.validator.validate(proposal, profiles),
       );
-      const acceptedCandidateIds = new Set(await this.dependencies.store.listAcceptedCandidateIds());
-      const reserveAlreadyAccepted = acceptedCandidateIds.has(reserve.candidateId);
+      const activeCommitments = await this.dependencies.store.listAcceptedCommitments();
+      const reserveAlreadyAccepted = this.hasOverlappingCommitment(
+        activeCommitments.filter((commitment) => commitment.candidateId === reserve.candidateId),
+        proposal.quest.proposedTimeWindow,
+        run.runId,
+      );
       const replacementValidation = reserveAlreadyAccepted
         ? {
             valid: false,
             errors: [...validation.errors, {
               candidateId: reserve.candidateId,
               field: "eligibility",
-              message: "Replacement participant has already accepted another active quest.",
+              message: "Replacement participant has an overlapping accepted quest.",
             }],
           }
         : validation;
@@ -924,7 +1075,7 @@ export class KampungQuestEngine {
   private passesHardFilters(
     initiator: CandidateProfile,
     candidate: CandidateProfile,
-    acceptedCandidateIds: Set<string>,
+    commitments: CandidateCommitment[],
   ): boolean {
     if (
       candidate.candidateId === initiator.candidateId ||
@@ -933,7 +1084,6 @@ export class KampungQuestEngine {
       !candidate.constraints.verified ||
       !candidate.constraints.invitationConsent ||
       candidate.alreadyCommitted ||
-      acceptedCandidateIds.has(candidate.candidateId) ||
       candidate.relationshipBlocked
     ) return false;
 
@@ -956,12 +1106,59 @@ export class KampungQuestEngine {
       distance > Math.min(initiator.constraints.maximumDistanceM, candidate.constraints.maximumDistanceM)
     ) return false;
 
+    return this.hasFreeAvailabilityOverlap(initiator, candidate, commitments);
+  }
+
+  private commitmentsByCandidate(commitments: CandidateCommitment[]): Map<string, CandidateCommitment[]> {
+    const grouped = new Map<string, CandidateCommitment[]>();
+    for (const commitment of commitments) {
+      const current = grouped.get(commitment.candidateId) ?? [];
+      current.push(commitment);
+      grouped.set(commitment.candidateId, current);
+    }
+    return grouped;
+  }
+
+  private hasOverlappingCommitment(
+    commitments: CandidateCommitment[],
+    window: { start: string; end: string },
+    excludedQuestId?: string,
+  ): boolean {
+    const start = Date.parse(window.start);
+    const end = Date.parse(window.end);
+    return commitments.some((commitment) => {
+      if (commitment.questId === excludedQuestId) return false;
+      if (commitment.start === null || commitment.end === null) return true;
+      return Date.parse(commitment.start) < end && Date.parse(commitment.end) > start;
+    });
+  }
+
+  private hasFreeAvailabilityOverlap(
+    initiator: CandidateProfile,
+    candidate: CandidateProfile,
+    commitments: CandidateCommitment[],
+  ): boolean {
+    if (commitments.some((commitment) => commitment.start === null || commitment.end === null)) return false;
+    const minimumDurationMs = 30 * 60_000;
+    const busy = commitments
+      .flatMap((commitment) => commitment.start && commitment.end
+        ? [{ start: Date.parse(commitment.start), end: Date.parse(commitment.end) }]
+        : [])
+      .sort((left, right) => left.start - right.start);
     return initiator.constraints.availableWindows.some((left) =>
-      candidate.constraints.availableWindows.some((right) =>
-        Math.min(Date.parse(left.end), Date.parse(right.end)) -
-          Math.max(Date.parse(left.start), Date.parse(right.start)) >=
-        30 * 60_000,
-      ),
+      candidate.constraints.availableWindows.some((right) => {
+        const overlapStart = Math.max(Date.parse(left.start), Date.parse(right.start));
+        const overlapEnd = Math.min(Date.parse(left.end), Date.parse(right.end));
+        if (overlapEnd - overlapStart < minimumDurationMs) return false;
+        let cursor = overlapStart;
+        for (const interval of busy) {
+          if (interval.end <= cursor || interval.start >= overlapEnd) continue;
+          if (interval.start - cursor >= minimumDurationMs) return true;
+          cursor = Math.max(cursor, interval.end);
+          if (overlapEnd - cursor < minimumDurationMs) return false;
+        }
+        return overlapEnd - cursor >= minimumDurationMs;
+      }),
     );
   }
 

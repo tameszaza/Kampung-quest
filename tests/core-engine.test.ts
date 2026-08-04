@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CandidateProfile } from "@/server/domain/schemas";
+import type { CandidateProfile, QuestRun } from "@/server/domain/schemas";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
@@ -40,6 +40,89 @@ function withProfile(
   overrides: Partial<CandidateProfile>,
 ): CandidateProfile {
   return { ...profile(candidateId), ...overrides };
+}
+
+function acceptedQuest(
+  runId: string,
+  candidateId: string,
+  window: { start: string; end: string },
+): QuestRun {
+  return {
+    runId,
+    initiatingCandidateId: `host_${runId}`,
+    idempotencyKey: null,
+    status: "confirmed",
+    proposal: {
+      quest: {
+        title: "Existing activity",
+        questType: "community_activity",
+        sharedGoal: "Meet neighbours",
+        description: "An existing scheduled activity.",
+        needsAddressed: ["companionship"],
+        durationMinutes: 60,
+        groupSize: 2,
+        venueRequirements: ["approved_public_location"],
+        proposedTimeWindow: window,
+      },
+      proposedParticipants: [{
+        candidateId,
+        proposedRole: "participant",
+        needsAddressed: ["companionship"],
+        contributionsUsed: ["conversation"],
+      }],
+      reserveCandidates: [],
+      mutualBenefitExplanation: ["Neighbours meet."],
+      confidence: 0.9,
+    },
+    validation: { valid: true, errors: [] },
+    safety: null,
+    coordination: {
+      questId: runId,
+      state: "confirmed",
+      invitations: [{ candidateId, status: "accepted" }],
+      nextAction: "Attend the activity",
+    },
+    createdAt: "2098-01-01T00:00:00.000Z",
+    updatedAt: "2098-01-01T00:00:00.000Z",
+  };
+}
+
+function fixedEmbeddingProvider(model: string): EmbeddingProvider {
+  return {
+    embeddingSpace: { model, dimensions: 1536 },
+    async embedMemory(input) {
+      return (["need", "interest", "offer"] as const).map((kind) => ({
+        candidateId: input.candidateId,
+        memoryVersion: input.memoryVersion,
+        kind,
+        model,
+        dimensions: 1536,
+        vector: [1, ...Array.from<number>({ length: 1535 }).fill(0)],
+      }));
+    },
+  };
+}
+
+class RankedCandidateStore extends InMemoryKampungStore {
+  constructor(private readonly ranking: string[]) {
+    super();
+  }
+
+  override async searchEmbeddings(input: Parameters<InMemoryKampungStore["searchEmbeddings"]>[0] & {
+    candidateIds?: string[];
+  }) {
+    const { candidateIds, ...search } = input;
+    const matches = await super.searchEmbeddings({ ...search, limit: 100 });
+    const byCandidateId = new Map(matches.map((match) => [match.candidateId, match]));
+    const allowed = candidateIds ? new Set(candidateIds) : null;
+    return this.ranking
+      .filter((candidateId) => !allowed || allowed.has(candidateId))
+      .flatMap((candidateId) => {
+        const match = byCandidateId.get(candidateId);
+        return match ? [match] : [];
+      })
+      .slice(0, input.limit);
+  }
 }
 
 describe("KampungQuestEngine memory", () => {
@@ -146,6 +229,54 @@ describe("KampungQuestEngine memory", () => {
     expect(candidates[0].scores.offerComplementarity).toBeGreaterThan(0);
   });
 
+  it("filters hard-ineligible profiles before limiting vector matches", async () => {
+    const ineligibleIds = Array.from({ length: 10 }, (_, index) => `ineligible_${index + 1}`);
+    const eligibleId = "eligible_after_shortlist";
+    const store = new RankedCandidateStore([...ineligibleIds, eligibleId, "candidate_001"]);
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Healthy lunch host" });
+    for (const candidateId of ineligibleIds) {
+      await engine.recordMemory({
+        profile: withProfile(candidateId, {
+          constraints: { ...profile(candidateId).constraints, verified: false },
+        }),
+        narrative: "High vector similarity but not verified",
+      });
+    }
+    await engine.recordMemory({
+      profile: withProfile(eligibleId, { offers: ["can prepare healthy lunch ingredients"] }),
+      narrative: "Eligible lower-ranked healthy lunch neighbour",
+    });
+
+    expect(
+      (await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" }))
+        .map((candidate) => candidate.profile.candidateId),
+    ).toEqual([eligibleId]);
+  });
+
+  it("does not retrieve a profile that cannot receive an invitation", async () => {
+    const store = new InMemoryKampungStore();
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+      filterContactableCandidateIds: async (candidateIds) =>
+        candidateIds.filter((candidateId) => candidateId !== "orphan_profile"),
+    });
+    for (const candidateId of ["candidate_001", "orphan_profile", "contactable_candidate"]) {
+      await engine.recordMemory({ profile: profile(candidateId), narrative: "Healthy lunch neighbour" });
+    }
+
+    expect(
+      (await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" }))
+        .map((candidate) => candidate.profile.candidateId),
+    ).toEqual(["contactable_candidate"]);
+  });
+
   it("does not retrieve a candidate who already accepted an active quest", async () => {
     const store = new InMemoryKampungStore();
     const engine = new KampungQuestEngine({
@@ -188,6 +319,37 @@ describe("KampungQuestEngine memory", () => {
     });
 
     expect(await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" })).toEqual([]);
+  });
+
+  it("keeps candidates eligible when an accepted quest does not overlap the requested availability", async () => {
+    const store = new InMemoryKampungStore();
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    const requestedWindow = [{ start: "2099-08-06T11:00:00.000Z", end: "2099-08-06T13:00:00.000Z" }];
+    for (const candidateId of ["candidate_001", "non_overlapping", "overlapping"]) {
+      await engine.recordMemory({
+        profile: withProfile(candidateId, {
+          constraints: { ...profile(candidateId).constraints, availableWindows: requestedWindow },
+        }),
+        narrative: "Healthy lunch neighbour",
+      });
+    }
+    await store.saveQuestRun(acceptedQuest("morning-quest", "non_overlapping", {
+      start: "2099-08-06T08:00:00.000Z",
+      end: "2099-08-06T09:00:00.000Z",
+    }));
+    await store.saveQuestRun(acceptedQuest("lunch-quest", "overlapping", {
+      start: "2099-08-06T11:00:00.000Z",
+      end: "2099-08-06T12:45:00.000Z",
+    }));
+
+    expect(
+      (await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" }))
+        .map((candidate) => candidate.profile.candidateId),
+    ).toEqual(["non_overlapping"]);
   });
 
   it("keeps candidates with only pending invitations eligible", async () => {
@@ -282,6 +444,34 @@ describe("KampungQuestEngine memory", () => {
     await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Second model" });
 
     expect(await engine.retrieveCandidates({ initiatingCandidateId: "candidate_001" })).toEqual([]);
+  });
+
+  it("reindexes active memories into the configured embedding space", async () => {
+    const store = new InMemoryKampungStore();
+    const oldEngine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: fixedEmbeddingProvider("old-model"),
+    });
+    await oldEngine.recordMemory({ profile: profile("candidate_001"), narrative: "Healthy lunch host" });
+    await oldEngine.recordMemory({ profile: profile("candidate_002"), narrative: "Healthy lunch guest" });
+
+    const currentEngine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: fixedEmbeddingProvider("current-model"),
+    });
+    const before = await currentEngine.getEmbeddingIndexStatus();
+    expect(before).toMatchObject({ ready: false, indexed: 0, stale: 2 });
+
+    const repaired = await currentEngine.reindexActiveMemories();
+
+    expect(repaired).toMatchObject({ scanned: 2, reindexed: 2, skipped: 0, failures: [] });
+    expect(await currentEngine.getEmbeddingIndexStatus()).toMatchObject({ ready: true, indexed: 2, stale: 0 });
+    expect(
+      (await currentEngine.retrieveCandidates({ initiatingCandidateId: "candidate_001" }))
+        .map((candidate) => candidate.profile.candidateId),
+    ).toEqual(["candidate_002"]);
   });
 
   it("persists an idempotent, validated and safety-approved quest proposal", async () => {
