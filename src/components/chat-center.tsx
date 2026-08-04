@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
+import { EventCoordinationConversation } from "@/components/event-coordination-conversation";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
 import type { ChatContact, ChatMessage, ChatProfile, ConversationSummary } from "@/server/identity/types";
@@ -25,11 +26,22 @@ const assistantConversation: ConversationSummary = {
   memberCount: 1,
 };
 
-export function ChatCenter({ initialConversation }: { initialConversation?: "assistant" }) {
+export function ChatCenter({ initialConversation, initialQuest }: { initialConversation?: "assistant"; initialQuest?: string }) {
   const { showToast } = useAppState();
+  const activityConversationId = initialQuest ? `activity:${initialQuest}` : null;
+  const [activitySummary, setActivitySummary] = useState<ConversationSummary>(() => ({
+    id: activityConversationId ?? "activity:pending",
+    type: "group",
+    title: "Activity coordination",
+    imageUrl: null,
+    preview: "Plan this activity with Senior Quest",
+    lastMessageAt: "now",
+    unreadCount: 0,
+    memberCount: 0,
+  }));
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [assistant, setAssistant] = useState<ConversationSummary>(assistantConversation);
-  const [selectedId, setSelectedId] = useState<string | null>(initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null);
+  const [selectedId, setSelectedId] = useState<string | null>(activityConversationId ?? (initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null));
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -43,17 +55,21 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
   const [profile, setProfile] = useState<ChatProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const handleActivityTitle = useCallback((title: string, memberCount: number) => {
+    setActivitySummary((current) => ({ ...current, title, memberCount }));
+  }, []);
 
+  const activitySelected = activityConversationId !== null && selectedId === activityConversationId;
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const assistantSelected = selectedId === ASSISTANT_CONVERSATION_ID;
-  const activeConversation = assistantSelected ? assistant : selected;
+  const activeConversation = activitySelected ? activitySummary : assistantSelected ? assistant : selected;
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    const items = [assistant, ...conversations];
+    const items = [ ...(activityConversationId ? [activitySummary] : []), assistant, ...conversations ];
     return value
       ? items.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
       : items;
-  }, [assistant, conversations, query]);
+  }, [activityConversationId, activitySummary, assistant, conversations, query]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -100,18 +116,18 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
     return () => window.clearInterval(timer);
   }, [loadConversations]);
   useEffect(() => {
-    if (!selectedId || assistantSelected) return;
+    if (!selectedId || assistantSelected || activitySelected) return;
     void loadMessages(selectedId);
     const timer = window.setInterval(() => {
       void loadMessages(selectedId, true);
     }, 4_000);
     return () => window.clearInterval(timer);
-  }, [assistantSelected, loadConversations, loadMessages, selectedId]);
+  }, [activitySelected, assistantSelected, loadConversations, loadMessages, selectedId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function openConversation(id: string) {
     setSelectedId(id);
-    if (id === ASSISTANT_CONVERSATION_ID) setMessages([]);
+    if (id === ASSISTANT_CONVERSATION_ID || id === activityConversationId) setMessages([]);
     setMenuOpen(false);
     setConfirmAction(null);
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
@@ -224,7 +240,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
           {filtered.map((conversation) => (
             <button className={`conversation-row${selectedId === conversation.id ? " selected" : ""}`} type="button" key={conversation.id} onClick={() => openConversation(conversation.id)}>
               {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={conversation.type === "group"} />}
-              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.type === "group" ? `${conversation.memberCount} members · ` : ""}{conversation.preview}</small></span>
+              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.id === activityConversationId ? "Activity planning · " : conversation.type === "group" ? `${memberLabel(conversation.memberCount)} · ` : ""}{conversation.preview}</small></span>
               {conversation.unreadCount ? <b className="unread-badge" aria-label={`${conversation.unreadCount} unread messages`}>{conversation.unreadCount}</b> : null}
             </button>
           ))}
@@ -232,7 +248,12 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
       </section>
 
       <section className="chat-panel" aria-label={activeConversation ? `Conversation with ${activeConversation.title}` : "Selected conversation"}>
-        {activeConversation ? (
+        {activitySelected && initialQuest ? <EventCoordinationConversation
+          runId={initialQuest}
+          embedded
+          onBack={() => setSelectedId(null)}
+          onTitle={handleActivityTitle}
+        /> : activeConversation ? (
           <>
             <div className="chat-header-stack">
               <header className="chat-header">
@@ -410,4 +431,8 @@ function formatThreadTime(value: string) {
 
 function formatMessageTime(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function memberLabel(count: number) {
+  return `${count} member${count === 1 ? "" : "s"}`;
 }

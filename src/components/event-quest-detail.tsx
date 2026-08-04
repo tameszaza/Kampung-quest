@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState, type FormEvent } from "react";
 import { EngineQuestDetail } from "@/components/engine-quest-views";
 import { Icon } from "@/components/icons";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { useUser } from "@/components/user-context";
+import { getQuestRun } from "@/features/assistant/client";
 import {
   confirmEventRoster,
   decideEventArrangement,
@@ -17,15 +20,22 @@ import {
   transitionEventQuest,
   updateEventRoster,
 } from "@/features/events/client";
-import type { EventCoordinationState } from "@/server/domain/event-coordination";
+import type { EventCoordinationState, EventQuestView } from "@/server/domain/event-coordination";
 import type { ChatContact } from "@/server/identity/types";
+import { activityLabel, activityStatusLabel, participantCountLabel } from "@/lib/activity-label";
 
 export function EventQuestDetail({ runId, showActivityActions = true }: { runId: string; showActivityActions?: boolean }) {
-  const [state, setState] = useState<EventCoordinationState | null | undefined>(undefined);
+  const [state, setState] = useState<EventQuestView | null | undefined>(undefined);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void getEventQuest(runId).then((value) => { if (active) setState(value); }).catch((reason) => {
+    void Promise.all([getEventQuest(runId), getQuestRun(runId).catch(() => null)])
+      .then(([value, run]) => {
+        if (!active) return;
+        setState(value);
+        setImageUrl(run?.imageUrl ?? null);
+      }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "This activity could not be loaded");
     });
     return () => { active = false; };
@@ -34,12 +44,13 @@ export function EventQuestDetail({ runId, showActivityActions = true }: { runId:
   if (state === undefined && !error) return <div className="connected-state" role="status"><span className="connected-spinner" />Loading activity…</div>;
   if (state === null) return <EngineQuestDetail runId={runId} showActivityActions={showActivityActions} />;
   if (!state) return <div className="connected-state error" role="alert"><Icon name="shield" />{error}</div>;
-  return <EventQuestWorkspace state={state} onChange={setState} />;
+  return <EventQuestWorkspace state={state} imageUrl={imageUrl} onChange={setState} />;
 }
 
-function EventQuestWorkspace({ state, onChange }: {
-  state: EventCoordinationState;
-  onChange: (state: EventCoordinationState) => void;
+function EventQuestWorkspace({ state, imageUrl, onChange }: {
+  state: EventQuestView;
+  imageUrl: string | null;
+  onChange: (state: EventQuestView) => void;
 }) {
   const { user } = useUser();
   const [busy, setBusy] = useState("");
@@ -55,7 +66,7 @@ function EventQuestWorkspace({ state, onChange }: {
   const participants = participantRoster(state);
   const targetGroupSize = state.targetGroupSize ?? state.proposal.quest.groupSize;
 
-  async function act(label: string, action: () => Promise<EventCoordinationState>) {
+  async function act(label: string, action: () => Promise<EventQuestView>) {
     setBusy(label);
     setError("");
     try { onChange(await action()); }
@@ -88,29 +99,51 @@ function EventQuestWorkspace({ state, onChange }: {
     ? formatWindow(finalized.start, finalized.end)
     : proposed ? formatWindow(proposed.start, proposed.end) : "No availability window proposed";
 
-  return <div className="detail-page engine-detail-page event-workspace">
-    <div className="detail-header-wrap"><header className="page-header"><Link className="icon-button" href="/quests" aria-label="Back to activities"><Icon name="back" /></Link><h1>Activity Details</h1><span /></header></div>
-    <div className="detail-layout">
-      <div className="event-detail-hero"><span className={`result-kicker quest-status-${state.lifecycle}`}><Icon name={state.lifecycle === "scheduled" ? "check" : "people"} size={18} /> {friendlyStatus(state.lifecycle)}</span><h1>{state.proposal.quest.title}</h1><p>{state.proposal.quest.description}</p></div>
-      <article className="detail-content">
-        {error ? <div className="form-alert" role="alert">{error}</div> : null}
-        <div className="detail-facts">
+  return <div className="detail-page engine-detail-page event-workspace quest-detail-ref">
+    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href="/quests" aria-label="Back to activities"><Icon name="back" /><span>Back to Quests</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
+    <section className="quest-detail-hero">
+      <div className="quest-detail-hero-image">
+        <Image src={imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />
+        <span className="quest-image-label"><Icon name="home" size={15} /> {activityLabel(state.proposal.quest.questType)}</span>
+      </div>
+      <div className="quest-detail-hero-copy">
+        <span className={`quest-status-pill quest-status-${state.lifecycle}`}><Icon name={state.lifecycle === "scheduled" ? "check" : "people"} size={16} /> {activityStatusLabel(state.lifecycle)}</span>
+        <h1>{state.proposal.quest.title}</h1>
+        <p>{state.proposal.quest.description}</p>
+        <div className="detail-facts quest-hero-facts">
           <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
-          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.recruitmentReason ? `${participants.length} of ${targetGroupSize} selected` : `${participants.length} people`}</strong></span></div>
+          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.recruitmentReason ? `${participants.length} of ${targetGroupSize} selected` : participantCountLabel(participants.length)}</strong></span></div>
         </div>
+      </div>
+    </section>
+    <nav className="quest-detail-tabs" aria-label="Quest details">
+      <a className="active" href="#about"><Icon name="check" size={18} /><span>About</span></a>
+      <a href="#expect"><Icon name="calendar" size={18} /><span>Good to know</span></a>
+      <a href="#participants"><Icon name="people" size={18} /><span>People</span></a>
+      <a href="#location"><Icon name="pin" size={18} /><span>Location</span></a>
+    </nav>
+    <article className="detail-content quest-detail-content">
+        {error ? <div className="form-alert" role="alert">{error}</div> : null}
+        <section className="quest-about-grid" id="about">
+          <div><h2>About this activity</h2><p>{state.proposal.quest.description}</p><div className="quest-callout"><Icon name="shield" size={20} /><span>Friendly, beginner-ready activity. Everyone can take part at their own pace.</span></div></div>
+          <div id="expect"><h2>Good to know</h2><ul className="quest-check-list">{(state.proposal.quest.needsAddressed.length ? state.proposal.quest.needsAddressed : ["Relaxed shared activity", "Easy conversation"]).slice(0, 3).map((item) => <li key={item}><Icon name="check" size={17} />{item}</li>)}</ul></div>
+          <div id="location"><h2>Bring if useful</h2><ul className="quest-need-list"><li><Icon name="check" size={17} />Comfortable clothes</li><li><Icon name="check" size={17} />Water</li></ul></div>
+        </section>
 
-        <section className="event-panel participant-summary">
+        <section className="event-panel participant-summary quest-participants" id="participants">
           <span className="section-kicker">Everyone has a role</span>
-          <h2>{participants.length} participants</h2>
+          <h2>{participantCountLabel(participants.length)}</h2>
           <div className="event-roster">{participants.map((member) => {
             const invitation = state.invitations.find((item) => item.guestId === member.userId);
             const membership = state.memberships.find((item) => item.userId === member.userId);
             const status = membership?.status ?? invitation?.status ?? (member.source === "recommended" ? "suggested" : "pending");
+            const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
+            const displayName = member.userId === user.id ? "You" : profile?.displayName ?? friendlyMember(member.userId);
             return <div key={member.userId}>
-              <span className="member-initial">{friendlyMember(member.userId).slice(0, 1)}</span>
-              <p><strong>{member.userId === user.id ? "You" : friendlyMember(member.userId)}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
+              <ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} />
+              <p><strong>{displayName}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
               <span className={`participant-status participant-status-${status}`}>{status.replaceAll("_", " ")}</span>
             </div>;
           })}</div>
@@ -145,7 +178,6 @@ function EventQuestWorkspace({ state, onChange }: {
 
         {!organizer && ownInvitation?.status === "accepted" && ownMembership && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Can’t continue?</h2><p>Withdraw from this activity so the organizer can update the group and arrangement.</p><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("withdraw", () => transitionEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, action: "withdraw", expectedRevision: state.revision }))}>Withdraw from quest</button></section> : null}
       </article>
-    </div>
   </div>;
 }
 
@@ -164,10 +196,6 @@ function formatWindow(start: string, end: string) {
   const from = new Date(start);
   const until = new Date(end);
   return `${from.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
-
-function friendlyStatus(value: string) {
-  return value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
 function friendlyMember(value: string) {

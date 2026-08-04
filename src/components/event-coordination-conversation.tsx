@@ -23,7 +23,12 @@ import type {
 
 const REFRESH_INTERVAL_MS = 5_000;
 
-export function EventCoordinationConversation({ runId }: { runId: string }) {
+export function EventCoordinationConversation({ runId, embedded = false, onBack, onTitle }: {
+  runId: string;
+  embedded?: boolean;
+  onBack?: () => void;
+  onTitle?: (title: string, memberCount: number) => void;
+}) {
   const [thread, setThread] = useState<EventCoordinationThread | null>(null);
   const [quest, setQuest] = useState<EventQuestView | null>(null);
   const [draft, setDraft] = useState("");
@@ -45,6 +50,7 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
       if (!nextQuest) throw new Error("This activity could not be found");
       setThread(nextThread);
       setQuest(nextQuest);
+      onTitle?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
       if (!quiet) scrollToLatest();
       if (nextQuest.viewer.role === "organizer" && nextQuest.notifications.some((item) => item.readAt === null)) {
@@ -55,7 +61,7 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [runId, scrollToLatest]);
+  }, [onTitle, runId, scrollToLatest]);
 
   useEffect(() => {
     let active = true;
@@ -187,9 +193,9 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
     {quest.viewer.role === "organizer" ? <div className="coordination-organizer-note"><Icon name="bell" size={18} /><p><strong>You’re coordinating this activity.</strong><span>We’ll alert you when a guest shares or confirms availability.</span></p></div> : null}
   </>;
 
-  return <div className="coordination-hub">
+  return <div className={`coordination-hub${embedded ? " coordination-hub-embedded" : ""}`}>
     <header className="coordination-hub-header">
-      <Link className="icon-button" href={backHref} aria-label="Back"><Icon name="back" /></Link>
+      {embedded ? <button className="icon-button coordination-back" type="button" onClick={onBack} aria-label="Back to messages"><Icon name="back" /></button> : <Link className="icon-button" href={backHref} aria-label="Back"><Icon name="back" /></Link>}
       <div className="coordination-hub-title">
         <span className="coordination-mark" aria-hidden="true">♥</span>
         <span><strong>Senior Quest</strong><small>Activity coordinator</small></span>
