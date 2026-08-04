@@ -124,6 +124,10 @@ const eventSafetyGuardian = new SafetyGuardianService();
 
 export const eventCoordinator = new EventCoordinator({
   store: kampungStore,
+  resolveMember: async (userId) => {
+    const member = await identityStore.findUserById(userId);
+    return member ? { displayName: member.fullName, photoUrl: member.photoUrl } : null;
+  },
   resolveParticipant: async (userId) => {
     const memory = await kampungStore.findMemory(userId);
     const profile = memory?.profile;

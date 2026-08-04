@@ -29,6 +29,7 @@
 }
 
 .bottom-nav > a {
+  position: relative;
   min-width: 0;
   min-height: 62px;
   border-radius: 12px;
@@ -40,6 +41,24 @@
   gap: 4px;
   font-size: 10px;
   font-weight: 650;
+}
+
+.nav-activity-badge {
+  position: absolute;
+  top: 5px;
+  left: calc(50% + 7px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid white;
+  border-radius: 99px;
+  background: #b64236;
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .bottom-nav > a.active {
@@ -149,6 +168,12 @@
     justify-content: center;
   }
 
+  .desktop-nav .nav-activity-badge {
+    top: 2px;
+    right: 1px;
+    left: auto;
+  }
+
   .desktop-nav nav a span,
   .desktop-create-label {
     display: none;
@@ -239,6 +264,11 @@
     gap: 8px;
     font-size: 15px;
     font-weight: 700;
+  }
+
+  .desktop-nav .nav-activity-badge {
+    top: 8px;
+    right: 9px;
   }
 
   .desktop-nav nav a span,

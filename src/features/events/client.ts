@@ -1,6 +1,7 @@
 import type {
   EventCoordinationState,
   EventCoordinationThread,
+  EventQuestView,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 import type { ChatContact } from "@/server/identity/types";
@@ -15,7 +16,7 @@ export async function listEventActivities(): Promise<UserEventActivities> {
   return json(await fetch("/api/v1/activities", { cache: "no-store" }));
 }
 
-export async function getEventQuest(runId: string): Promise<EventCoordinationState | null> {
+export async function getEventQuest(runId: string): Promise<EventQuestView | null> {
   const response = await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}`, { cache: "no-store" });
   if (response.status === 404) return null;
   return json(response);

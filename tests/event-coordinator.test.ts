@@ -104,6 +104,63 @@ describe("EventCoordinator", () => {
     expect(replayed).toEqual(confirmed);
   });
 
+  it("identifies the organizer without assigning a guest invitation", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({ store });
+    const forming = await coordinator.createFormation(approvedRun());
+    const confirmed = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "organizer-view",
+    });
+
+    const organizerView = await coordinator.getStateForUser(confirmed.runId, "maria");
+
+    expect(organizerView.viewer).toEqual({
+      role: "organizer",
+      canChat: true,
+      pendingInvitationId: null,
+    });
+    expect(organizerView.invitations.every((invitation) => invitation.guestId !== "maria")).toBe(true);
+  });
+
+  it("returns privacy-safe participant progress for the coordination hub", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({ store });
+    const forming = await coordinator.createFormation(approvedRun());
+    const confirmed = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "participant-progress",
+    });
+
+    const organizerView = await coordinator.getStateForUser(confirmed.runId, "maria");
+
+    expect(organizerView.participantProgress).toEqual([
+      expect.objectContaining({
+        userId: "maria",
+        invitationStatus: "organizer",
+        membershipStatus: "coordinating",
+        availabilityStatus: "not_shared",
+      }),
+      expect.objectContaining({
+        userId: "anne",
+        displayName: "Anne",
+        invitationStatus: "pending",
+        membershipStatus: null,
+        availabilityStatus: "not_shared",
+      }),
+      expect.objectContaining({
+        userId: "david",
+        invitationStatus: "pending",
+        membershipStatus: null,
+        availabilityStatus: "not_shared",
+      }),
+    ]);
+  });
+
   it("expands recurring availability only inside the explicitly supplied horizon", () => {
     const windows = expandAvailability({
       explicitWindows: [{
@@ -151,6 +208,12 @@ describe("EventCoordinator", () => {
       idempotencyKey: "confirm-for-acceptance",
     });
     const anneInvitation = confirmed.invitations.find((invitation) => invitation.guestId === "anne")!;
+    const pendingView = await coordinator.getStateForUser(confirmed.runId, "anne");
+    expect(pendingView.viewer).toEqual({
+      role: "pending_invitee",
+      canChat: false,
+      pendingInvitationId: anneInvitation.invitationId,
+    });
 
     const accepted = await coordinator.respondToInvitation({
       runId: confirmed.runId,
@@ -168,6 +231,11 @@ describe("EventCoordinator", () => {
       userId: "anne",
       status: "coordinating",
     }));
+    expect((await coordinator.getStateForUser(accepted.runId, "anne")).viewer).toEqual({
+      role: "participant",
+      canChat: true,
+      pendingInvitationId: null,
+    });
     expect(anneActivities.invitations).toEqual([]);
     expect(anneActivities.my.awaitingCoordination.map((activity) => activity.runId)).toEqual([confirmed.runId]);
     expect(davidActivities.invitations.map((invitation) => invitation.guestId)).toEqual(["david"]);
@@ -266,6 +334,8 @@ describe("EventCoordinator", () => {
     expect(updatedAnne.messages.map((message) => message.body)).toContain("I cannot make Tuesday afternoon");
     expect(updatedAnne.pendingRequirements?.temporaryConflicts).toEqual(["I cannot make Tuesday afternoon"]);
     expect(davidThread.messages.map((message) => message.body)).not.toContain("I cannot make Tuesday afternoon");
+    expect((await coordinator.getStateForUser(confirmed.runId, "maria")).notifications
+      .some((notification) => notification.kind === "availability_shared")).toBe(true);
     const anneView = await coordinator.getStateForUser(confirmed.runId, "anne");
     expect(anneView.threads.map((thread) => thread.userId)).toEqual(["anne"]);
     expect(anneView.notifications.every((notification) => notification.userId === "anne")).toBe(true);
@@ -280,6 +350,248 @@ describe("EventCoordinator", () => {
     });
     expect(requirements.pendingRequirements).toBeNull();
     expect(requirements.confirmedRequirements.temporaryConflicts).toEqual(["I cannot make Tuesday afternoon"]);
+  });
+
+  it("notifies the organizer when a guest shares availability without exposing private details", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveMember: async (userId) => userId === "anne"
+        ? { displayName: "Anne Tan", photoUrl: "/anne.jpg" }
+        : null,
+      coordinate: async () => ({
+        reply: "I found an available time. Please save it if I understood correctly.",
+        requirementPatch: {
+          availableWindows: [{
+            start: "2026-08-12T03:00:00.000Z",
+            end: "2026-08-12T05:00:00.000Z",
+          }],
+        },
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "availability-alert-roster",
+    });
+    const invitation = state.invitations.find((candidate) => candidate.guestId === "anne")!;
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: invitation.invitationId,
+      actorId: "anne",
+      response: "accept",
+      expectedRevision: state.revision,
+      idempotencyKey: "availability-alert-accept",
+    });
+    const thread = await coordinator.getCoordinationThread(state.runId, "anne");
+
+    await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "I am free after my appointment on Wednesday.",
+      clientMessageId: "availability-alert-message",
+      expectedRevision: thread.revision,
+    });
+
+    const organizerView = await coordinator.getStateForUser(state.runId, "maria");
+    const alert = organizerView.notifications.find((notification) =>
+      notification.kind === "availability_shared");
+    expect(alert).toMatchObject({
+      userId: "maria",
+      title: "Anne Tan shared availability",
+      body: "Availability is waiting for Anne Tan to confirm.",
+    });
+    expect(JSON.stringify(alert)).not.toContain("appointment");
+    expect(JSON.stringify(alert)).not.toContain("2026-08-12");
+    const stored = await store.findEventCoordinationState(state.runId);
+    expect(stored?.outbox).toContainEqual(expect.objectContaining({
+      kind: "notification",
+      recipientId: "maria",
+      deduplicationKey: alert?.deduplicationKey,
+      status: "pending",
+    }));
+  });
+
+  it("does not alert the organizer for ordinary chat without an availability patch", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({ reply: "I can help with that." }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "ordinary-chat-roster",
+    });
+    const invitation = state.invitations.find((candidate) => candidate.guestId === "anne")!;
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: invitation.invitationId,
+      actorId: "anne",
+      response: "accept",
+      expectedRevision: state.revision,
+      idempotencyKey: "ordinary-chat-accept",
+    });
+    const thread = await coordinator.getCoordinationThread(state.runId, "anne");
+    await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "What should I bring?",
+      clientMessageId: "ordinary-chat-message",
+      expectedRevision: thread.revision,
+    });
+
+    expect((await coordinator.getStateForUser(state.runId, "maria")).notifications
+      .some((item) => item.kind === "availability_shared")).toBe(false);
+  });
+
+  it("treats cleared windows and temporary conflicts as availability updates", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({
+        reply: "Please save this availability update.",
+        requirementPatch: { availableWindows: [], temporaryConflicts: ["Not available this week"] },
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "conflict-alert-roster",
+    });
+    const invitation = state.invitations.find((candidate) => candidate.guestId === "anne")!;
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: invitation.invitationId,
+      actorId: "anne",
+      response: "accept",
+      expectedRevision: state.revision,
+      idempotencyKey: "conflict-alert-accept",
+    });
+    const thread = await coordinator.getCoordinationThread(state.runId, "anne");
+
+    await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "My availability changed.",
+      clientMessageId: "conflict-alert-message",
+      expectedRevision: thread.revision,
+    });
+    const pending = await coordinator.getCoordinationThread(state.runId, "anne");
+    await coordinator.confirmRequirements({
+      runId: state.runId,
+      actorId: "anne",
+      expectedRevision: pending.revision,
+      idempotencyKey: "conflict-alert-confirm",
+    });
+
+    const organizerView = await coordinator.getStateForUser(state.runId, "maria");
+    expect(organizerView.notifications.filter((item) => item.kind === "availability_shared")).toHaveLength(1);
+    expect(organizerView.notifications.filter((item) => item.kind === "availability_confirmed")).toHaveLength(1);
+    expect(organizerView.participantProgress.find((item) => item.userId === "anne")?.availabilityStatus).toBe("confirmed");
+  });
+
+  it("does not classify withdrawn guests as active participants", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({ store });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "withdrawn-view-roster",
+    });
+    const invitation = state.invitations.find((candidate) => candidate.guestId === "anne")!;
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: invitation.invitationId,
+      actorId: "anne",
+      response: "accept",
+      expectedRevision: state.revision,
+      idempotencyKey: "withdrawn-view-accept",
+    });
+    state = await coordinator.transitionInvitation({
+      runId: state.runId,
+      invitationId: invitation.invitationId,
+      actorId: "anne",
+      action: "withdraw",
+      expectedRevision: state.revision,
+      idempotencyKey: "withdrawn-view-withdraw",
+    });
+
+    await expect(coordinator.getStateForUser(state.runId, "anne")).rejects.toThrow("not found");
+    expect((await coordinator.getStateForUser(state.runId, "maria")).participantProgress
+      .find((item) => item.userId === "anne")?.membershipStatus).toBe("withdrawn");
+  });
+
+  it("notifies the organizer when a guest confirms availability and updates readiness", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({
+        reply: "Please save this availability if it is correct.",
+        requirementPatch: {
+          availableWindows: [{
+            start: "2026-08-12T03:00:00.000Z",
+            end: "2026-08-12T05:00:00.000Z",
+          }],
+        },
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "availability-confirmed-roster",
+    });
+    const invitation = state.invitations.find((candidate) => candidate.guestId === "anne")!;
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: invitation.invitationId,
+      actorId: "anne",
+      response: "accept",
+      expectedRevision: state.revision,
+      idempotencyKey: "availability-confirmed-accept",
+    });
+    const thread = await coordinator.getCoordinationThread(state.runId, "anne");
+    await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "Wednesday afternoon works for me.",
+      clientMessageId: "availability-confirmed-message",
+      expectedRevision: thread.revision,
+    });
+    const updatedThread = await coordinator.getCoordinationThread(state.runId, "anne");
+
+    await coordinator.confirmRequirements({
+      runId: state.runId,
+      actorId: "anne",
+      expectedRevision: updatedThread.revision,
+      idempotencyKey: "availability-confirmed-requirements",
+    });
+    await coordinator.confirmRequirements({
+      runId: state.runId,
+      actorId: "anne",
+      expectedRevision: updatedThread.revision,
+      idempotencyKey: "availability-confirmed-requirements",
+    });
+
+    const organizerView = await coordinator.getStateForUser(state.runId, "maria");
+    expect(organizerView.notifications).toContainEqual(expect.objectContaining({
+      userId: "maria",
+      kind: "availability_confirmed",
+      title: "Anne confirmed availability",
+    }));
+    expect(organizerView.notifications.filter((item) => item.kind === "availability_confirmed")).toHaveLength(1);
+    expect(organizerView.participantProgress.find((participant) => participant.userId === "anne"))
+      .toMatchObject({ availabilityStatus: "confirmed" });
   });
 
   it("schedules only after organizer approval and every accepted guest confirms", async () => {
@@ -450,6 +762,13 @@ describe("EventCoordinator", () => {
     const forming = await coordinator.createFormation(approvedRun());
     await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "unread-roster" });
     expect((await coordinator.listActivities("anne")).unreadCount).toBe(1);
+    expect((await coordinator.listActivities("anne")).notifications).toEqual([
+      expect.objectContaining({
+        runId: forming.runId,
+        userId: "anne",
+        kind: "invitation",
+      }),
+    ]);
     expect((await coordinator.getStateForUser(forming.runId, "anne")).notifications).toHaveLength(1);
     expect((await coordinator.getStateForUser(forming.runId, "david")).notifications).toHaveLength(1);
     expect(await coordinator.markNotificationsRead({ actorId: "anne", runId: forming.runId })).toBe(1);

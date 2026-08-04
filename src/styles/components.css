@@ -107,6 +107,43 @@
   min-height: 300px;
 }
 
+.event-notification-list {
+  margin-top: 18px;
+}
+
+.event-notification-list-header {
+  min-height: 58px;
+  padding: 4px 4px 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.event-notification-list-header h2,
+.event-notification-list-header p {
+  margin: 0;
+}
+
+.event-notification-list-header h2 {
+  font-size: 18px;
+}
+
+.event-notification-list-header p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.event-notification.unread {
+  margin: 0 -10px;
+  padding-right: 14px;
+  padding-left: 14px;
+  border-radius: 12px;
+  background: var(--green-50);
+}
+
 .meta-row {
   min-width: 0;
   color: var(--ink-soft);
@@ -430,6 +467,801 @@
 
   .quest-card-body h2 {
     font-size: 19px;
+  }
+}
+
+/* Role-aware activity coordination hub */
+.app-main:has(.coordination-hub) {
+  padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 8% 0%, rgba(16, 157, 112, .08), transparent 30rem),
+    var(--surface-soft);
+}
+
+.coordination-hub {
+  width: min(1180px, 100%);
+  min-height: calc(100dvh - var(--nav-height) - env(safe-area-inset-bottom));
+  margin: 0 auto;
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.coordination-hub-header {
+  min-height: 74px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.coordination-hub-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coordination-hub-title > span:last-child {
+  min-width: 0;
+  display: grid;
+}
+
+.coordination-hub-title strong {
+  font-size: .9375em;
+  letter-spacing: -.015em;
+}
+
+.coordination-hub-title small {
+  color: var(--muted);
+  font-size: .75em;
+}
+
+.coordination-mark {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--green-800);
+  color: white;
+  display: grid;
+  place-items: center;
+}
+
+.coordination-details-link {
+  min-height: 44px;
+  padding: 0 5px 0 10px;
+  color: var(--green-800);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: .8125em;
+  font-weight: 750;
+}
+
+.coordination-details-link:hover {
+  color: var(--green-600);
+}
+
+.coordination-hub-layout {
+  display: grid;
+  align-items: start;
+}
+
+.coordination-overview {
+  min-width: 0;
+  padding: 24px 18px 28px;
+  background: var(--surface-soft);
+}
+
+.coordination-role-line {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: .75em;
+  font-weight: 650;
+}
+
+.coordination-role {
+  color: var(--green-800);
+  font-weight: 800;
+}
+
+.coordination-role-pending_invitee {
+  color: color-mix(in srgb, var(--warning) 45%, var(--ink));
+}
+
+.coordination-overview > h1 {
+  max-width: 16ch;
+  margin: 0;
+  font-size: clamp(1.75em, 7vw, 2.5em);
+  line-height: 1.02;
+  letter-spacing: -.045em;
+  text-wrap: balance;
+}
+
+.coordination-purpose {
+  max-width: 58ch;
+  margin: 14px 0 24px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.coordination-facts {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.coordination-facts > div {
+  padding: 14px 0;
+  display: grid;
+  gap: 4px;
+}
+
+.coordination-facts > div + div {
+  border-top: 1px solid var(--line);
+}
+
+.coordination-facts dt {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: .75em;
+  font-weight: 700;
+}
+
+.coordination-facts dd {
+  margin: 0;
+  font-size: .875em;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.coordination-facts small {
+  color: color-mix(in srgb, var(--warning) 45%, var(--ink));
+  font-size: .6875em;
+  font-weight: 700;
+}
+
+.coordination-progress {
+  margin-top: 25px;
+}
+
+.coordination-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coordination-section-heading > span {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--green-100);
+  color: var(--green-800);
+  display: grid;
+  place-items: center;
+}
+
+.coordination-section-heading h2,
+.coordination-section-heading p {
+  margin: 0;
+}
+
+.coordination-section-heading h2 {
+  font-size: .9375em;
+}
+
+.coordination-section-heading p {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: .75em;
+}
+
+.coordination-progress-bar {
+  height: 4px;
+  margin: 14px 0 15px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.coordination-progress-bar span {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green-600);
+  display: block;
+  transition: width 240ms ease;
+}
+
+.coordination-participants {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.coordination-participants li {
+  min-width: 0;
+  padding: 9px 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 10px;
+}
+
+.coordination-participants li + li {
+  border-top: 1px solid rgba(223, 232, 228, .8);
+}
+
+.coordination-participants li > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+}
+
+.coordination-participants strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .8125em;
+}
+
+.coordination-participants small {
+  color: var(--muted);
+  font-size: .6875em;
+}
+
+.participant-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.participant-status-ready {
+  background: var(--green-600);
+  box-shadow: 0 0 0 4px rgba(16, 157, 112, .12);
+}
+
+.participant-status-shared,
+.participant-status-waiting {
+  background: color-mix(in srgb, var(--warning) 72%, var(--ink));
+}
+
+.participant-status-declined {
+  background: var(--danger);
+}
+
+.participant-status-joined {
+  background: var(--green-700);
+}
+
+.coordination-organizer-note {
+  margin-top: 22px;
+  padding: 13px;
+  border-radius: 12px;
+  background: var(--green-100);
+  color: var(--green-900);
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.coordination-organizer-note p {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  font-size: .75em;
+}
+
+.coordination-organizer-note span {
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.coordination-mobile-details {
+  margin-top: 18px;
+  color: var(--ink-soft);
+  font-size: 1em;
+  line-height: 1.5;
+}
+
+.coordination-desktop-details {
+  display: none;
+}
+
+.coordination-mobile-details > div {
+  padding-bottom: 8px;
+}
+
+.coordination-mobile-details summary {
+  min-height: 44px;
+  color: var(--green-800);
+  display: flex;
+  align-items: center;
+  font-weight: 750;
+  font-size: .875em;
+  cursor: pointer;
+}
+
+.coordination-conversation {
+  min-width: 0;
+  height: calc(100dvh - var(--nav-height) - env(safe-area-inset-bottom));
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface-soft);
+  display: grid;
+  grid-template-areas:
+    "header"
+    "notices"
+    "history"
+    "actions";
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.coordination-conversation-header {
+  grid-area: header;
+}
+
+.coordination-conversation-notices {
+  grid-area: notices;
+}
+
+.coordination-message-history {
+  grid-area: history;
+}
+
+.coordination-conversation-actions {
+  grid-area: actions;
+}
+
+.coordination-conversation-notices:empty {
+  display: none;
+}
+
+.coordination-conversation-actions {
+  background: var(--surface);
+}
+
+.coordination-conversation-header {
+  min-height: 70px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.coordination-conversation-header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coordination-conversation-header h2,
+.coordination-conversation-header p {
+  margin: 0;
+}
+
+.coordination-conversation-header h2 {
+  font-size: 1em;
+  letter-spacing: -.015em;
+}
+
+.coordination-conversation-header p {
+  margin: 3px 0 0 17px;
+  color: var(--muted);
+  font-size: .75em;
+}
+
+.coordination-online {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green-600);
+  box-shadow: 0 0 0 4px rgba(16, 157, 112, .11);
+}
+
+.coordination-alert {
+  margin: 10px 12px 0;
+  border-radius: 10px;
+}
+
+.coordination-invite-decision {
+  margin: 12px;
+  padding: 15px;
+  border-left: 4px solid color-mix(in srgb, var(--warning) 72%, var(--ink));
+  border-radius: 8px 12px 12px 8px;
+  background: color-mix(in srgb, var(--warning) 11%, var(--surface));
+  display: grid;
+  gap: 14px;
+}
+
+.coordination-invite-copy > span {
+  color: color-mix(in srgb, var(--warning) 42%, var(--ink));
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: .75em;
+  font-weight: 800;
+}
+
+.coordination-invite-copy h2 {
+  margin: 7px 0 4px;
+  font-size: 1.125em;
+}
+
+.coordination-invite-copy p {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: .8125em;
+  line-height: 1.5;
+}
+
+.coordination-invite-actions {
+  display: grid;
+  grid-template-columns: minmax(96px, .6fr) minmax(150px, 1fr);
+  gap: 8px;
+}
+
+.coordination-hub .primary-button,
+.coordination-hub .secondary-button {
+  min-height: 46px;
+  border-radius: 11px;
+  box-shadow: none;
+}
+
+.coordination-hub .primary-button {
+  background: var(--green-700);
+}
+
+.coordination-hub button,
+.coordination-hub a {
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 120ms ease;
+}
+
+.coordination-hub button:active,
+.coordination-hub a:active {
+  transform: translateY(1px);
+}
+
+.coordination-message-history {
+  min-height: 0;
+  padding: 18px 14px 28px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--surface-soft) 94%, transparent), color-mix(in srgb, var(--surface-soft) 94%, transparent)),
+    radial-gradient(circle at 1px 1px, rgba(7, 92, 72, .13) 1px, transparent 0);
+  background-size: auto, 22px 22px;
+}
+
+.coordination-starting-prompts {
+  width: min(480px, 100%);
+  margin: 28px auto 8px;
+  text-align: center;
+}
+
+.coordination-prompt-icon {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 10px;
+  border-radius: 14px;
+  background: var(--green-100);
+  color: var(--green-800);
+  display: grid;
+  place-items: center;
+}
+
+.coordination-starting-prompts h3,
+.coordination-starting-prompts p {
+  margin: 0;
+}
+
+.coordination-starting-prompts h3 {
+  font-size: 1em;
+}
+
+.coordination-starting-prompts p {
+  margin: 5px auto 14px;
+  color: var(--muted);
+  font-size: .8125em;
+  line-height: 1.5;
+}
+
+.coordination-starting-prompts > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+
+.coordination-starting-prompts button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--green-800);
+  font-size: .75em;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.coordination-starting-prompts button:hover,
+.coordination-starting-prompts button:focus-visible {
+  border-color: var(--green-600);
+  background: var(--green-50);
+}
+
+.coordination-save-card {
+  margin: 0;
+  padding: 14px 16px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--green-50);
+  display: grid;
+  gap: 12px;
+}
+
+.coordination-arrangement-action {
+  margin: 0;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--green-100) 58%, var(--surface));
+  display: grid;
+  gap: 12px;
+}
+
+.coordination-arrangement-action > div:first-child > span {
+  color: var(--green-800);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .75em;
+  font-weight: 800;
+}
+
+.coordination-arrangement-action h3,
+.coordination-arrangement-action p {
+  margin: 0;
+}
+
+.coordination-arrangement-action h3 {
+  margin-top: 5px;
+  font-size: .9375em;
+}
+
+.coordination-arrangement-action p {
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: .8125em;
+  line-height: 1.45;
+}
+
+.coordination-arrangement-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.coordination-arrangement-buttons .primary-button,
+.coordination-arrangement-buttons .secondary-button {
+  min-width: 0;
+  padding-inline: 12px;
+  font-size: .8125em;
+}
+
+.coordination-save-card > div {
+  min-width: 0;
+}
+
+.coordination-save-card span {
+  color: var(--green-800);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .75em;
+  font-weight: 800;
+}
+
+.coordination-save-card p {
+  margin: 5px 0 2px;
+  color: var(--ink);
+  font-size: .8125em;
+}
+
+.coordination-save-card small {
+  color: var(--muted);
+  font-size: .6875em;
+}
+
+.coordination-conversation .message-composer {
+  min-height: 76px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+}
+
+.coordination-conversation .message-composer textarea {
+  border-radius: 13px;
+  background: var(--surface-soft);
+}
+
+.coordination-conversation .message-composer > button {
+  border-radius: 13px;
+  background: var(--green-700);
+}
+
+.coordination-chat-locked {
+  min-height: 68px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: .8125em;
+  text-align: center;
+}
+
+.coordination-load-error {
+  min-height: 70dvh;
+}
+
+.coordination-hub-skeleton {
+  padding: 16px;
+}
+
+.coordination-skeleton-header,
+.coordination-skeleton-layout > div {
+  border-radius: 14px;
+  background: linear-gradient(90deg, #e5ece9 25%, #f4f7f6 45%, #e5ece9 65%);
+  background-size: 300% 100%;
+  animation: coordination-skeleton 1.25s ease-in-out infinite;
+}
+
+.coordination-skeleton-header {
+  height: 58px;
+  margin-bottom: 14px;
+}
+
+.coordination-skeleton-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.coordination-skeleton-layout > div:first-child {
+  height: 320px;
+}
+
+.coordination-skeleton-layout > div:last-child {
+  height: 460px;
+}
+
+@keyframes coordination-skeleton {
+  to { background-position: -150% 0; }
+}
+
+@media (min-width: 640px) {
+  .coordination-invite-decision,
+  .coordination-save-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .coordination-invite-actions {
+    min-width: 280px;
+  }
+
+  .coordination-save-card .primary-button {
+    min-width: 180px;
+  }
+
+  .coordination-arrangement-action {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .coordination-arrangement-buttons {
+    min-width: 300px;
+  }
+}
+
+@media (min-width: 900px) {
+  .app-main:has(.coordination-hub) {
+    padding: 24px;
+  }
+
+  .coordination-hub {
+    min-height: 0;
+    height: calc(100dvh - var(--nav-height) - 48px);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+  }
+
+  .coordination-hub-layout {
+    height: calc(100% - 74px);
+    grid-template-columns: minmax(300px, 35%) minmax(0, 1fr);
+  }
+
+  .coordination-overview {
+    height: 100%;
+    padding: 30px clamp(24px, 3vw, 38px) 34px;
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+
+  .coordination-overview > h1 {
+    font-size: clamp(2em, 3vw, 2.75em);
+  }
+
+  .coordination-desktop-details {
+    display: block;
+  }
+
+  .coordination-mobile-details {
+    display: none;
+  }
+
+  .coordination-conversation {
+    height: 100%;
+    min-height: 0;
+    border-top: 0;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .coordination-message-history {
+    min-height: 0;
+    padding: 22px 22px 30px;
+  }
+
+  .coordination-mobile-details {
+    display: none;
+  }
+
+  .coordination-skeleton-layout {
+    grid-template-columns: 36% 1fr;
+  }
+
+  .coordination-skeleton-layout > div:first-child,
+  .coordination-skeleton-layout > div:last-child {
+    height: calc(100dvh - 118px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .coordination-hub {
+    height: calc(100dvh - 48px);
+  }
+}
+
+@media (min-width: 1280px) {
+  .coordination-hub-layout {
+    grid-template-columns: 390px minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coordination-hub *,
+  .coordination-progress-bar span {
+    scroll-behavior: auto;
+    transition: none;
+  }
+
+  .coordination-skeleton-header,
+  .coordination-skeleton-layout > div {
+    animation: none;
   }
 }
 

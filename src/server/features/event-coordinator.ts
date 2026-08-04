@@ -8,6 +8,7 @@ import type {
   EventCoordinationState,
   EventInvitation,
   EventMembership,
+  EventQuestView,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 
@@ -28,6 +29,10 @@ export interface EventCoordinationStore {
 
 interface EventCoordinatorDependencies {
   store: EventCoordinationStore;
+  resolveMember?: (userId: string) => Promise<{
+    displayName: string;
+    photoUrl: string | null;
+  } | null>;
   resolveParticipant?: (userId: string) => Promise<{
     participant: Participant;
     explanation: string[];
@@ -116,16 +121,50 @@ export class EventCoordinator {
     };
   }
 
-  async getStateForUser(runId: string, userId: string): Promise<EventCoordinationState> {
+  async getStateForUser(runId: string, userId: string): Promise<EventQuestView> {
     const current = await this.requireState(runId);
     const organizer = current.initiatorId === userId;
-    const invited = current.invitations.some((invitation) => invitation.guestId === userId);
-    const rosterMember = current.roster.some((member) => member.userId === userId);
-    const member = current.memberships.some((membership) => membership.userId === userId);
-    if (!organizer && !invited && !rosterMember && !member) {
+    const pendingInvitation = [...current.invitations].reverse().find((invitation) =>
+      invitation.guestId === userId && invitation.status === "pending");
+    const activeMembership = [...current.memberships].reverse().find((membership) =>
+      membership.userId === userId && this.isActiveMembership(membership));
+    if (!organizer && !pendingInvitation && !activeMembership) {
       throw new Error("Event coordination state was not found");
     }
-    const safe = structuredClone(current);
+    const safe = structuredClone(current) as EventQuestView;
+    safe.viewer = {
+      role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : "participant",
+      canChat: this.canCoordinate(current, userId),
+      pendingInvitationId: pendingInvitation?.invitationId ?? null,
+    };
+    safe.participantProgress = await Promise.all(current.roster.map(async (rosterMember) => {
+      const invitation = [...current.invitations].reverse().find((candidate) =>
+        candidate.guestId === rosterMember.userId);
+      const membership = [...current.memberships].reverse().find((candidate) =>
+        candidate.userId === rosterMember.userId);
+      const thread = current.threads.find((candidate) => candidate.userId === rosterMember.userId);
+      const profile = await this.dependencies.resolveMember?.(rosterMember.userId);
+      const hasPendingAvailability = this.hasAvailabilityUpdate(thread?.pendingRequirements);
+      const hasConfirmedAvailability = Boolean(thread?.confirmedRequirements.availableWindows.length
+        || thread?.confirmedRequirements.temporaryConflicts.length
+        || current.auditEvents.some((event) => event.type === "requirements_confirmed"
+          && event.actorId === rosterMember.userId
+          && event.safeDiff.availabilityConfirmed === true));
+      const availabilityStatus = hasPendingAvailability
+        ? "awaiting_confirmation" as const
+        : hasConfirmedAvailability ? "confirmed" as const : "not_shared" as const;
+      return {
+        userId: rosterMember.userId,
+        displayName: profile?.displayName ?? this.displayMember(rosterMember.userId),
+        photoUrl: profile?.photoUrl ?? null,
+        invitationStatus: rosterMember.userId === current.initiatorId
+          ? "organizer" as const
+          : invitation?.status ?? "pending",
+        membershipStatus: membership?.status ?? null,
+        availabilityStatus,
+        updatedAt: availabilityStatus === "not_shared" ? null : thread?.updatedAt ?? null,
+      };
+    }));
     safe.threads = safe.threads.filter((thread) => thread.userId === userId);
     safe.notifications = safe.notifications.filter((notification) => notification.userId === userId);
     safe.auditEvents = [];
@@ -317,13 +356,47 @@ export class EventCoordinator {
         : thread.pendingRequirements,
       updatedAt: now,
     };
+    const sharedAvailability = input.actorId !== current.initiatorId
+      && this.hasAvailabilityUpdate(output.requirementPatch);
+    const actorProfile = sharedAvailability
+      ? await this.dependencies.resolveMember?.(input.actorId)
+      : null;
+    const actorName = actorProfile?.displayName ?? this.displayMember(input.actorId);
+    const availabilityNotification = sharedAvailability ? {
+      notificationId: `notification_${randomUUID()}`,
+      userId: current.initiatorId,
+      kind: "availability_shared" as const,
+      title: `${actorName} shared availability`,
+      body: `Availability is waiting for ${actorName} to confirm.`,
+      readAt: null,
+      deduplicationKey: `availability-shared:${thread.threadId}:${updatedThread.revision}`,
+      createdAt: now,
+    } : null;
     await this.dependencies.store.saveEventCoordinationState({
       ...current,
       revision: current.revision + 1,
       threads: current.threads.map((candidate) => candidate.threadId === thread.threadId ? updatedThread : candidate),
+      notifications: availabilityNotification
+        ? [...current.notifications, availabilityNotification]
+        : current.notifications,
+      outbox: availabilityNotification ? [...current.outbox, {
+        jobId: `outbox_${randomUUID()}`,
+        kind: "notification",
+        recipientId: current.initiatorId,
+        deduplicationKey: availabilityNotification.deduplicationKey,
+        payload: {
+          runId: current.runId,
+          notificationId: availabilityNotification.notificationId,
+        },
+        status: "pending",
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      }] : current.outbox,
       auditEvents: [...current.auditEvents, this.auditEvent(current, "coordination_message_added", input.actorId, null, {
         threadId: thread.threadId,
         messageId: input.clientMessageId,
+        availabilityShared: sharedAvailability,
       }, current.lifecycle)],
       updatedAt: now,
     }, current.revision);
@@ -372,13 +445,47 @@ export class EventCoordinator {
       }],
       updatedAt: now,
     };
+    const confirmedAvailability = input.actorId !== current.initiatorId
+      && this.hasAvailabilityUpdate(thread.pendingRequirements);
+    const actorProfile = confirmedAvailability
+      ? await this.dependencies.resolveMember?.(input.actorId)
+      : null;
+    const actorName = actorProfile?.displayName ?? this.displayMember(input.actorId);
+    const availabilityNotification = confirmedAvailability ? {
+      notificationId: `notification_${randomUUID()}`,
+      userId: current.initiatorId,
+      kind: "availability_confirmed" as const,
+      title: `${actorName} confirmed availability`,
+      body: "Availability is ready for coordination.",
+      readAt: null,
+      deduplicationKey: `availability-confirmed:${thread.threadId}:${updatedThread.revision}`,
+      createdAt: now,
+    } : null;
     await this.dependencies.store.saveEventCoordinationState({
       ...current,
       revision: current.revision + 1,
       threads: current.threads.map((candidate) => candidate.threadId === thread.threadId ? updatedThread : candidate),
+      notifications: availabilityNotification
+        ? [...current.notifications, availabilityNotification]
+        : current.notifications,
+      outbox: availabilityNotification ? [...current.outbox, {
+        jobId: `outbox_${randomUUID()}`,
+        kind: "notification",
+        recipientId: current.initiatorId,
+        deduplicationKey: availabilityNotification.deduplicationKey,
+        payload: {
+          runId: current.runId,
+          notificationId: availabilityNotification.notificationId,
+        },
+        status: "pending",
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      }] : current.outbox,
       auditEvents: [...current.auditEvents, this.auditEvent(current, "requirements_confirmed", input.actorId, input.idempotencyKey, {
         threadId: thread.threadId,
         requirementCategories: Object.keys(thread.pendingRequirements),
+        availabilityConfirmed: confirmedAvailability,
       }, current.lifecycle)],
       processedCommands: [...current.processedCommands, input.idempotencyKey],
       updatedAt: now,
@@ -768,11 +875,13 @@ export class EventCoordinator {
     const lifecycle = pending
       ? current.lifecycle
       : memberships.length >= 2 ? "coordinating" as const : "forming" as const;
+    const responder = await this.dependencies.resolveMember?.(input.actorId);
+    const responderName = responder?.displayName ?? this.displayMember(input.actorId);
     const responseNotification = {
       notificationId: `notification_${randomUUID()}`,
       userId: current.initiatorId,
       kind: "invitation_response" as const,
-      title: `${input.actorId} ${input.response === "accept" ? "accepted" : "declined"}`,
+      title: `${responderName} ${input.response === "accept" ? "accepted" : "declined"}`,
       body: `${current.proposal.quest.title} invitation response`,
       readAt: null,
       deduplicationKey: `invitation-response:${invitation.invitationId}:${input.response}`,
@@ -980,6 +1089,7 @@ export class EventCoordinator {
     const states = await this.dependencies.store.listEventCoordinationStates(userId);
     const result: UserEventActivities = {
       unreadCount: 0,
+      notifications: [],
       suggested: [],
       invitations: [],
       sentInvitations: [],
@@ -992,8 +1102,12 @@ export class EventCoordinator {
       },
     };
     for (const state of states) {
-      result.unreadCount += state.notifications.filter((notification) =>
-        notification.userId === userId && notification.readAt === null).length;
+      const userNotifications = state.notifications.filter((notification) => notification.userId === userId);
+      result.unreadCount += userNotifications.filter((notification) => notification.readAt === null).length;
+      result.notifications.push(...userNotifications.map((notification) => ({
+        ...notification,
+        runId: state.runId,
+      })));
       const activity = this.activityCard(state);
       if (state.lifecycle === "forming"
         && state.memberships.length === 0
@@ -1016,6 +1130,7 @@ export class EventCoordinator {
         result.my.awaitingConfirmation.push(activity);
       } else result.my.awaitingCoordination.push(activity);
     }
+    result.notifications.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
     return result;
   }
 
@@ -1065,6 +1180,12 @@ export class EventCoordinator {
     return state.invitations.some((invitation) => invitation.guestId === userId && invitation.status === "pending");
   }
 
+  private hasAvailabilityUpdate(requirements: Partial<CoordinationRequirements> | null | undefined): boolean {
+    if (!requirements) return false;
+    return Object.prototype.hasOwnProperty.call(requirements, "availableWindows")
+      || Object.prototype.hasOwnProperty.call(requirements, "temporaryConflicts");
+  }
+
   private emptyRequirements(): CoordinationRequirements {
     return {
       availableWindows: [],
@@ -1076,6 +1197,13 @@ export class EventCoordinator {
       temporaryConflicts: [],
       other: [],
     };
+  }
+
+  private displayMember(userId: string): string {
+    return userId
+      .replace(/^demo_/, "")
+      .replaceAll("_", " ")
+      .replace(/^./, (letter) => letter.toUpperCase());
   }
 
   private materialChanges(
