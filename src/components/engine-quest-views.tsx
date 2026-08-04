@@ -9,7 +9,7 @@ import { Icon } from "@/components/icons";
 import { QuestCard } from "@/components/quest-card";
 import { getQuestRun, listUserQuests } from "@/features/assistant/client";
 import { quests } from "@/data/mock-data";
-import type { QuestRun } from "@/server/domain/schemas";
+import type { Participant, QuestRun } from "@/server/domain/schemas";
 import { useUser } from "@/components/user-context";
 import { useAppState } from "@/components/app-state";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -97,7 +97,11 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
     ? proposal.quest.venueRequirements.map((item) => item.replaceAll("_", " ")).join(", ")
     : "Venue to be confirmed";
   const invitationStatus = run.coordination?.invitations.find((invitation) => invitation.candidateId === user.id)?.status;
-  const participantCount = proposal.proposedParticipants.length;
+  // The roster/proposal is the source of truth for people who are actually in
+  // this quest. Never use the requested group-size target as a participant
+  // count: a target of three with only two matched people is still two people.
+  const participants = questDetailParticipants(run);
+  const participantCount = participants.length;
   const canRespond = showActivityActions && run.status === "awaiting_acceptance" && invitationStatus === "pending";
   const hasDecision = invitationStatus === "accepted" || invitationStatus === "declined";
 
@@ -115,7 +119,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
             <div className="detail-fact"><Icon name="pin" /><span><small>Venue requirements</small><strong>{venueRequirements}</strong></span></div>
             <div className="detail-fact"><Icon name="people" /><span><small>Group size</small><strong>{participantCount} people</strong></span></div>
           </div>
-          <section className="engine-participants"><h2>Everyone has a role</h2>{proposal.proposedParticipants.map((participant) => {
+          <section className="engine-participants"><h2>Everyone has a role</h2>{participants.map((participant) => {
             const profile = run.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
             const name = profile?.displayName ?? participantLabel(participant.candidateId, user.id);
             const status = questParticipantStatus(
@@ -146,6 +150,21 @@ function ConnectedLoading({ label }: { label: string }) {
 
 function ConnectedError({ message }: { message: string }) {
   return <div className="connected-state error" role="alert"><Icon name="shield" /><strong>{message}</strong><Link href="/messages?assistant=1">Talk to Senior Quest</Link></div>;
+}
+
+function questDetailParticipants(run: QuestRun): Participant[] {
+  if (!run.proposal) return [];
+  const participants = [...run.proposal.proposedParticipants];
+  for (const invitation of run.coordination?.invitations ?? []) {
+    if (participants.some((participant) => participant.candidateId === invitation.candidateId)) continue;
+    participants.push({
+      candidateId: invitation.candidateId,
+      proposedRole: "supporting_participant",
+      needsAddressed: [],
+      contributionsUsed: [],
+    });
+  }
+  return participants;
 }
 
 function participantLabel(candidateId: string, currentUserId: string): string {

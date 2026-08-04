@@ -104,6 +104,52 @@ describe("EventCoordinator", () => {
     expect(replayed).toEqual(confirmed);
   });
 
+  it("adds a compatible third participant to a confirmed future roster and keeps the proposal in sync", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveParticipant: async (userId) => ({
+        participant: {
+          candidateId: userId,
+          proposedRole: "activity_support",
+          needsAddressed: ["Would like friendly company"],
+          contributionsUsed: ["can help welcome the group"],
+        },
+        explanation: ["Strong match for the existing group"],
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    const confirmed = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "confirm-third-participant",
+    });
+
+    const updated = await coordinator.addMatchedParticipant({
+      runId: confirmed.runId,
+      candidateId: "third",
+      expectedRevision: confirmed.revision,
+    });
+
+    expect(updated.roster.map((member) => member.userId)).toEqual(["maria", "anne", "david", "third"]);
+    expect(updated.proposal.proposedParticipants.map((participant) => participant.candidateId)).toEqual([
+      "maria",
+      "anne",
+      "david",
+      "third",
+    ]);
+    expect(updated.proposal.quest.groupSize).toBe(4);
+    expect(updated.invitations.find((invitation) => invitation.guestId === "third")).toEqual(expect.objectContaining({
+      status: "pending",
+      guestId: "third",
+    }));
+    expect(updated.threads.find((thread) => thread.userId === "third")?.messages.at(-1)?.kind).toBe("invitation_card");
+    expect(updated.threads.filter((thread) => thread.userId !== "third").every((thread) =>
+      thread.messages.some((message) => message.body.includes("new compatible participant"))
+    )).toBe(true);
+  });
+
   it("expands recurring availability only inside the explicitly supplied horizon", () => {
     const windows = expandAvailability({
       explicitWindows: [{

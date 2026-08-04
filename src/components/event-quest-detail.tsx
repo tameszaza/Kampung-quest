@@ -52,6 +52,7 @@ function EventQuestWorkspace({ state, onChange }: {
   const latestArrangement = state.arrangements.at(-1);
   const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const proposed = state.proposal.quest.proposedTimeWindow;
+  const participants = participantRoster(state);
 
   async function act(label: string, action: () => Promise<EventCoordinationState>) {
     setBusy(label);
@@ -96,8 +97,23 @@ function EventQuestWorkspace({ state, onChange }: {
           <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
-          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.roster.length} people</strong></span></div>
+          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{participants.length} people</strong></span></div>
         </div>
+
+        <section className="event-panel participant-summary">
+          <span className="section-kicker">Everyone has a role</span>
+          <h2>{participants.length} participants</h2>
+          <div className="event-roster">{participants.map((member) => {
+            const invitation = state.invitations.find((item) => item.guestId === member.userId);
+            const membership = state.memberships.find((item) => item.userId === member.userId);
+            const status = membership?.status ?? invitation?.status ?? (member.source === "recommended" ? "suggested" : "pending");
+            return <div key={member.userId}>
+              <span className="member-initial">{friendlyMember(member.userId).slice(0, 1)}</span>
+              <p><strong>{member.userId === user.id ? "You" : friendlyMember(member.userId)}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
+              <span className={`participant-status participant-status-${status}`}>{status.replaceAll("_", " ")}</span>
+            </div>;
+          })}</div>
+        </section>
 
         {organizer && state.lifecycle === "forming" ? <section className="event-panel">
           <span className="section-kicker">Step 1 · Review your group</span>
@@ -155,4 +171,42 @@ function friendlyStatus(value: string) {
 
 function friendlyMember(value: string) {
   return value.replace(/^demo_/, "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function participantRoster(state: EventCoordinationState) {
+  const participants = new Map<string, {
+    userId: string;
+    source: "initiator" | "recommended" | "manual";
+    proposedRole: string;
+    explanation: string[];
+  }>();
+  for (const member of state.roster) participants.set(member.userId, member);
+  for (const participant of state.proposal.proposedParticipants) {
+    if (participants.has(participant.candidateId)) continue;
+    participants.set(participant.candidateId, {
+      userId: participant.candidateId,
+      source: participant.candidateId === state.initiatorId ? "initiator" : "recommended",
+      proposedRole: participant.proposedRole,
+      explanation: ["Included in the current activity proposal"],
+    });
+  }
+  for (const membership of state.memberships) {
+    if (participants.has(membership.userId)) continue;
+    participants.set(membership.userId, {
+      userId: membership.userId,
+      source: membership.rosterSource,
+      proposedRole: membership.role,
+      explanation: ["Activity member"],
+    });
+  }
+  for (const invitation of state.invitations) {
+    if (participants.has(invitation.guestId)) continue;
+    participants.set(invitation.guestId, {
+      userId: invitation.guestId,
+      source: "recommended",
+      proposedRole: "participant",
+      explanation: ["Invited to the activity"],
+    });
+  }
+  return [...participants.values()];
 }

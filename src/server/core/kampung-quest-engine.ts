@@ -58,6 +58,7 @@ export class KampungQuestEngine {
   private readonly validator = new ConstraintValidator();
   private readonly invitations: InvitationAdapter;
   private readonly venues: VenueAdapter;
+  private readonly queuedImageRuns = new Set<string>();
 
   constructor(private readonly dependencies: KampungQuestEngineDependencies) {
     this.invitations = dependencies.invitations ?? new MockInvitationAdapter();
@@ -159,7 +160,7 @@ export class KampungQuestEngine {
       const candidateVectors = this.embeddingMap(candidateEmbeddings);
       if (candidateVectors.need && this.hasSignal(candidateVectors.need)) {
         for (const state of states) {
-          if (state.lifecycle !== "forming"
+          if (!["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(state.lifecycle)
             || state.initiatorId === candidateId
             || Date.parse(state.proposal.quest.proposedTimeWindow.end) <= Date.now()
             || state.roster.some((member) => member.userId === candidateId)
@@ -172,12 +173,10 @@ export class KampungQuestEngine {
           );
           if (score === null || score < OPEN_QUEST_MATCH_THRESHOLD) continue;
           try {
-            const updated = await this.dependencies.eventCoordinator.updateRoster({
+            const updated = await this.dependencies.eventCoordinator.addMatchedParticipant({
               runId: state.runId,
-              actorId: state.initiatorId,
+              candidateId,
               expectedRevision: state.revision,
-              action: "add",
-              userId: candidateId,
             });
             await observe?.({
               stage: "retrieval",
@@ -251,11 +250,17 @@ export class KampungQuestEngine {
 
       const validation = this.validator.validate(updatedProposal, profiles);
       if (!validation.valid) continue;
-      const safety = await this.dependencies.agents.reviewSafety({
-        proposal: updatedProposal,
-        profiles,
-        auditContext: { questRunId: run.runId, participantAdded: candidateId },
-      });
+      // A future quest that already passed safety review should not spend a
+      // second Gemini safety request just because one compatible person joined
+      // later. Reuse that approved decision after deterministic roster
+      // validation; only legacy records without an approval need a new review.
+      const safety = run.safety?.status === "approved"
+        ? run.safety
+        : await this.dependencies.agents.reviewSafety({
+            proposal: updatedProposal,
+            profiles,
+            auditContext: { questRunId: run.runId, participantAdded: candidateId },
+          });
       if (safety.status !== "approved") continue;
 
       const updatedCoordination = structuredClone(coordination);
@@ -530,13 +535,16 @@ export class KampungQuestEngine {
           });
         }
         await observe?.({ stage: "validation", status: "failed", message: "The proposal needs human review", kind: "system" });
-        return this.dependencies.store.saveQuestRun({
+        const saved = await this.dependencies.store.saveQuestRun({
           ...base,
           status: "human_review",
           proposal,
           validation,
+          imageUrl: QUEST_IMAGE_PLACEHOLDER,
           updatedAt: new Date().toISOString(),
         });
+        this.queueQuestImage(saved);
+        return saved;
       }
 
       await observe?.({ stage: "validation", status: "completed", message: "All quest rules passed", kind: "system" });
@@ -557,13 +565,16 @@ export class KampungQuestEngine {
           }],
         };
         await observe?.({ stage: "validation", status: "failed", message: "A participant accepted another active quest", kind: "system" });
-        return this.dependencies.store.saveQuestRun({
+        const saved = await this.dependencies.store.saveQuestRun({
           ...base,
           status: "human_review",
           proposal,
           validation: eligibility,
+          imageUrl: QUEST_IMAGE_PLACEHOLDER,
           updatedAt: new Date().toISOString(),
         });
+        this.queueQuestImage(saved);
+        return saved;
       }
       activeStage = "safety";
       await observe?.({ stage: "safety", status: "started", message: "Safety Guardian is reviewing the quest", kind: "agent" });
@@ -684,8 +695,36 @@ export class KampungQuestEngine {
     return vector.some((value) => Math.abs(value) > Number.EPSILON);
   }
 
-  getQuest(runId: string): Promise<QuestRun | null> {
-    return this.dependencies.store.findQuestRun(runId);
+  async getQuest(runId: string): Promise<QuestRun | null> {
+    const run = await this.dependencies.store.findQuestRun(runId);
+    if (!run) return null;
+    // Event coordination owns the live roster after a formation is created.
+    // Merge it into legacy quest reads so older detail/list screens cannot
+    // render the stale two-person proposal after a third member is matched.
+    try {
+      const state = await this.dependencies.store.findEventCoordinationState(runId);
+      if (state) {
+        const projected = {
+          ...run,
+          proposal: structuredClone(state.proposal),
+          validation: structuredClone(state.rosterValidation),
+          updatedAt: state.updatedAt > run.updatedAt ? state.updatedAt : run.updatedAt,
+        };
+        if (!run.imageUrl || run.imageUrl === QUEST_IMAGE_PLACEHOLDER) {
+          this.queueQuestImage({ ...run, proposal: structuredClone(state.proposal) });
+        }
+        return projected;
+      }
+    } catch (error) {
+      // Keep legacy records readable while an older deployment is migrating
+      // the event-coordination tables. The next deploy will use the aggregate.
+      logger.warn("quest.event_state.read_skipped", {
+        runId,
+        error: safeErrorMessage(error),
+      });
+    }
+    if (run.proposal && (!run.imageUrl || run.imageUrl === QUEST_IMAGE_PLACEHOLDER)) this.queueQuestImage(run);
+    return run;
   }
 
   async applyCoordinationEvent(command: CoordinationEventCommand): Promise<QuestRun> {
@@ -874,10 +913,19 @@ export class KampungQuestEngine {
    * shown; the UI uses a neutral placeholder until the generated SVG is ready.
    */
   private queueQuestImage(run: QuestRun): void {
+    if (this.queuedImageRuns.has(run.runId)) return;
     if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
-      logger.debug("quest_image.queue.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
+      logger.warn("quest_image.queue.skipped", {
+        runId: run.runId,
+        reason: "image_dependencies_unavailable",
+        hasProposal: Boolean(run.proposal),
+        hasImageAgent: Boolean(this.dependencies.imageAgent),
+        hasImageStorage: Boolean(this.dependencies.imageStorage),
+      });
       return;
     }
+    this.queuedImageRuns.add(run.runId);
+    logger.info("quest_image.queue.scheduled", { runId: run.runId, status: run.status });
     void this.attachQuestImage(run)
       .then(async (generated) => {
         if (!generated.imageUrl || generated.imageUrl === QUEST_IMAGE_PLACEHOLDER) return;
@@ -890,6 +938,9 @@ export class KampungQuestEngine {
       })
       .catch((error) => {
         logger.error("quest_image.queue.error", { runId: run.runId, error: safeErrorMessage(error) });
+      })
+      .finally(() => {
+        this.queuedImageRuns.delete(run.runId);
       });
   }
 
@@ -905,7 +956,11 @@ export class KampungQuestEngine {
         variationKey: run.runId,
       });
       if (!generated) {
-        logger.warn("quest_image.attach.placeholder", { runId: run.runId, reason: "agent_returned_empty" });
+        logger.warn("quest_image.attach.placeholder", {
+          runId: run.runId,
+          reason: "agent_returned_empty",
+          note: "No thumbnail was persisted because the SVG provider returned no valid image",
+        });
         return run;
       }
       const imageUrl = await this.dependencies.imageStorage.save(generated);

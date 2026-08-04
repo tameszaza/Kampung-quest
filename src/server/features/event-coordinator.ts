@@ -8,6 +8,9 @@ import type {
   EventCoordinationState,
   EventInvitation,
   EventMembership,
+  EventNotification,
+  EventOutboxJob,
+  EventRosterMember,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 
@@ -24,6 +27,8 @@ export interface EventCoordinationStore {
     state: EventCoordinationState,
     expectedUpdatedAt: string,
   ): Promise<QuestRun>;
+  /** Keeps legacy quest reads in sync while the event aggregate is authoritative. */
+  syncQuestProposal?(runId: string, proposal: QuestProposal): Promise<void>;
 }
 
 interface EventCoordinatorDependencies {
@@ -228,7 +233,7 @@ export class EventCoordinator {
       deduplicationKey: `invitation:${invitation.invitationId}`,
       createdAt: now,
     }));
-    return this.dependencies.store.saveEventCoordinationState({
+    const saved = await this.dependencies.store.saveEventCoordinationState({
       ...current,
       lifecycle: "awaiting_responses",
       revision: current.revision + 1,
@@ -265,6 +270,8 @@ export class EventCoordinator {
       processedCommands: [...current.processedCommands, input.idempotencyKey],
       updatedAt: now,
     }, current.revision);
+    await this.dependencies.store.syncQuestProposal?.(saved.runId, saved.proposal);
+    return saved;
   }
 
   async getCoordinationThread(runId: string, actorId: string): Promise<EventCoordinationThread> {
@@ -704,7 +711,7 @@ export class EventCoordinator {
         ? { ...membership, status: "replaced", updatedAt: now }
         : membership)
       : current.memberships;
-    return this.dependencies.store.saveEventCoordinationState({
+    const saved = await this.dependencies.store.saveEventCoordinationState({
       ...current,
       revision: current.revision + 1,
       rosterRevision: current.rosterRevision + 1,
@@ -724,6 +731,200 @@ export class EventCoordinator {
       }, current.lifecycle)],
       updatedAt: now,
     }, current.revision);
+    await this.dependencies.store.syncQuestProposal?.(saved.runId, saved.proposal);
+    return saved;
+  }
+
+  /**
+   * Adds a newly matched person after the organizer has already confirmed the
+   * initial roster. Matching remains open until the event is scheduled or
+   * started; the new person receives a normal invitation and existing members
+   * receive a coordination update.
+   */
+  async addMatchedParticipant(input: {
+    runId: string;
+    candidateId: string;
+    expectedRevision: number;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.roster.some((member) => member.userId === input.candidateId)) return current;
+    if (!["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(current.lifecycle)) {
+      throw new Error("This activity is no longer accepting matched participants");
+    }
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    if (current.proposal.proposedParticipants.length >= 5) throw new Error("This activity has reached its group limit");
+    const resolved = await this.dependencies.resolveParticipant?.(input.candidateId);
+    if (!resolved) throw new Error("This person is not currently eligible for this activity");
+    if (current.proposal.proposedParticipants.some((participant) => participant.candidateId === input.candidateId)) {
+      throw new Error("This person is already in the activity proposal");
+    }
+    if (current.lifecycle === "forming") {
+      return this.updateRoster({
+        runId: input.runId,
+        actorId: current.initiatorId,
+        expectedRevision: input.expectedRevision,
+        action: "add",
+        userId: input.candidateId,
+      });
+    }
+
+    const participant = resolved.participant;
+    const proposal: QuestProposal = {
+      ...structuredClone(current.proposal),
+      quest: {
+        ...current.proposal.quest,
+        groupSize: current.proposal.proposedParticipants.length + 1,
+        needsAddressed: [...new Set([
+          ...current.proposal.quest.needsAddressed,
+          ...participant.needsAddressed,
+        ])],
+      },
+      proposedParticipants: [...current.proposal.proposedParticipants, participant],
+      mutualBenefitExplanation: [
+        ...current.proposal.mutualBenefitExplanation,
+        ...resolved.explanation,
+      ],
+    };
+    const rosterValidation = this.dependencies.validateRoster
+      ? await this.dependencies.validateRoster(proposal)
+      : this.basicRosterValidation(proposal);
+    if (!rosterValidation.valid) {
+      throw new Error(rosterValidation.errors.map((error) => error.message).join(" ") || "The matched participant could not be added safely");
+    }
+
+    const now = new Date().toISOString();
+    const invitation: EventInvitation = {
+      invitationId: `invitation_${randomUUID()}`,
+      runId: current.runId,
+      inviterId: current.initiatorId,
+      guestId: input.candidateId,
+      status: "pending",
+      version: 1,
+      deliveryState: "pending",
+      idempotencyKey: `matched:${current.runId}:${input.candidateId}:${current.rosterRevision + 1}`,
+      rosterRevision: current.rosterRevision + 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const newRoster: EventRosterMember = {
+      userId: input.candidateId,
+      source: "recommended",
+      proposedRole: participant.proposedRole,
+      explanation: resolved.explanation,
+    };
+    const announcement = "A new compatible participant may join this activity after responding to their invitation.";
+    const updatedThreads = current.threads.map((thread) => ({
+      ...thread,
+      messages: [...thread.messages, {
+        messageId: `message_${randomUUID()}`,
+        role: "system" as const,
+        body: announcement,
+        kind: "change_card" as const,
+        createdAt: now,
+      }],
+      updatedAt: now,
+    }));
+    const thread: EventCoordinationThread = {
+      threadId: `coordination_${randomUUID()}`,
+      runId: current.runId,
+      userId: input.candidateId,
+      revision: 1,
+      messages: [{
+        messageId: `message_${randomUUID()}`,
+        role: "system",
+        body: `You are invited to ${proposal.quest.title}. The displayed time is availability, not a confirmed schedule.`,
+        kind: "invitation_card",
+        createdAt: now,
+      }],
+      confirmedRequirements: this.emptyRequirements(),
+      pendingRequirements: null,
+      lastReadAt: null,
+      updatedAt: now,
+    };
+    const recipients = [...new Set([
+      current.initiatorId,
+      ...current.memberships.filter((membership) => this.isActiveMembership(membership)).map((membership) => membership.userId),
+    ])].filter((userId) => userId !== input.candidateId);
+    const notifications: EventNotification[] = [
+      {
+        notificationId: `notification_${randomUUID()}`,
+        userId: input.candidateId,
+        kind: "invitation",
+        title: `Invitation: ${proposal.quest.title}`,
+        body: "A compatible group was found. Review the activity and respond when ready.",
+        readAt: null,
+        deduplicationKey: `invitation:${invitation.invitationId}`,
+        createdAt: now,
+      },
+      ...recipients.map((userId) => ({
+        notificationId: `notification_${randomUUID()}`,
+        userId,
+        kind: "change" as const,
+        title: "A new participant may join",
+        body: announcement,
+        readAt: null,
+        deduplicationKey: `matched-participant:${current.runId}:${input.candidateId}:${userId}`,
+        createdAt: now,
+      })),
+    ];
+    const outbox: EventOutboxJob[] = [
+      {
+        jobId: `outbox_${randomUUID()}`,
+        kind: "invitation",
+        recipientId: input.candidateId,
+        deduplicationKey: `invitation:${invitation.invitationId}`,
+        payload: { runId: current.runId, invitationId: invitation.invitationId },
+        status: "pending",
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      ...notifications.map((notification) => ({
+        jobId: `outbox_${randomUUID()}`,
+        kind: "notification" as const,
+        recipientId: notification.userId,
+        deduplicationKey: notification.deduplicationKey,
+        payload: { runId: current.runId, notificationId: notification.notificationId },
+        status: "pending" as const,
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ];
+    const lifecycle = current.lifecycle === "awaiting_confirmation" ? "coordinating" as const : current.lifecycle;
+    const arrangements = current.lifecycle === "awaiting_confirmation"
+      ? current.arrangements.map((arrangement) => ["proposed", "initiator_approved", "awaiting_participant_confirmation"].includes(arrangement.status)
+        ? { ...arrangement, status: "superseded" as const, updatedAt: now }
+        : arrangement)
+      : current.arrangements;
+    const memberships = current.lifecycle === "awaiting_confirmation"
+      ? current.memberships.map((membership) => this.isActiveMembership(membership)
+        ? { ...membership, status: "coordinating" as const, updatedAt: now }
+        : membership)
+      : current.memberships;
+    const saved = await this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      lifecycle,
+      revision: current.revision + 1,
+      rosterRevision: current.rosterRevision + 1,
+      proposal,
+      rosterValidation,
+      roster: [...current.roster, newRoster],
+      invitations: [...current.invitations, invitation],
+      memberships,
+      threads: [...updatedThreads, thread],
+      arrangements,
+      notifications: [...current.notifications, ...notifications],
+      outbox: [...current.outbox, ...outbox],
+      auditEvents: [...current.auditEvents, this.auditEvent(current, "matched_participant_added", current.initiatorId, invitation.idempotencyKey, {
+        userId: input.candidateId,
+        rosterRevision: current.rosterRevision + 1,
+      }, lifecycle)],
+      processedCommands: [...current.processedCommands, invitation.idempotencyKey],
+      updatedAt: now,
+    }, current.revision);
+    await this.dependencies.store.syncQuestProposal?.(saved.runId, saved.proposal);
+    return saved;
   }
 
   async respondToInvitation(input: {

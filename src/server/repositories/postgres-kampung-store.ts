@@ -9,6 +9,7 @@ import type {
   CoordinationEventRecord,
   MemoryCard,
   MemoryUpdateCommand,
+  QuestProposal,
   QuestRun,
 } from "@/server/domain/schemas";
 import type { EventCoordinationState } from "@/server/domain/event-coordination";
@@ -744,6 +745,16 @@ export class PostgresKampungStore implements KampungStore {
       [runId, imageUrl, updatedAt, expectedUpdatedAt],
     );
     return result.rowCount === 1;
+  }
+
+  async syncQuestProposal(runId: string, proposal: QuestProposal): Promise<void> {
+    const current = await this.findQuestRun(runId);
+    if (!current) return;
+    await this.saveQuestRun({
+      ...current,
+      proposal: structuredClone(proposal),
+      updatedAt: new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString(),
+    });
   }
 
   async createQuestRun(run: QuestRun): Promise<{ run: QuestRun; created: boolean }> {
