@@ -45,6 +45,15 @@ const OPEN_QUEST_MATCH_THRESHOLD = 0.72;
 const OPEN_QUEST_SCAN_LIMIT = 50;
 export const QUEST_IMAGE_PLACEHOLDER = "/assets/quest-placeholder.svg";
 
+interface OpenQuestJoinOptions {
+  /** Runs already shown to this member should not be suggested again. */
+  excludedRunIds?: ReadonlySet<string>;
+}
+
+function normalizeQuestTitle(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 export interface QuestPipelineEvent {
   stage: "retrieval" | "synthesis" | "validation" | "safety";
   status: "started" | "completed" | "failed";
@@ -143,6 +152,7 @@ export class KampungQuestEngine {
     candidateId: string,
     idempotencyKey?: string,
     observe?: QuestPipelineObserver,
+    options?: OpenQuestJoinOptions,
   ): Promise<QuestRun | null> {
     const candidate = await this.dependencies.store.findMemory(candidateId);
     if (!candidate || candidate.profile.memoryStatus !== "active") return null;
@@ -162,6 +172,7 @@ export class KampungQuestEngine {
         for (const state of states) {
           if (!["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(state.lifecycle)
             || state.initiatorId === candidateId
+            || options?.excludedRunIds?.has(state.runId)
             || Date.parse(state.proposal.quest.proposedTimeWindow.end) <= Date.now()
             || state.roster.some((member) => member.userId === candidateId)
             || state.memberships.some((member) => member.userId === candidateId
@@ -223,6 +234,7 @@ export class KampungQuestEngine {
       const coordination = run.coordination;
       if (!proposal || !coordination) continue;
       if (Date.parse(proposal.quest.proposedTimeWindow.start) <= Date.now()) continue;
+      if (options?.excludedRunIds?.has(run.runId)) continue;
       if (run.initiatingCandidateId === candidateId) continue;
       if (proposal.proposedParticipants.some((participant) => participant.candidateId === candidateId)) continue;
       if (coordination.invitations.some((invitation) => invitation.candidateId === candidateId)) continue;
@@ -450,6 +462,8 @@ export class KampungQuestEngine {
       let synthesis = await this.dependencies.agents.synthesizeQuest({
         initiator: initiator.profile,
         candidates,
+        avoidQuestTitles: command.avoidQuestTitles,
+        avoidParticipantSets: command.avoidParticipantSets,
         auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
       });
       if (synthesis.outcome === "no_match") {
@@ -473,7 +487,7 @@ export class KampungQuestEngine {
           updatedAt: new Date().toISOString(),
         });
       }
-      let proposal = synthesis.proposal;
+      let proposal = this.ensureNovelProposal(synthesis.proposal, command);
       await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker proposed a quest", kind: "agent" });
       const cards = await this.dependencies.store.listMemories();
       const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
@@ -488,6 +502,8 @@ export class KampungQuestEngine {
         synthesis = await this.dependencies.agents.synthesizeQuest({
           initiator: initiator.profile,
           candidates,
+          avoidQuestTitles: command.avoidQuestTitles,
+          avoidParticipantSets: command.avoidParticipantSets,
           validationErrors: validation.errors,
           proposalToCorrect: proposal,
           auditContext: { conversationId: command.conversationId ?? "", questRunId: runId },
@@ -513,7 +529,7 @@ export class KampungQuestEngine {
             updatedAt: new Date().toISOString(),
           });
         }
-        proposal = synthesis.proposal;
+        proposal = this.ensureNovelProposal(synthesis.proposal, command);
         await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker corrected the proposal", kind: "agent" });
         activeStage = "validation";
         validation = this.validator.validate(proposal, profiles);
@@ -640,6 +656,22 @@ export class KampungQuestEngine {
       need: embeddings.find((embedding) => embedding.kind === "need")?.vector,
       interest: embeddings.find((embedding) => embedding.kind === "interest")?.vector,
       offer: embeddings.find((embedding) => embedding.kind === "offer")?.vector,
+    };
+  }
+
+  private ensureNovelProposal(proposal: QuestProposal, command: ProposeQuestCommand): QuestProposal {
+    const avoidedTitles = new Set((command.avoidQuestTitles ?? []).map(normalizeQuestTitle));
+    if (!avoidedTitles.has(normalizeQuestTitle(proposal.quest.title))) return proposal;
+
+    let round = 2;
+    let title = `${proposal.quest.title} · Round ${round}`;
+    while (avoidedTitles.has(normalizeQuestTitle(title))) {
+      round += 1;
+      title = `${proposal.quest.title} · Round ${round}`;
+    }
+    return {
+      ...proposal,
+      quest: { ...proposal.quest, title },
     };
   }
 

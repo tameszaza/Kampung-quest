@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
+import { ActivityNotifications } from "@/components/activity-notifications";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
 import { useUser } from "@/components/user-context";
@@ -108,14 +109,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
           </article>)}
         </section> : <EmptyActivities title="No sent invitations" body="Invitations are created after you confirm a suggested group." />}
       </> : null}
-      {activities && tab === "Notifications" ? (
-        <section className="empty-state" aria-live="polite">
-          <span><Icon name="invite" size={34} /></span>
-          <h2>{activities.unreadCount ? `${activities.unreadCount} updates waiting` : "You are all caught up"}</h2>
-          <p>Updates about matches, invitations, and group changes will appear here.</p>
-          {activities.unreadCount ? <button className="primary-button" type="button" onClick={() => void markEventNotificationsRead().then(load)}>Mark all as read</button> : null}
-        </section>
-      ) : null}
+      {activities && tab === "Notifications" ? <ActivityNotifications /> : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
-import type { AssistantAnswer } from "@/server/domain/schemas";
+import type { AssistantAnswer, QuestRun } from "@/server/domain/schemas";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
@@ -360,5 +360,68 @@ describe("Senior Quest AI conversation", () => {
     expect(adjusted.brief.currentGoal).toBe("I would like a gentle gardening group");
     expect(adjusted.messages.at(-1)?.content).toContain("review the new summary");
     expect(adjusted.error).toBeNull();
+  });
+
+  it("refreshes a stale no-match conversation when a later group includes the member", async () => {
+    const store = new InMemoryKampungStore();
+    const agents = new DeterministicAgentRuntime();
+    const service = new AssistantConversationService({ store, agents });
+    const conversation = await service.create({ candidateId: "maria" });
+    const noMatch = await store.saveAssistantConversation({
+      ...conversation,
+      status: "no_match",
+      brief: {
+        ...conversation.brief,
+        currentGoal: "A book club",
+        interests: ["books"],
+        offers: ["conversation"],
+        availableWindows: [{ start: "2026-08-10T03:00:00.000Z", end: "2026-08-10T04:00:00.000Z" }],
+        minimumGroupSize: 2,
+        maximumGroupSize: 4,
+        indoorRequired: true,
+        stairsAllowed: true,
+        maximumDistanceM: 1000,
+        language: "English",
+        invitationConsent: true,
+      },
+      revision: conversation.revision + 1,
+    }, conversation.revision);
+    const laterQuest: QuestRun = {
+      runId: "quest-later-group",
+      initiatingCandidateId: "p_2",
+      idempotencyKey: "later-group",
+      status: "human_review",
+      proposal: {
+        quest: {
+          title: "Book Club Together",
+          questType: "community_activity",
+          sharedGoal: "Read together",
+          description: "A book club at a public library.",
+          needsAddressed: ["company"],
+          durationMinutes: 60,
+          groupSize: 3,
+          venueRequirements: ["approved_public_location", "indoor"],
+          proposedTimeWindow: { start: "2026-08-10T03:00:00.000Z", end: "2026-08-10T04:00:00.000Z" },
+        },
+        proposedParticipants: [
+          { candidateId: "p_2", proposedRole: "organizer", needsAddressed: [], contributionsUsed: [] },
+          { candidateId: "maria", proposedRole: "reader", needsAddressed: [], contributionsUsed: [] },
+          { candidateId: "third", proposedRole: "welcomer", needsAddressed: [], contributionsUsed: [] },
+        ],
+        reserveCandidates: [],
+        mutualBenefitExplanation: [],
+        confidence: 0.8,
+      },
+      validation: { valid: true, errors: [] },
+      safety: { status: "approved", riskLevel: "low", conditions: [], requiresHumanReview: false },
+      coordination: null,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    };
+    await store.saveQuestRun(laterQuest);
+
+    const refreshed = await service.get(noMatch.conversationId);
+    expect(refreshed?.status).toBe("complete");
+    expect(refreshed?.questRunId).toBe(laterQuest.runId);
   });
 });

@@ -67,8 +67,37 @@ export class AssistantConversationService {
     return this.dependencies.store.createAssistantConversation(snapshot);
   }
 
-  get(conversationId: string): Promise<AssistantConversationSnapshot | null> {
-    return this.dependencies.store.findAssistantConversation(conversationId);
+  async get(conversationId: string): Promise<AssistantConversationSnapshot | null> {
+    const conversation = await this.dependencies.store.findAssistantConversation(conversationId);
+    if (!conversation || conversation.status !== "no_match") return conversation;
+
+    // A no-match result is a snapshot, not a permanent verdict. Another
+    // member may subsequently complete a compatible group, so refresh this
+    // conversation when its candidate now appears in a live proposal. This
+    // prevents older members from being left on a stale "No strong match yet"
+    // card after a third participant makes the group viable.
+    const replacement = (await this.dependencies.store.listQuestRuns(conversation.candidateId, 50)).find((run) =>
+      run.proposal
+      && ["forming", "human_review", "awaiting_acceptance", "confirmed"].includes(run.status)
+      && Date.parse(run.proposal.quest.proposedTimeWindow.end) > Date.now()
+      && run.proposal.proposedParticipants.some((participant) => participant.candidateId === conversation.candidateId),
+    );
+    if (!replacement) return conversation;
+
+    const refreshed = {
+      ...conversation,
+      status: "complete" as const,
+      questRunId: replacement.runId,
+      error: null,
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      return await this.dependencies.store.saveAssistantConversation(refreshed, conversation.revision);
+    } catch {
+      // A concurrent turn may have advanced the conversation. The current
+      // persisted snapshot is still safe to return to the caller.
+      return conversation;
+    }
   }
 
   async addTurn(

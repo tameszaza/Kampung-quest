@@ -108,6 +108,17 @@ describe("Senior Quest assistant recommendations", () => {
     expect(repeated.quest.runId).toBe(first.quest.runId);
   });
 
+  it("creates a novel quest for a new conversation instead of replaying the prior suggestion", async () => {
+    const { assistant } = setup();
+    const first = await assistant.recommend(command());
+    const second = await assistant.recommend({ ...command(), conversationId: "conversation_002" });
+
+    expect(second.quest.runId).not.toBe(first.quest.runId);
+    expect(second.quest.proposal?.quest.title).not.toBe(first.quest.proposal?.quest.title);
+    expect(second.quest.proposal?.proposedParticipants.map((participant) => participant.candidateId))
+      .not.toEqual(first.quest.proposal?.proposedParticipants.map((participant) => participant.candidateId));
+  });
+
   it("lists a matched quest for every participant without exposing it to outsiders", async () => {
     const { assistant, store } = setup();
     const first = await assistant.recommend(command());

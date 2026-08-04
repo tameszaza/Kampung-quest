@@ -186,6 +186,8 @@ export class HostedAgentRuntime implements AgentRuntime {
         "If candidates cannot directly support the primary objective, return the no_match outcome instead of inventing an unrelated activity.",
         "Always fill every output field: for proposal use proposal and primaryIntentRef with null reason and an empty missingCapabilities list; for no_match use a null proposal and primaryIntentRef with a clear reason and missingCapabilities.",
         "Use only participant aliases, stated needs, and stated contributions from the input.",
+        "When avoidQuestTitles is non-empty, do not reuse any of those titles; create a genuinely distinct activity framing.",
+        "When avoidParticipantSets is non-empty, prefer a compatible participant combination that is not one of those exact sets.",
         "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
         "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
         "In venueRequirements, always use the exact token approved_public_location; also use indoor or no_stairs exactly when participant constraints require them.",
@@ -285,6 +287,8 @@ export class HostedAgentRuntime implements AgentRuntime {
       proposalToCorrect: input.proposalToCorrect
         ? this.aliasProposalForSynthesis(input.proposalToCorrect, aliases)
         : null,
+      avoidQuestTitles: input.avoidQuestTitles ?? [],
+      avoidParticipantSets: input.avoidParticipantSets ?? [],
       rules: {
         minimumGroupSize: 2,
         maximumGroupSize: 5,

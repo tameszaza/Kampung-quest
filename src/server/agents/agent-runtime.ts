@@ -41,6 +41,8 @@ export interface AgentRuntime {
   synthesizeQuest(input: {
     initiator: CandidateProfile;
     candidates: RetrievedCandidate[];
+    avoidQuestTitles?: string[];
+    avoidParticipantSets?: string[][];
     validationErrors?: ValidationErrorItem[];
     proposalToCorrect?: QuestProposal;
     auditContext?: Record<string, string>;

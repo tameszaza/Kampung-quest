@@ -104,6 +104,12 @@ export interface EventNotification {
   createdAt: string;
 }
 
+/** Safe notification projection used by the activity notification feed. */
+export interface EventNotificationView extends EventNotification {
+  runId: string;
+  questTitle: string;
+}
+
 export interface CoordinationRequirements {
   availableWindows: Array<{ start: string; end: string }>;
   accessibility: string[];

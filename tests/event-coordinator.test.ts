@@ -104,6 +104,47 @@ describe("EventCoordinator", () => {
     expect(replayed).toEqual(confirmed);
   });
 
+  it("notifies every existing roster member when a new forming match is added", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveParticipant: async (userId) => ({
+        participant: {
+          candidateId: userId,
+          proposedRole: "activity_support",
+          needsAddressed: ["Would like friendly company"],
+          contributionsUsed: ["can help welcome the group"],
+        },
+        explanation: ["Strong match for the existing group"],
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    const updated = await coordinator.addMatchedParticipant({
+      runId: forming.runId,
+      candidateId: "third",
+      expectedRevision: forming.revision,
+    });
+
+    expect(updated.roster.map((member) => member.userId)).toContain("third");
+    expect(updated.notifications.filter((notification) => notification.kind === "change").map((notification) => notification.userId))
+      .toEqual(expect.arrayContaining(["maria", "anne", "david"]));
+    expect(updated.notifications.find((notification) => notification.userId === "third"))
+      .toMatchObject({ kind: "invitation" });
+    expect(updated.outbox.filter((job) => job.kind === "notification")).toHaveLength(4);
+  });
+
+  it("keeps a human-review proposal visible in Suggested for all matched participants", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({ store });
+    await store.saveQuestRun({ ...approvedRun(), status: "human_review", coordination: null });
+
+    const anneActivities = await coordinator.listActivities("anne");
+    const davidActivities = await coordinator.listActivities("david");
+
+    expect(anneActivities.suggested.map((activity) => activity.runId)).toContain(approvedRun().runId);
+    expect(davidActivities.suggested.map((activity) => activity.runId)).toContain(approvedRun().runId);
+  });
+
   it("adds a compatible third participant to a confirmed future roster and keeps the proposal in sync", async () => {
     const store = new InMemoryKampungStore();
     const coordinator = new EventCoordinator({

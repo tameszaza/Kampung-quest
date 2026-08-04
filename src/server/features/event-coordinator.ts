@@ -9,6 +9,7 @@ import type {
   EventInvitation,
   EventMembership,
   EventNotification,
+  EventNotificationView,
   EventOutboxJob,
   EventRosterMember,
   UserEventActivities,
@@ -22,6 +23,7 @@ export interface EventCoordinationStore {
     expectedRevision: number,
   ): Promise<EventCoordinationState>;
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
+  listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]>;
   saveQuestRunWithFormation(
     run: QuestRun,
     state: EventCoordinationState,
@@ -678,7 +680,12 @@ export class EventCoordinator {
       ? await this.dependencies.validateRoster(proposal)
       : this.basicRosterValidation(proposal);
     const now = new Date().toISOString();
-    const rosterNotifications = input.action === "add" ? [
+    const rosterRecipients = [...new Set([
+      current.initiatorId,
+      ...current.roster.map((member) => member.userId),
+      ...current.memberships.filter((membership) => this.isActiveMembership(membership)).map((membership) => membership.userId),
+    ])].filter((userId) => userId !== input.userId);
+    const rosterNotifications: EventNotification[] = input.action === "add" ? [
       {
         notificationId: `notification_${randomUUID()}`,
         userId: input.userId,
@@ -689,16 +696,16 @@ export class EventCoordinator {
         deduplicationKey: `roster-match:${current.runId}:${input.userId}:${current.rosterRevision + 1}`,
         createdAt: now,
       },
-      {
+      ...rosterRecipients.map((userId) => ({
         notificationId: `notification_${randomUUID()}`,
-        userId: current.initiatorId,
-        kind: "invitation" as const,
-        title: "A compatible neighbour was found",
-        body: "Review the updated group before preparing invitations.",
+        userId,
+        kind: "change" as const,
+        title: "Your suggested group changed",
+        body: `${friendlyParticipantName(input.userId)} was added as a possible participant in ${current.proposal.quest.title}. Review the updated group before invitations are sent.`,
         readAt: null,
-        deduplicationKey: `roster-match-organizer:${current.runId}:${input.userId}:${current.rosterRevision + 1}`,
+        deduplicationKey: `roster-match-update:${current.runId}:${input.userId}:${userId}:${current.rosterRevision + 1}`,
         createdAt: now,
-      },
+      })),
     ] : [];
     const invitations = input.action === "remove"
       ? current.invitations.map((invitation): EventInvitation => invitation.guestId === input.userId
@@ -711,6 +718,21 @@ export class EventCoordinator {
         ? { ...membership, status: "replaced", updatedAt: now }
         : membership)
       : current.memberships;
+    const updatedThreads = input.action === "add"
+      ? current.threads.map((thread) => rosterRecipients.includes(thread.userId)
+        ? {
+            ...thread,
+            messages: [...thread.messages, {
+              messageId: `message_${randomUUID()}`,
+              role: "system" as const,
+              body: `${friendlyParticipantName(input.userId)} was added as a possible participant in ${current.proposal.quest.title}.`,
+              kind: "change_card" as const,
+              createdAt: now,
+            }],
+            updatedAt: now,
+          }
+        : thread)
+      : current.threads;
     const saved = await this.dependencies.store.saveEventCoordinationState({
       ...current,
       revision: current.revision + 1,
@@ -720,11 +742,25 @@ export class EventCoordinator {
       rosterValidation,
       invitations,
       memberships,
+      threads: updatedThreads,
       notifications: [...current.notifications, ...rosterNotifications],
-      outbox: input.action === "remove" ? current.outbox.map((job) =>
-        job.recipientId === input.userId && job.status === "pending"
-          ? { ...job, status: "cancelled" as const, updatedAt: now }
-          : job) : current.outbox,
+      outbox: input.action === "add"
+        ? [...current.outbox, ...rosterNotifications.map((notification) => ({
+            jobId: `outbox_${randomUUID()}`,
+            kind: "notification" as const,
+            recipientId: notification.userId,
+            deduplicationKey: notification.deduplicationKey,
+            payload: { runId: current.runId, notificationId: notification.notificationId },
+            status: "pending" as const,
+            attempts: 0,
+            createdAt: now,
+            updatedAt: now,
+          }))]
+        : input.action === "remove" ? current.outbox.map((job) =>
+            job.recipientId === input.userId && job.status === "pending"
+              ? { ...job, status: "cancelled" as const, updatedAt: now }
+              : job)
+          : current.outbox,
       auditEvents: [...current.auditEvents, this.auditEvent(current, `roster_member_${input.action === "add" ? "added" : "removed"}`, input.actorId, null, {
         userId: input.userId,
         rosterRevision: current.rosterRevision + 1,
@@ -843,6 +879,7 @@ export class EventCoordinator {
     };
     const recipients = [...new Set([
       current.initiatorId,
+      ...current.roster.map((member) => member.userId),
       ...current.memberships.filter((membership) => this.isActiveMembership(membership)).map((membership) => membership.userId),
     ])].filter((userId) => userId !== input.candidateId);
     const notifications: EventNotification[] = [
@@ -1177,8 +1214,25 @@ export class EventCoordinator {
     return marked;
   }
 
-  async listActivities(userId: string): Promise<UserEventActivities> {
+  async listNotifications(userId: string, limit = 50): Promise<EventNotificationView[]> {
     const states = await this.dependencies.store.listEventCoordinationStates(userId);
+    return states
+      .flatMap((state) => state.notifications
+        .filter((notification) => notification.userId === userId)
+        .map((notification) => ({
+          ...notification,
+          runId: state.runId,
+          questTitle: state.proposal.quest.title,
+        })))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, Math.min(50, Math.max(1, limit)));
+  }
+
+  async listActivities(userId: string): Promise<UserEventActivities> {
+    const [states, questRuns] = await Promise.all([
+      this.dependencies.store.listEventCoordinationStates(userId),
+      this.dependencies.store.listQuestRuns(userId, 50),
+    ]);
     const result: UserEventActivities = {
       unreadCount: 0,
       suggested: [],
@@ -1217,7 +1271,34 @@ export class EventCoordinator {
         result.my.awaitingConfirmation.push(activity);
       } else result.my.awaitingCoordination.push(activity);
     }
+    // A proposal can be human-review or legacy awaiting-acceptance before an
+    // event aggregate exists. Keep that proposal visible for every participant
+    // instead of dropping it from Suggested while a coordinator reviews it.
+    const representedRunIds = new Set(states.map((state) => state.runId));
+    for (const run of questRuns) {
+      if (representedRunIds.has(run.runId) || !run.proposal) continue;
+      if (!["human_review", "awaiting_acceptance", "confirmed"].includes(run.status)) continue;
+      if (Date.parse(run.proposal.quest.proposedTimeWindow.end) <= Date.now()) continue;
+      const activity = this.questRunActivityCard(run);
+      const accepted = run.coordination?.invitations.some((invitation) =>
+        invitation.candidateId === userId && invitation.status === "accepted");
+      if (accepted) result.my.awaitingCoordination.push(activity);
+      else result.suggested.push(activity);
+    }
     return result;
+  }
+
+  private questRunActivityCard(run: QuestRun): EventActivityCard {
+    if (!run.proposal) throw new Error("Quest run proposal is required for an activity card");
+    return {
+      runId: run.runId,
+      title: run.proposal.quest.title,
+      description: run.proposal.quest.description,
+      lifecycle: run.status === "human_review" ? "human_review" : "awaiting_responses",
+      durationMinutes: run.proposal.quest.durationMinutes,
+      provisionalAvailability: run.proposal.quest.proposedTimeWindow ?? null,
+      finalArrangement: null,
+    };
   }
 
   private activityCard(state: EventCoordinationState): EventActivityCard {
@@ -1319,4 +1400,9 @@ export class EventCoordinator {
     if (!state) throw new Error("Event coordination state was not found");
     return state;
   }
+}
+
+function friendlyParticipantName(userId: string): string {
+  if (!userId.startsWith("demo_")) return "A new neighbour";
+  return userId.slice("demo_".length).replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }

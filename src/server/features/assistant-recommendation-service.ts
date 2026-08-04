@@ -9,6 +9,7 @@ import type {
   QuestRun,
 } from "@/server/domain/schemas";
 import type { KampungStore } from "@/server/repositories/kampung-store";
+import { logger, safeErrorMessage } from "@/server/observability/logger";
 
 export interface AssistantRecommendationResult {
   memory: MemoryCard;
@@ -153,6 +154,28 @@ export class AssistantRecommendationService {
       idempotencyKey = `${idempotencyPrefix}:retry:${existingQuest.runId}`;
       existingQuest = await this.dependencies.store.findQuestByIdempotencyKey(idempotencyKey);
     }
+
+    const [history, coordinationHistory] = await Promise.all([
+      this.dependencies.store.listQuestRuns(command.candidateId, 50),
+      this.dependencies.store.listEventCoordinationStates(command.candidateId),
+    ]);
+    const priorSuggestions = history.filter((run) => run.proposal && run.status !== "failed");
+    const excludedRunIds = new Set([
+      ...priorSuggestions.map((run) => run.runId),
+      ...coordinationHistory.map((state) => state.runId),
+    ]);
+    const avoidQuestTitles = uniqueStrings(priorSuggestions.map((run) => run.proposal!.quest.title));
+    const avoidParticipantSets = priorSuggestions.map((run) =>
+      run.proposal!.proposedParticipants.map((participant) => participant.candidateId),
+    );
+    logger.info("quest.recommendation.start", {
+      candidateId: command.candidateId,
+      conversationId: command.conversationId,
+      historyCount: history.length,
+      coordinationHistoryCount: coordinationHistory.length,
+      priorSuggestionCount: priorSuggestions.length,
+      excludedRunCount: excludedRunIds.size,
+    });
     const currentMemory = await this.dependencies.store.findMemory(command.candidateId);
     const reuseActiveMemory = failedAttempts > 0 && currentMemory !== null;
     await observe?.({
@@ -206,8 +229,15 @@ export class AssistantRecommendationService {
       command.candidateId,
       idempotencyKey,
       observe ? (event) => observe(event) : undefined,
+      { excludedRunIds },
     );
     if (joinedQuest) {
+      logger.info("quest.recommendation.reused_open_activity", {
+        candidateId: command.candidateId,
+        runId: joinedQuest.runId,
+        historyAware: true,
+        excludedRunCount: excludedRunIds.size,
+      });
       return {
         memory,
         quest: joinedQuest,
@@ -228,6 +258,10 @@ export class AssistantRecommendationService {
         ),
       );
     if (activeAcceptedQuest) {
+      logger.info("quest.recommendation.active_commitment", {
+        candidateId: command.candidateId,
+        runId: activeAcceptedQuest.runId,
+      });
       return {
         memory,
         quest: activeAcceptedQuest,
@@ -235,11 +269,31 @@ export class AssistantRecommendationService {
         seededCandidateCount,
       };
     }
-    let quest = await this.dependencies.engine.proposeQuest({
-      initiatingCandidateId: command.candidateId,
-      idempotencyKey,
-      conversationId: command.conversationId,
-    }, observe ? (event) => observe(event) : undefined);
+    let quest: QuestRun;
+    try {
+      quest = await this.dependencies.engine.proposeQuest({
+        initiatingCandidateId: command.candidateId,
+        idempotencyKey,
+        conversationId: command.conversationId,
+        avoidQuestTitles,
+        avoidParticipantSets,
+      }, observe ? (event) => observe(event) : undefined);
+    } catch (error) {
+      logger.error("quest.recommendation.failed", {
+        candidateId: command.candidateId,
+        conversationId: command.conversationId,
+        error: safeErrorMessage(error),
+      });
+      throw error;
+    }
+
+    logger.info("quest.recommendation.created", {
+      candidateId: command.candidateId,
+      runId: quest.runId,
+      status: quest.status,
+      participantCount: quest.proposal?.proposedParticipants.length ?? 0,
+      noveltyHistoryCount: priorSuggestions.length,
+    });
 
     // The production container always supplies EventCoordinator. Keep the
     // lightweight standalone engine useful for local recommendation tests and
@@ -345,4 +399,8 @@ export class AssistantRecommendationService {
       previousGroupScore: 0.5,
     };
   }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }

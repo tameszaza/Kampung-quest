@@ -130,6 +130,29 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
     };
   }, [reconnectConversationId, reconnectStatus, confirming, reconnectAfterSequence]);
 
+  const refreshConversationId = conversation?.conversationId ?? null;
+  const refreshStatus = conversation?.status ?? null;
+  const refreshQuestRunId = conversation?.questRunId ?? null;
+  const refreshUpdatedAt = conversation?.updatedAt ?? null;
+
+  useEffect(() => {
+    if (!refreshConversationId || !refreshStatus || !["no_match", "complete"].includes(refreshStatus)) return;
+    let active = true;
+    const refresh = async () => {
+      const latest = await getAssistantConversation(refreshConversationId).catch(() => null);
+      if (!active || !latest) return;
+      if (latest.status !== refreshStatus || latest.questRunId !== refreshQuestRunId || latest.updatedAt !== refreshUpdatedAt) {
+        setConversation(latest);
+        if (latest.questRunId) setQuest(await getQuestRun(latest.questRunId));
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 4_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [refreshConversationId, refreshStatus, refreshQuestRunId, refreshUpdatedAt]);
+
   const activeField = editingField ?? conversation?.nextField ?? null;
   const latestEvents = useMemo(() => {
     const byStage = new Map<AssistantWorkflowEvent["stage"], AssistantWorkflowEvent>();
