@@ -104,29 +104,10 @@ describe("EventCoordinator", () => {
     expect(replayed).toEqual(confirmed);
   });
 
-  it("keeps a removed recommendation open in Suggested until the requested team is refilled", async () => {
-    const run = approvedRun();
-    run.proposal!.quest.groupSize = 4;
-    run.proposal!.proposedParticipants.push({
-      candidateId: "lucy",
-      proposedRole: "kitchen_helper",
-      needsAddressed: ["Would enjoy meeting neighbours"],
-      contributionsUsed: ["Can help prepare the room"],
-    });
+  it("allows the organizer to remove a recommendation and still open the smaller quest", async () => {
     const store = new InMemoryKampungStore();
-    const coordinator = new EventCoordinator({
-      store,
-      resolveParticipant: async (userId) => userId === "sofia" ? {
-        participant: {
-          candidateId: "sofia",
-          proposedRole: "activity_helper",
-          needsAddressed: ["Would enjoy a friendly cooking group"],
-          contributionsUsed: ["Can welcome guests"],
-        },
-        explanation: ["Selected as a replacement"],
-      } : null,
-    });
-    const forming = await coordinator.createFormation(run);
+    const coordinator = new EventCoordinator({ store });
+    const forming = await coordinator.createFormation(approvedRun());
 
     const trimmed = await coordinator.updateRoster({
       runId: forming.runId,
@@ -137,43 +118,19 @@ describe("EventCoordinator", () => {
     });
 
     expect(trimmed.lifecycle).toBe("forming");
-    expect(trimmed.targetGroupSize).toBe(4);
-    expect(trimmed.roster.map((member) => member.userId)).toEqual(["maria", "david", "lucy"]);
-    expect(trimmed.proposal.quest.groupSize).toBe(3);
-    expect(trimmed.rosterValidation).toEqual(expect.objectContaining({ valid: false }));
-    expect(trimmed.rosterValidation.errors).toContainEqual(expect.objectContaining({
-      field: "groupSize",
-      message: "Add 1 more person to fill the requested group.",
-    }));
-    expect((await coordinator.listActivities("maria")).suggested.map((activity) => activity.runId))
-      .toEqual([trimmed.runId]);
-
-    await expect(coordinator.confirmRoster({
-      runId: trimmed.runId,
-      actorId: "maria",
-      expectedRevision: trimmed.revision,
-      idempotencyKey: "confirm-incomplete-roster",
-    })).rejects.toThrow("Add 1 more person");
-
-    const refilled = await coordinator.updateRoster({
-      runId: trimmed.runId,
-      actorId: "maria",
-      expectedRevision: trimmed.revision,
-      action: "add",
-      userId: "sofia",
-    });
-    expect(refilled.targetGroupSize).toBe(4);
-    expect(refilled.rosterValidation.valid).toBe(true);
+    expect(trimmed.roster.map((member) => member.userId)).toEqual(["maria", "david"]);
+    expect(trimmed.proposal.quest.groupSize).toBe(2);
+    expect(trimmed.rosterValidation.valid).toBe(true);
 
     const confirmed = await coordinator.confirmRoster({
-      runId: refilled.runId,
+      runId: trimmed.runId,
       actorId: "maria",
-      expectedRevision: refilled.revision,
+      expectedRevision: trimmed.revision,
       idempotencyKey: "confirm-trimmed-roster",
     });
 
     expect(confirmed.lifecycle).toBe("awaiting_responses");
-    expect(confirmed.invitations.map((invitation) => invitation.guestId)).toEqual(["david", "lucy", "sofia"]);
+    expect(confirmed.invitations.map((invitation) => invitation.guestId)).toEqual(["david"]);
   });
 
   it("reopens recruitment after a decline and supports a manual replacement", async () => {
@@ -209,11 +166,9 @@ describe("EventCoordinator", () => {
     });
 
     expect(state.lifecycle).toBe("forming");
-    expect(state.targetGroupSize).toBe(3);
     expect(state.roster.map((member) => member.userId)).toEqual(["maria", "david"]);
     expect(state.proposal.proposedParticipants.map((participant) => participant.candidateId))
       .toEqual(["maria", "david"]);
-    expect(state.rosterValidation.valid).toBe(false);
     expect((await coordinator.listActivities("maria")).suggested.map((activity) => activity.runId))
       .toEqual([state.runId]);
     expect((await coordinator.listActivities("maria")).my.awaitingCoordination).toEqual([]);
@@ -226,8 +181,6 @@ describe("EventCoordinator", () => {
       userId: "sofia",
     });
     expect(state.roster.at(-1)).toMatchObject({ userId: "sofia", source: "manual" });
-    expect(state.targetGroupSize).toBe(3);
-    expect(state.rosterValidation.valid).toBe(true);
 
     const reconfirmed = await coordinator.confirmRoster({
       runId: state.runId,

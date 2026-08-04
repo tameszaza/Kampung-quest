@@ -92,7 +92,6 @@ export class EventCoordinator {
       runId: run.runId,
       initiatorId: run.initiatingCandidateId,
       lifecycle: "forming",
-      targetGroupSize: run.proposal.quest.groupSize,
       revision: 1,
       rosterRevision: 1,
       proposal: structuredClone(run.proposal),
@@ -140,10 +139,9 @@ export class EventCoordinator {
     }
     const safe = structuredClone(current) as EventQuestView;
     if (organizer && current.lifecycle === "forming") {
-      safe.rosterValidation = await this.validateRecruitmentRoster(
-        current.proposal,
-        this.recruitmentTarget(current),
-      );
+      safe.rosterValidation = this.dependencies.validateRoster
+        ? await this.dependencies.validateRoster(current.proposal)
+        : this.basicRosterValidation(current.proposal);
     }
     safe.viewer = {
       role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : "participant",
@@ -209,10 +207,9 @@ export class EventCoordinator {
       throw new Error("A confirmed roster requires at least two unique members");
     }
     if (!ids.includes(current.initiatorId)) throw new Error("The organizer must remain in the roster");
-    const latestValidation = await this.validateRecruitmentRoster(
-      current.proposal,
-      this.recruitmentTarget(current),
-    );
+    const latestValidation = this.dependencies.validateRoster
+      ? await this.dependencies.validateRoster(current.proposal)
+      : this.basicRosterValidation(current.proposal);
     if (!latestValidation.valid) {
       throw new Error(latestValidation.errors.map((error) => error.message).join(" ")
         || "The complete roster must pass validation before confirmation");
@@ -763,7 +760,6 @@ export class EventCoordinator {
     const existing = current.roster.find((member) => member.userId === input.userId);
     if (input.action === "add" && existing) throw new Error("This person is already in the roster");
     if (input.action === "remove" && !existing) throw new Error("This person is not in the roster");
-    const requestedGroupSize = this.recruitmentTarget(current);
 
     let roster = current.roster;
     let participants = current.proposal.proposedParticipants;
@@ -781,9 +777,6 @@ export class EventCoordinator {
       roster = roster.filter((member) => member.userId !== input.userId);
       participants = participants.filter((participant) => participant.candidateId !== input.userId);
     }
-    const targetGroupSize = input.action === "add"
-      ? Math.max(requestedGroupSize, roster.length)
-      : requestedGroupSize;
     const proposal: QuestProposal = {
       ...structuredClone(current.proposal),
       quest: {
@@ -793,7 +786,9 @@ export class EventCoordinator {
       },
       proposedParticipants: participants,
     };
-    const rosterValidation = await this.validateRecruitmentRoster(proposal, targetGroupSize);
+    const rosterValidation = this.dependencies.validateRoster
+      ? await this.dependencies.validateRoster(proposal)
+      : this.basicRosterValidation(proposal);
     const now = new Date().toISOString();
     const rosterNotifications = input.action === "add" ? [
       {
@@ -832,7 +827,6 @@ export class EventCoordinator {
       ...current,
       revision: current.revision + 1,
       rosterRevision: current.rosterRevision + 1,
-      targetGroupSize,
       roster,
       proposal,
       rosterValidation,
@@ -875,9 +869,6 @@ export class EventCoordinator {
       throw new Error("This person is already in the activity proposal");
     }
     if (current.lifecycle === "forming") {
-      if (current.roster.length >= this.recruitmentTarget(current)) {
-        throw new Error("This forming activity already has its requested group");
-      }
       return this.updateRoster({
         runId: input.runId,
         actorId: current.initiatorId,
@@ -1030,10 +1021,6 @@ export class EventCoordinator {
       lifecycle,
       revision: current.revision + 1,
       rosterRevision: current.rosterRevision + 1,
-      targetGroupSize: Math.max(
-        this.recruitmentTarget(current),
-        proposal.proposedParticipants.length,
-      ),
       proposal,
       rosterValidation,
       roster: [...current.roster, newRoster],
@@ -1110,7 +1097,9 @@ export class EventCoordinator {
         }
       : current.proposal;
     const rosterValidation = input.response === "decline"
-      ? await this.validateRecruitmentRoster(proposal, this.recruitmentTarget(current))
+      ? this.dependencies.validateRoster
+        ? await this.dependencies.validateRoster(proposal)
+        : this.basicRosterValidation(proposal)
       : current.rosterValidation;
     // A decline reopens recruitment immediately. Other pending invitations
     // stay valid, while the declined person leaves the active roster so a
@@ -1138,7 +1127,6 @@ export class EventCoordinator {
       lifecycle,
       revision: current.revision + 1,
       rosterRevision: input.response === "decline" ? current.rosterRevision + 1 : current.rosterRevision,
-      targetGroupSize: this.recruitmentTarget(current),
       roster,
       proposal,
       rosterValidation,
@@ -1471,28 +1459,6 @@ export class EventCoordinator {
       message: "Proposed participants must be unique.",
     });
     return { valid: errors.length === 0, errors };
-  }
-
-  private recruitmentTarget(state: EventCoordinationState): number {
-    return state.targetGroupSize ?? state.proposal.quest.groupSize;
-  }
-
-  private async validateRecruitmentRoster(
-    proposal: QuestProposal,
-    targetGroupSize: number,
-  ): Promise<ValidationResult> {
-    const validation = this.dependencies.validateRoster
-      ? await this.dependencies.validateRoster(proposal)
-      : this.basicRosterValidation(proposal);
-    const missing = targetGroupSize - proposal.proposedParticipants.length;
-    if (missing <= 0) return validation;
-    return {
-      valid: false,
-      errors: [...validation.errors, {
-        field: "groupSize",
-        message: `Add ${missing} more ${missing === 1 ? "person" : "people"} to fill the requested group.`,
-      }],
-    };
   }
 
   private isActiveMembership(membership: EventMembership): boolean {

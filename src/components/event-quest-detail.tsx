@@ -53,7 +53,6 @@ function EventQuestWorkspace({ state, onChange }: {
   const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const proposed = state.proposal.quest.proposedTimeWindow;
   const participants = participantRoster(state);
-  const targetGroupSize = state.targetGroupSize ?? state.proposal.quest.groupSize;
 
   async function act(label: string, action: () => Promise<EventCoordinationState>) {
     setBusy(label);
@@ -98,7 +97,7 @@ function EventQuestWorkspace({ state, onChange }: {
           <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
-          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.lifecycle === "forming" ? `${state.roster.length} of ${targetGroupSize} selected` : `${participants.length} people`}</strong></span></div>
+          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{participants.length} people</strong></span></div>
         </div>
 
         <section className="event-panel participant-summary">
@@ -118,7 +117,7 @@ function EventQuestWorkspace({ state, onChange }: {
 
         {organizer && state.lifecycle === "forming" ? <section className="event-panel">
           <span className="section-kicker">Step 1 · Review your group</span>
-          <h2>{state.roster.length} of {targetGroupSize} people selected</h2>
+          <h2>Recommended and selected people</h2>
           <p>Change the guest list before any invitations are sent. Every change is checked against availability, consent, group limits, and safety rules.</p>
           <div className="event-roster">{state.roster.map((member) => <div key={member.userId}><span className="member-initial">{friendlyMember(member.userId).slice(0, 1)}</span><p><strong>{member.userId === user.id ? "You" : friendlyMember(member.userId)}</strong><small>{member.source === "recommended" ? "Recommended match" : member.source === "manual" ? "Selected by you" : "Organizer"} · {member.explanation.join(" · ")}</small></p>{member.source !== "initiator" ? <button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}</div>)}</div>
           {!state.rosterValidation.valid ? <ul className="validation-errors">{state.rosterValidation.errors.map((item) => <li key={`${item.field}-${item.message}`}>{item.message}</li>)}</ul> : null}
