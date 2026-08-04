@@ -292,7 +292,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
         {conversation.status === "failed" || error ? (
           <div className="assistant-error" role="alert">
             <strong>{isQuotaError(error ?? conversation.error) ? "Gemini provider quota reached" : "Senior Quest paused"}</strong>
-            <p>{error ?? conversation.error}</p>
+            <p>{friendlyAgentError(error ?? conversation.error)}</p>
             {conversation.status === "failed" ? <button className="secondary-button" type="button" onClick={() => void confirm()}>Retry without losing this conversation</button> : null}
           </div>
         ) : null}
@@ -571,6 +571,14 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
 
 function isQuotaError(message: string | null) {
   return Boolean(message && /quota|rate limit|too many requests/i.test(message));
+}
+
+function friendlyAgentError(message: string | null) {
+  if (!message) return "The agent team could not complete this step. Please try again.";
+  if (/unknown (?:need|offer|quest need) fact reference|unknown (?:participant|reserve) alias|could not verify.*participant facts/i.test(message)) {
+    return "The matchmaking team could not verify the supplied member information. Please retry without changing your request.";
+  }
+  return message;
 }
 
 function candidateName(candidateId: string, ownCandidateId: string) {

@@ -8,6 +8,7 @@ import {
   type ModelRetrySettings,
 } from "@openai/agents";
 import type { AgentAuditSink, AgentRuntime, MemoryAgentInput } from "@/server/agents/agent-runtime";
+import { AGENT_INSTRUCTIONS } from "@/server/agents/agent-instructions";
 import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
@@ -116,6 +117,13 @@ interface HostedAgentRuntimeOptions {
   auditSink?: AgentAuditSink;
 }
 
+export class AgentOutputContractError extends Error {
+  constructor(message = "Matchmaking could not verify the supplied participant facts") {
+    super(message);
+    this.name = "AgentOutputContractError";
+  }
+}
+
 export function normalizeGeminiVenueRequirements(requirements: string[]): string[] {
   const canonical = new Set(requirements);
   const normalized = requirements.map((requirement) =>
@@ -152,80 +160,42 @@ export class HostedAgentRuntime implements AgentRuntime {
     this.conversationAgent = new Agent({
       name: "Senior Quest conversation guide",
       model: options.models.memory,
-      instructions: [
-        "You are Senior Quest, a warm and concise guide helping an older adult describe one current community activity request.",
-        "Ask exactly one useful question per turn and adapt its wording to the conversation; do not follow a scripted questionnaire.",
-        "Extract only facts the participant explicitly stated. Never infer consent, availability, access needs, identity, contact details, or addresses.",
-        "Treat all times collected in this conversation as provisional availability, never as a confirmed activity schedule.",
-        "The newest current goal is authoritative. Do not blend previous or unrelated goals into it.",
-        "Use requestedField only from the supplied missingFields. Return a briefPatch only for facts present in the latest user message.",
-        "When no missing fields remain, set requestedField to null and give a short invitation to review the brief.",
-        "Return only the requested structured output.",
-      ].join(" "),
+      instructions: AGENT_INSTRUCTIONS.conversation,
       outputType: assistantTurnAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
     this.memoryAgent = new Agent({
       name: "Kampung personal memory",
       model: options.models.memory,
-      instructions: [
-        "Update a senior's human-readable memory from the supplied current snapshot and newly confirmed active quest request.",
-        "The supplied currentSoftFacts.need is authoritative: replace the prior active need and never blend old active goals into it.",
-        "Treat structured constraints as authoritative and never infer or modify them.",
-        "Return only the requested structured output. Do not add identity or contact details.",
-      ].join(" "),
+      instructions: AGENT_INSTRUCTIONS.memory,
       outputType: memoryAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
     this.synthesisAgent = new Agent({
       name: "Kampung quest synthesis and matchmaking",
       model: options.models.synthesis,
-      instructions: [
-        "Design one practical, mutually beneficial public quest and select two to five participants.",
-        "Treat the initiating user's current need as the primary objective. Historical interests are secondary and must never displace it.",
-        "If candidates cannot directly support the primary objective, return the no_match outcome instead of inventing an unrelated activity.",
-        "Always fill every output field: for proposal use proposal and primaryIntentRef with null reason and an empty missingCapabilities list; for no_match use a null proposal and primaryIntentRef with a clear reason and missingCapabilities.",
-        "Use only participant aliases, stated needs, and stated contributions from the input.",
-        "Return the supplied need and offer fact reference IDs in needsAddressed and contributionsUsed; never return fact text there.",
-        "Every participant needs a meaningful role. Preserve exact availability, mobility, consent, and group limits.",
-        "In venueRequirements, always use the exact token approved_public_location; also use indoor or no_stairs exactly when participant constraints require them.",
-        "Never propose peer-to-peer money, private-home visits, or unsupported participants.",
-        "When validation errors are supplied, correct only those errors.",
-      ].join(" "),
+      instructions: AGENT_INSTRUCTIONS.synthesis,
       outputType: questSynthesisOutputSchema,
       modelSettings: { reasoning: { effort: "medium" }, retry: retrySettings, ...persistenceSetting },
     });
     this.safetyAgent = new Agent({
       name: "Kampung safety guardian",
       model: options.models.safety,
-      instructions: [
-        "Review only the supplied validated quest for contextual safety risk.",
-        "Escalate money, private-home visits, coercion, distress, sensitive-data exposure, or unusual assignments.",
-        "Do not redesign the quest. Return an approval, rejection, or human-review decision.",
-      ].join(" "),
+      instructions: AGENT_INSTRUCTIONS.safety,
       outputType: safetyReviewSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
     this.recoveryAgent = new Agent({
       name: "Kampung event recovery",
       model: options.models.recovery,
-      instructions: [
-        "Choose at most one supplied reserve alias to replace the unavailable participant.",
-        "Return null when no reserve is suitable. Do not change the activity or create new participants.",
-      ].join(" "),
+      instructions: AGENT_INSTRUCTIONS.recovery,
       outputType: recoveryActionSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
     this.coordinationAgent = new Agent({
       name: "Kampung event coordination",
       model: options.models.recovery,
-      instructions: [
-        "Help one participant coordinate one quest using only their private conversation.",
-        "Extract only requirements explicitly stated in the latest message, such as availability, accessibility, travel, dietary or environmental needs, venue preferences, and temporary conflicts.",
-        "Do not reveal or speculate about any other participant. Do not finalize a schedule, venue, participant change, invitation, or quest state.",
-        "Explain that extracted requirements require participant confirmation before use.",
-        "Return only the requested structured output.",
-      ].join(" "),
+      instructions: AGENT_INSTRUCTIONS.coordination,
       outputType: coordinationAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
@@ -301,17 +271,28 @@ export class HostedAgentRuntime implements AgentRuntime {
     if (!output.proposal || !output.primaryIntentRef) {
       throw new Error("Agent returned an incomplete proposal outcome");
     }
-    return {
-      outcome: "proposal" as const,
-      primaryIntentRef: output.primaryIntentRef,
-      proposal: this.restoreProposalReferences({
-      ...output.proposal,
-      quest: {
-        ...output.proposal.quest,
-        venueRequirements: normalizeGeminiVenueRequirements(output.proposal.quest.venueRequirements),
-      },
-      }, reverse, profiles),
-    };
+    try {
+      return {
+        outcome: "proposal" as const,
+        primaryIntentRef: output.primaryIntentRef,
+        proposal: restoreProposalReferences({
+          ...output.proposal,
+          quest: {
+            ...output.proposal.quest,
+            venueRequirements: normalizeGeminiVenueRequirements(output.proposal.quest.venueRequirements),
+          },
+        }, reverse, profiles),
+      };
+    } catch (error) {
+      if (error instanceof AgentOutputContractError) {
+        return {
+          outcome: "no_match" as const,
+          reason: "I could not verify a reliable match from the available member information. Please try again.",
+          missingCapabilities: input.initiator.interests,
+        };
+      }
+      throw error;
+    }
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
@@ -381,7 +362,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         runId: `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
         role: agent.name,
         model,
-        promptVersion: "v1",
+        promptVersion: "v2",
         outcome: "succeeded",
         latencyMs: Date.now() - startedAt,
         inputTokens: result.state.usage.inputTokens,
@@ -394,7 +375,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         runId: `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
         role: agent.name,
         model,
-        promptVersion: "v1",
+        promptVersion: "v2",
         outcome: "failed",
         latencyMs: Date.now() - startedAt,
         inputTokens: null,
@@ -458,50 +439,61 @@ export class HostedAgentRuntime implements AgentRuntime {
     };
   }
 
-  private restoreProposalReferences(
-    proposal: QuestProposal,
-    aliases: Map<string, string>,
-    profiles: CandidateProfile[],
-  ): QuestProposal {
-    const restore = (alias: string): string => {
-      const candidateId = aliases.get(alias);
-      if (!candidateId) throw new Error("Agent returned an unknown participant alias");
-      return candidateId;
-    };
-    const facts = new Map(profiles.map((profile) => [profile.candidateId, {
-      needs: new Map([[stableFactRef("need", profile.need), profile.need]]),
-      offers: new Map(profile.offers.map((text) => [stableFactRef("offer", text), text])),
-    }]));
-    const allNeeds = new Map(profiles.map((profile) => [stableFactRef("need", profile.need), profile.need]));
-    const resolve = (candidateId: string, ref: string, kind: "needs" | "offers"): string => {
-      const text = facts.get(candidateId)?.[kind].get(ref);
-      if (!text) throw new Error(`Agent returned an unknown ${kind === "needs" ? "need" : "offer"} fact reference`);
-      return text;
-    };
-    return {
-      ...proposal,
-      quest: {
-        ...proposal.quest,
-        needsAddressed: proposal.quest.needsAddressed.map((ref) => {
-          const text = allNeeds.get(ref);
-          if (!text) throw new Error("Agent returned an unknown quest need fact reference");
-          return text;
-        }),
-      },
-      proposedParticipants: proposal.proposedParticipants.map((participant) => ({
-        ...participant,
-        candidateId: restore(participant.candidateId),
-        needsAddressed: participant.needsAddressed.map((ref) =>
-          resolve(restore(participant.candidateId), ref, "needs")
-        ),
-        contributionsUsed: participant.contributionsUsed.map((ref) =>
-          resolve(restore(participant.candidateId), ref, "offers")
-        ),
-      })),
-      reserveCandidates: proposal.reserveCandidates.map((candidate) => ({
-        ...candidate,
-        candidateId: restore(candidate.candidateId),
-      })),
-    };
-  }
+}
+
+export function restoreProposalReferences(
+  proposal: QuestProposal,
+  aliases: Map<string, string>,
+  profiles: CandidateProfile[],
+): QuestProposal {
+  const restore = (alias: string): string => {
+    const candidateId = aliases.get(alias);
+    if (!candidateId) throw new AgentOutputContractError();
+    return candidateId;
+  };
+  const facts = new Map(profiles.map((profile) => [profile.candidateId, {
+    needs: new Map([[stableFactRef("need", profile.need), profile.need]]),
+    offers: new Map(profile.offers.map((text) => [stableFactRef("offer", text), text])),
+  }]));
+  const factText = new Map(profiles.map((profile) => [profile.candidateId, {
+    needs: new Map([[normalizeFactText(profile.need), profile.need]]),
+    offers: new Map(profile.offers.map((text) => [normalizeFactText(text), text])),
+  }]));
+  const allNeeds = new Map(profiles.map((profile) => [stableFactRef("need", profile.need), profile.need]));
+  const allNeedText = new Map(profiles.map((profile) => [normalizeFactText(profile.need), profile.need]));
+  const resolve = (candidateId: string, ref: string, kind: "needs" | "offers"): string => {
+    const text = facts.get(candidateId)?.[kind].get(ref)
+      ?? factText.get(candidateId)?.[kind].get(normalizeFactText(ref));
+    if (!text) throw new AgentOutputContractError();
+    return text;
+  };
+  return {
+    ...proposal,
+    quest: {
+      ...proposal.quest,
+      needsAddressed: proposal.quest.needsAddressed.map((ref) => {
+        const text = allNeeds.get(ref) ?? allNeedText.get(normalizeFactText(ref));
+        if (!text) throw new AgentOutputContractError();
+        return text;
+      }),
+    },
+    proposedParticipants: proposal.proposedParticipants.map((participant) => ({
+      ...participant,
+      candidateId: restore(participant.candidateId),
+      needsAddressed: participant.needsAddressed.map((ref) =>
+        resolve(restore(participant.candidateId), ref, "needs")
+      ),
+      contributionsUsed: participant.contributionsUsed.map((ref) =>
+        resolve(restore(participant.candidateId), ref, "offers")
+      ),
+    })),
+    reserveCandidates: proposal.reserveCandidates.map((candidate) => ({
+      ...candidate,
+      candidateId: restore(candidate.candidateId),
+    })),
+  };
+}
+
+function normalizeFactText(value: string): string {
+  return value.trim().toLocaleLowerCase("en").replace(/\s+/g, " ");
 }
