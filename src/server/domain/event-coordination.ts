@@ -178,6 +178,12 @@ export interface EventCoordinationState {
   runId: string;
   initiatorId: string;
   lifecycle: EventQuestLifecycle;
+  /** Original requested roster size, retained while vacancies are refilled. */
+  targetGroupSize?: number;
+  /** Suggested recruitment opens only after one of these two vacancy events. */
+  recruitmentReason?: "organizer_removed" | "invitation_declined" | null;
+  /** Replacement matches allowed to see this quest in Suggested. */
+  recruitmentCandidateIds?: string[];
   revision: number;
   rosterRevision: number;
   proposal: QuestProposal;
@@ -197,7 +203,7 @@ export interface EventCoordinationState {
 
 export interface EventQuestView extends EventCoordinationState {
   viewer: {
-    role: "organizer" | "pending_invitee" | "participant";
+    role: "organizer" | "suggested_candidate" | "pending_invitee" | "participant";
     canChat: boolean;
     pendingInvitationId: string | null;
   };

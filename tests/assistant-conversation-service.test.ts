@@ -362,7 +362,7 @@ describe("Senior Quest AI conversation", () => {
     expect(adjusted.error).toBeNull();
   });
 
-  it("refreshes a stale no-match conversation when a later group includes the member", async () => {
+  it("keeps the original no-match conversation unchanged when a later group includes the member", async () => {
     const store = new InMemoryKampungStore();
     const agents = new DeterministicAgentRuntime();
     const service = new AssistantConversationService({ store, agents });
@@ -420,8 +420,9 @@ describe("Senior Quest AI conversation", () => {
     };
     await store.saveQuestRun(laterQuest);
 
-    const refreshed = await service.get(noMatch.conversationId);
-    expect(refreshed?.status).toBe("complete");
-    expect(refreshed?.questRunId).toBe(laterQuest.runId);
+    const unchanged = await service.get(noMatch.conversationId);
+    expect(unchanged?.status).toBe("no_match");
+    expect(unchanged?.questRunId).toBeNull();
+    expect(unchanged?.messages).toEqual(noMatch.messages);
   });
 });

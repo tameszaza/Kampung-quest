@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CandidateProfile } from "@/server/domain/schemas";
+import type { CandidateProfile, QuestRun } from "@/server/domain/schemas";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import type { EmbeddingProvider } from "@/server/agents/embedding-provider";
@@ -7,6 +7,7 @@ import { MockInvitationAdapter, MockVenueAdapter } from "@/server/coordination/a
 import { KampungQuestEngine, QUEST_IMAGE_PLACEHOLDER } from "@/server/core/kampung-quest-engine";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 import type { QuestImageAgent } from "@/server/agents/quest-image-agent";
+import { EventCoordinator } from "@/server/features/event-coordinator";
 
 function profile(candidateId: string): CandidateProfile {
   return {
@@ -769,6 +770,83 @@ describe("KampungQuestEngine memory", () => {
     expect(invitations.sent).toContainEqual({ runId: "open-future-quest", candidateId: "candidate_003" });
     expect((await store.findQuestByIdempotencyKey("assistant:candidate_003:conversation_003"))?.runId)
       .toBe("open-future-quest");
+  });
+
+  it("matches replacements only after an organizer-created vacancy", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveParticipant: async (candidateId) => ({
+        participant: {
+          candidateId,
+          proposedRole: "replacement_guest",
+          needsAddressed: [profile(candidateId).need],
+          contributionsUsed: [profile(candidateId).offers[0]],
+        },
+        explanation: ["Compatible replacement"],
+      }),
+    });
+    const engine = new KampungQuestEngine({
+      store,
+      eventCoordinator: coordinator,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    for (const candidateId of ["candidate_001", "candidate_002", "candidate_003"]) {
+      await engine.recordMemory({ profile: profile(candidateId), narrative: profile(candidateId).need });
+    }
+    const run: QuestRun = {
+      runId: "event-replacement-only",
+      initiatingCandidateId: "candidate_001",
+      idempotencyKey: null,
+      status: "forming",
+      proposal: {
+        quest: {
+          title: "Replacement-only lunch",
+          questType: "community_activity",
+          sharedGoal: "Share lunch with neighbours.",
+          description: "A future lunch with a small group.",
+          needsAddressed: [profile("candidate_001").need],
+          durationMinutes: 60,
+          groupSize: 2,
+          venueRequirements: ["approved_public_location", "indoor"],
+          proposedTimeWindow: { start: "2026-08-10T03:00:00.000Z", end: "2026-08-10T04:00:00.000Z" },
+        },
+        proposedParticipants: ["candidate_001", "candidate_002"].map((candidateId, index) => ({
+          candidateId,
+          proposedRole: index === 0 ? "organizer" : "guest",
+          needsAddressed: [profile(candidateId).need],
+          contributionsUsed: [profile(candidateId).offers[0]],
+        })),
+        reserveCandidates: [],
+        mutualBenefitExplanation: ["Compatible availability and interests."],
+        confidence: 0.9,
+      },
+      validation: { valid: true, errors: [] },
+      safety: { status: "approved", riskLevel: "low", conditions: [], requiresHumanReview: false },
+      coordination: null,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    };
+    await store.saveQuestRun(run);
+    const forming = await coordinator.createFormation(run);
+
+    expect(await engine.joinOpenQuest("candidate_003")).toBeNull();
+
+    const recruiting = await coordinator.updateRoster({
+      runId: run.runId,
+      actorId: "candidate_001",
+      action: "remove",
+      userId: "candidate_002",
+      expectedRevision: forming.revision,
+    });
+    const joined = await engine.joinOpenQuest("candidate_003");
+    const state = await store.findEventCoordinationState(run.runId);
+
+    expect(recruiting.recruitmentReason).toBe("organizer_removed");
+    expect(joined?.runId).toBe(run.runId);
+    expect(state?.recruitmentCandidateIds).toEqual(["candidate_003"]);
+    expect(state?.roster.map((member) => member.userId)).toEqual(["candidate_001", "candidate_003"]);
   });
 
   it("does not add a participant after an activity has started", async () => {

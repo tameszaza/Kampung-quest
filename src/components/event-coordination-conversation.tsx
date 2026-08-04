@@ -393,6 +393,7 @@ function friendlyLifecycle(value: string) {
 
 function roleLabel(role: EventQuestView["viewer"]["role"]) {
   if (role === "organizer") return "You’re the organizer";
+  if (role === "suggested_candidate") return "Suggested activity";
   if (role === "pending_invitee") return "Invitation awaiting your response";
   return "You’re part of this activity";
 }

@@ -162,15 +162,21 @@ export class KampungQuestEngine {
     // organizer confirmation flow. This keeps the legacy QuestRun path below
     // available for older records and tests while new quests use the event
     // aggregate as the source of truth.
+    const eventStateRunIds = new Set<string>();
     if (this.dependencies.eventCoordinator) {
       const [candidateEmbeddings, states] = await Promise.all([
         this.dependencies.store.findEmbeddings(candidateId),
         this.dependencies.store.listAllEventCoordinationStates(OPEN_QUEST_SCAN_LIMIT),
       ]);
+      states.forEach((state) => eventStateRunIds.add(state.runId));
       const candidateVectors = this.embeddingMap(candidateEmbeddings);
       if (candidateVectors.need && this.hasSignal(candidateVectors.need)) {
         for (const state of states) {
-          if (!["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(state.lifecycle)
+          const recruitmentTarget = state.targetGroupSize ?? state.proposal.quest.groupSize;
+          const replacementRecruitmentOpen = ["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(state.lifecycle)
+            && ["organizer_removed", "invitation_declined"].includes(state.recruitmentReason ?? "")
+            && state.roster.length < recruitmentTarget;
+          if (!replacementRecruitmentOpen
             || state.initiatorId === candidateId
             || options?.excludedRunIds?.has(state.runId)
             || Date.parse(state.proposal.quest.proposedTimeWindow.end) <= Date.now()
@@ -230,6 +236,9 @@ export class KampungQuestEngine {
     });
 
     for (const run of openRuns) {
+      // Event-coordinated quests use the explicit replacement-recruitment
+      // state above. Never let the legacy path bypass that gate.
+      if (eventStateRunIds.has(run.runId)) continue;
       const proposal = run.proposal;
       const coordination = run.coordination;
       if (!proposal || !coordination) continue;

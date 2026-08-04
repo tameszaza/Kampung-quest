@@ -92,6 +92,9 @@ export class EventCoordinator {
       runId: run.runId,
       initiatorId: run.initiatingCandidateId,
       lifecycle: "forming",
+      targetGroupSize: run.proposal.quest.groupSize,
+      recruitmentReason: null,
+      recruitmentCandidateIds: [],
       revision: 1,
       rosterRevision: 1,
       proposal: structuredClone(run.proposal),
@@ -134,7 +137,9 @@ export class EventCoordinator {
       invitation.guestId === userId && invitation.status === "pending");
     const activeMembership = [...current.memberships].reverse().find((membership) =>
       membership.userId === userId && this.isActiveMembership(membership));
-    if (!organizer && !pendingInvitation && !activeMembership) {
+    const suggestedCandidate = this.hasRecruitmentCampaign(current)
+      && (current.recruitmentCandidateIds ?? []).includes(userId);
+    if (!organizer && !suggestedCandidate && !pendingInvitation && !activeMembership) {
       throw new Error("Event coordination state was not found");
     }
     const safe = structuredClone(current) as EventQuestView;
@@ -144,7 +149,11 @@ export class EventCoordinator {
         : this.basicRosterValidation(current.proposal);
     }
     safe.viewer = {
-      role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : "participant",
+      role: organizer
+        ? "organizer"
+        : suggestedCandidate
+          ? "suggested_candidate"
+          : pendingInvitation ? "pending_invitee" : "participant",
       canChat: this.canCoordinate(current, userId),
       pendingInvitationId: pendingInvitation?.invitationId ?? null,
     };
@@ -278,10 +287,13 @@ export class EventCoordinator {
       deduplicationKey: `invitation:${invitation.invitationId}`,
       createdAt: now,
     }));
+    const recruitmentFilled = current.roster.length >= this.recruitmentTarget(current);
     return this.dependencies.store.saveEventCoordinationState({
       ...current,
       lifecycle: "awaiting_responses",
       revision: current.revision + 1,
+      recruitmentReason: recruitmentFilled ? null : current.recruitmentReason ?? null,
+      recruitmentCandidateIds: [],
       rosterValidation: latestValidation,
       invitations: [...current.invitations, ...invitations],
       memberships,
@@ -752,7 +764,9 @@ export class EventCoordinator {
   }): Promise<EventCoordinationState> {
     const current = await this.requireState(input.runId);
     if (current.initiatorId !== input.actorId) throw new Error("Only the quest organizer can edit the roster");
-    if (current.lifecycle !== "forming") throw new Error("Invitations have already been prepared for this roster");
+    if (current.lifecycle !== "forming" && !this.hasRecruitmentCampaign(current)) {
+      throw new Error("Invitations have already been prepared for this roster");
+    }
     if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
     if (input.userId === current.initiatorId && input.action === "remove") {
       throw new Error("The organizer cannot be removed from the roster");
@@ -760,6 +774,7 @@ export class EventCoordinator {
     const existing = current.roster.find((member) => member.userId === input.userId);
     if (input.action === "add" && existing) throw new Error("This person is already in the roster");
     if (input.action === "remove" && !existing) throw new Error("This person is not in the roster");
+    const targetGroupSize = this.recruitmentTarget(current);
 
     let roster = current.roster;
     let participants = current.proposal.proposedParticipants;
@@ -789,6 +804,15 @@ export class EventCoordinator {
     const rosterValidation = this.dependencies.validateRoster
       ? await this.dependencies.validateRoster(proposal)
       : this.basicRosterValidation(proposal);
+    const recruitmentReason = input.action === "remove"
+      ? current.recruitmentReason ?? "organizer_removed" as const
+      : current.recruitmentReason ?? null;
+    const recruitmentCandidateIds = input.action === "remove"
+      ? (current.recruitmentCandidateIds ?? []).filter((userId) => userId !== input.userId)
+      : input.source === "recommended" && recruitmentReason
+        ? [...new Set([...(current.recruitmentCandidateIds ?? []), input.userId])]
+        : current.recruitmentCandidateIds ?? [];
+    const lifecycle = current.lifecycle === "forming" ? current.lifecycle : "forming" as const;
     const now = new Date().toISOString();
     const rosterNotifications = input.action === "add" ? [
       {
@@ -825,8 +849,12 @@ export class EventCoordinator {
       : current.memberships;
     const saved = await this.dependencies.store.saveEventCoordinationState({
       ...current,
+      lifecycle,
       revision: current.revision + 1,
       rosterRevision: current.rosterRevision + 1,
+      targetGroupSize: Math.max(targetGroupSize, roster.length),
+      recruitmentReason,
+      recruitmentCandidateIds,
       roster,
       proposal,
       rosterValidation,
@@ -840,7 +868,7 @@ export class EventCoordinator {
       auditEvents: [...current.auditEvents, this.auditEvent(current, `roster_member_${input.action === "add" ? "added" : "removed"}`, input.actorId, null, {
         userId: input.userId,
         rosterRevision: current.rosterRevision + 1,
-      }, current.lifecycle)],
+      }, lifecycle)],
       updatedAt: now,
     }, current.revision);
     await this.dependencies.store.syncQuestProposal?.(saved.runId, saved.proposal);
@@ -848,10 +876,10 @@ export class EventCoordinator {
   }
 
   /**
-   * Add a newly matched person to a future activity without bypassing the
-   * invitation flow. Existing members receive a private coordination update;
-   * the new person receives a normal invitation and can only join after
-   * accepting it.
+   * Add a compatible replacement to an explicit recruitment vacancy. During
+   * group review the replacement remains Suggested; organizer confirmation
+   * creates the invitation. Older post-confirmation states retain their
+   * invitation-first compatibility path below.
    */
   async addMatchedParticipant(input: {
     runId: string;
@@ -860,15 +888,7 @@ export class EventCoordinator {
   }): Promise<EventCoordinationState> {
     const current = await this.requireState(input.runId);
     if (current.roster.some((member) => member.userId === input.candidateId)) return current;
-    if (!["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(current.lifecycle)) {
-      throw new Error("This activity is no longer accepting matched participants");
-    }
-    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
-    if (current.proposal.proposedParticipants.length >= 5) throw new Error("This activity has reached its group limit");
-    if (current.proposal.proposedParticipants.some((participant) => participant.candidateId === input.candidateId)) {
-      throw new Error("This person is already in the activity proposal");
-    }
-    if (current.lifecycle === "forming") {
+    if (this.canRecruitReplacement(current)) {
       return this.updateRoster({
         runId: input.runId,
         actorId: current.initiatorId,
@@ -878,6 +898,15 @@ export class EventCoordinator {
         source: "recommended",
       });
     }
+    if (!["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(current.lifecycle)) {
+      throw new Error("This activity is no longer accepting matched participants");
+    }
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    if (current.proposal.proposedParticipants.length >= 5) throw new Error("This activity has reached its group limit");
+    if (current.proposal.proposedParticipants.some((participant) => participant.candidateId === input.candidateId)) {
+      throw new Error("This person is already in the activity proposal");
+    }
+    if (current.lifecycle === "forming") throw new Error("This activity is not open for replacement recruitment");
     const resolved = await this.dependencies.resolveParticipant?.(input.candidateId);
     if (!resolved) throw new Error("This person is not currently eligible for this activity");
 
@@ -1127,6 +1156,13 @@ export class EventCoordinator {
       lifecycle,
       revision: current.revision + 1,
       rosterRevision: input.response === "decline" ? current.rosterRevision + 1 : current.rosterRevision,
+      targetGroupSize: this.recruitmentTarget(current),
+      recruitmentReason: input.response === "decline"
+        ? "invitation_declined"
+        : current.recruitmentReason ?? null,
+      recruitmentCandidateIds: input.response === "decline"
+        ? (current.recruitmentCandidateIds ?? []).filter((userId) => userId !== input.actorId)
+        : current.recruitmentCandidateIds ?? [],
       roster,
       proposal,
       rosterValidation,
@@ -1370,14 +1406,9 @@ export class EventCoordinator {
         questTitle: state.proposal.quest.title,
       })));
       const activity = this.activityCard(state);
-      const viewerMembership = [...state.memberships].reverse().find((membership) =>
-        membership.userId === userId && this.isActiveMembership(membership));
-      const viewerInvitation = [...state.invitations].reverse().find((invitation) => invitation.guestId === userId);
-      const canReviewFormation = state.initiatorId === userId
-        || (state.roster.some((member) => member.userId === userId)
-          && !viewerMembership
-          && !["pending", "declined", "expired", "withdrawn", "replaced", "cancelled"].includes(viewerInvitation?.status ?? ""));
-      if (state.lifecycle === "forming" && canReviewFormation) {
+      const canReviewRecruitment = state.initiatorId === userId
+        || (state.recruitmentCandidateIds ?? []).includes(userId);
+      if (this.hasRecruitmentCampaign(state) && canReviewRecruitment) {
         result.suggested.push(activity);
       }
       for (const invitation of state.invitations) {
@@ -1387,9 +1418,9 @@ export class EventCoordinator {
       }
       const membership = [...state.memberships].reverse().find((candidate) =>
         candidate.userId === userId && (this.isActiveMembership(candidate) || state.lifecycle === "cancelled"));
-      // A forming organizer's activity belongs in Suggested while they edit
-      // and recruit the replacement roster; do not duplicate it in My.
-      if (!membership || (state.lifecycle === "forming" && state.initiatorId === userId)) continue;
+      // An organizer actively filling a vacancy sees this in Suggested and
+      // must not receive a duplicate My Activities card.
+      if (!membership || (this.hasRecruitmentCampaign(state) && state.initiatorId === userId)) continue;
       if (membership.status === "cancelled" || state.lifecycle === "cancelled") result.my.cancelled.push(activity);
       else if (membership.status === "completed" || state.lifecycle === "completed") result.my.completed.push(activity);
       else if (membership.status === "confirmed" && ["scheduled", "in_progress"].includes(state.lifecycle)) {
@@ -1407,10 +1438,8 @@ export class EventCoordinator {
       const accepted = run.coordination?.invitations.some((invitation) =>
         invitation.candidateId === userId && invitation.status === "accepted");
       if (accepted) result.my.awaitingCoordination.push(activity);
-      else if (run.initiatingCandidateId === userId
-        || run.proposal.proposedParticipants.some((participant) => participant.candidateId === userId)) {
-        result.suggested.push(activity);
-      }
+      // Legacy runs have no explicit vacancy event and therefore never enter
+      // Suggested. Accepted legacy quests remain visible in My Activities.
     }
     result.notifications.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
     return result;
@@ -1459,6 +1488,20 @@ export class EventCoordinator {
       message: "Proposed participants must be unique.",
     });
     return { valid: errors.length === 0, errors };
+  }
+
+  private recruitmentTarget(state: EventCoordinationState): number {
+    return state.targetGroupSize ?? state.proposal.quest.groupSize;
+  }
+
+  private hasRecruitmentCampaign(state: Pick<EventCoordinationState, "lifecycle" | "recruitmentReason">): boolean {
+    return ["forming", "awaiting_responses", "coordinating", "awaiting_confirmation"].includes(state.lifecycle)
+      && ["organizer_removed", "invitation_declined"].includes(state.recruitmentReason ?? "");
+  }
+
+  private canRecruitReplacement(state: EventCoordinationState): boolean {
+    return this.hasRecruitmentCampaign(state)
+      && state.roster.length < this.recruitmentTarget(state);
   }
 
   private isActiveMembership(membership: EventMembership): boolean {

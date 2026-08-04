@@ -71,9 +71,10 @@ export class QuestChatNotifier {
     try {
       const current = await this.questStore.findLatestAssistantConversation(candidateId);
       if (!current || current.messages.some((message) => message.messageId === assistantMessageId(run, candidateId))) return;
-      // Do not interrupt an unfinished guided conversation. A no-match thread
-      // is promoted to a completed result so the user can open the quest.
-      if (!["no_match", "complete"].includes(current.status)) return;
+      // Preserve the answer to the original request. Later recruitment and
+      // acceptance updates belong in Activities/Notifications and must not
+      // rewrite a previous "No strong match yet" conversation.
+      if (current.status !== "complete") return;
       const now = new Date().toISOString();
       await this.questStore.saveAssistantConversation({
         ...current,

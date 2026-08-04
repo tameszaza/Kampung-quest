@@ -55,6 +55,10 @@ describe("quest chat notifications", () => {
     expect((await identity.listMessages(first.id, direct!.id)).at(-1)?.body).toContain("accepted the role");
     const questGroup = (await identity.listConversations(second.id)).find((conversation) => conversation.title === "Mystery Book Club");
     expect(questGroup).toMatchObject({ type: "group", memberCount: 1 });
+    expect(await store.findLatestAssistantConversation(second.id)).toMatchObject({
+      status: "no_match",
+      questRunId: null,
+    });
 
     await notifier.participantAccepted({
       ...run,
