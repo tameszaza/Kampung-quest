@@ -1,4 +1,5 @@
 import type { QuestParticipantProfile, QuestRun } from "@/server/domain/schemas";
+import type { EventNotificationView } from "@/server/domain/event-coordination";
 
 export type QuestNotificationKind = "suggested" | "joined" | "declined" | "status";
 
@@ -26,6 +27,24 @@ export function buildQuestNotifications(runs: QuestRun[], candidateId: string): 
   return runs
     .flatMap((run) => notificationsForRun(run, candidateId))
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+}
+
+/** Convert durable event-coordinator updates into the same feed as quest-run notifications. */
+export function buildEventNotifications(items: EventNotificationView[]): QuestNotification[] {
+  return items
+    // Invitations and invitation responses are already represented by the
+    // quest-run projection; keep only coordinator-owned updates here to avoid
+    // showing the same invitation twice.
+    .filter((item) => item.kind !== "invitation")
+    .map((item) => ({
+      id: item.notificationId,
+      kind: item.kind === "cancellation" ? "declined" : "status",
+      title: item.title,
+      message: item.body,
+      createdAt: item.createdAt,
+      questRunId: item.runId,
+      questTitle: item.questTitle,
+    }));
 }
 
 function notificationsForRun(run: QuestRun, candidateId: string): QuestNotification[] {

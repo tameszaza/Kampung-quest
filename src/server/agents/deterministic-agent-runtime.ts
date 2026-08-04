@@ -87,7 +87,9 @@ export class DeterministicAgentRuntime implements AgentRuntime {
     }
     return {
       outcome: "proposal",
-      proposal: this.synthesis.synthesize(input.initiator, input.candidates),
+      proposal: this.synthesis.synthesize(input.initiator, input.candidates, {
+        avoidParticipantSets: input.avoidParticipantSets,
+      }),
       primaryIntentRef: stableFactRef("need", input.initiator.need),
     };
   }

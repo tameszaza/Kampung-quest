@@ -36,7 +36,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { toast, showToast } = useAppState();
   const { user } = useUser();
   const [unreadActivityCount, setUnreadActivityCount] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const knownActivityNotifications = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadUnreadMessages = async () => {
+      try {
+        const response = await fetch("/api/chat/conversations", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = await response.json() as { conversations?: Array<{ unreadCount?: number }> };
+        if (active) setUnreadMessages((result.conversations ?? []).reduce((total, item) => total + (item.unreadCount ?? 0), 0));
+      } catch {
+        // Navigation badges are best effort and must never block the shell.
+      }
+    };
+    void loadUnreadMessages();
+    const timer = window.setInterval(() => void loadUnreadMessages(), 4_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
 
   async function logOut() {
     await authClient.signOut();
@@ -99,13 +117,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                aria-label={item.label}
+                aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
                 title={item.label}
                 className={isActive(pathname, item.match) ? "active" : ""}
               >
                 <Icon name={item.icon} size={21} />
                 <span>{item.label}</span>
-                {item.href === "/quests" && unreadActivityCount ? <b className="nav-activity-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
+                {item.href === "/quests" && unreadActivityCount ? <b className="nav-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
+                {item.href === "/messages" && unreadMessages ? <span className="nav-badge" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</span> : null}
               </Link>
             ))}
           </nav>
@@ -129,10 +148,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.href}
             href={item.href}
             className={isActive(pathname, item.match) ? "active" : ""}
+            aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
           >
             <Icon name={item.icon} size={23} />
             <span>{item.label}</span>
-            {item.href === "/quests" && unreadActivityCount ? <b className="nav-activity-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
+            {item.href === "/quests" && unreadActivityCount ? <b className="nav-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
           </Link>
         ))}
         <button className="mobile-create" type="button" onClick={() => router.push("/messages?assistant=1")} aria-label="Talk to Senior Quest">
@@ -143,9 +163,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.href}
             href={item.href}
             className={isActive(pathname, item.match) ? "active" : ""}
+            aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
           >
             <Icon name={item.icon} size={23} />
             <span>{item.label}</span>
+            {item.href === "/messages" && unreadMessages ? <span className="nav-badge" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</span> : null}
           </Link>
         ))}
       </nav>

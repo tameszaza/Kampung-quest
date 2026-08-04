@@ -113,6 +113,7 @@ export interface EventNotification {
 
 export interface EventNotificationView extends EventNotification {
   runId: string;
+  questTitle: string;
 }
 
 export interface CoordinationRequirements {

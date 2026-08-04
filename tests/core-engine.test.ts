@@ -750,6 +750,14 @@ describe("KampungQuestEngine memory", () => {
       updatedAt: "2026-08-04T00:00:00.000Z",
     });
 
+    const excluded = await engine.joinOpenQuest(
+      "candidate_003",
+      "assistant:candidate_003:conversation_004",
+      undefined,
+      { excludedRunIds: new Set(["open-future-quest"]) },
+    );
+    expect(excluded).toBeNull();
+
     const joined = await engine.joinOpenQuest("candidate_003", "assistant:candidate_003:conversation_003");
 
     expect(joined?.runId).toBe("open-future-quest");

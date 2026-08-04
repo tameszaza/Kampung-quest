@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
+import { ActivityNotifications } from "@/components/activity-notifications";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
 import { useUser } from "@/components/user-context";
@@ -10,7 +11,6 @@ import { listEventActivities, markEventNotificationsRead, respondToEventInvitati
 import type {
   EventActivityCard,
   EventInvitationView,
-  EventNotificationView,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 
@@ -39,15 +39,6 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
       if (active) setError(reason instanceof Error ? reason.message : "Activities could not be loaded");
     });
     return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    const refreshFromShell = (event: Event) => {
-      const next = (event as CustomEvent<UserEventActivities>).detail;
-      if (next) setActivities(next);
-    };
-    window.addEventListener("event-activities-refreshed", refreshFromShell);
-    return () => window.removeEventListener("event-activities-refreshed", refreshFromShell);
   }, []);
 
   async function respond(invitation: EventInvitationView, response: "accept" | "decline") {
@@ -118,54 +109,9 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
           </article>)}
         </section> : <EmptyActivities title="No sent invitations" body="Invitations are created after you confirm a suggested group." />}
       </> : null}
-      {activities && tab === "Notifications" ? activities.notifications.length ? (
-        <section className="activity-notifications event-notification-list" aria-label="Activity updates" aria-live="polite">
-          <div className="event-notification-list-header"><div><h2>Activity updates</h2><p>{activities.unreadCount ? `${activities.unreadCount} unread` : "Everything is up to date"}</p></div>{activities.unreadCount ? <button className="text-button" type="button" onClick={() => void markEventNotificationsRead().then(load)}>Mark all as read</button> : null}</div>
-          {activities.notifications.map((notification) => <EventNotificationItem notification={notification} key={notification.notificationId} />)}
-        </section>
-      ) : (
-        <section className="empty-state" aria-live="polite">
-          <span><Icon name="bell" size={34} /></span>
-          <h2>You are all caught up</h2>
-          <p>Invitations, availability updates, and group changes will appear here.</p>
-        </section>
-      ) : null}
+      {activities && tab === "Notifications" ? <ActivityNotifications /> : null}
     </div>
   );
-}
-
-function EventNotificationItem({ notification }: { notification: EventNotificationView }) {
-  return <article className={`activity-notification event-notification${notification.readAt ? "" : " unread"}`}>
-    <span className="activity-notification-icon" aria-hidden="true"><Icon name={notificationIcon(notification.kind)} size={21} /></span>
-    <div className="activity-notification-content">
-      <div className="activity-notification-heading"><h2>{friendlyNotificationTitle(notification)}</h2><time dateTime={notification.createdAt}>{formatNotificationTime(notification.createdAt)}</time></div>
-      <p>{notification.body}</p>
-      <Link href={`/messages?quest=${encodeURIComponent(notification.runId)}`}>Open coordination <span aria-hidden="true">→</span></Link>
-    </div>
-  </article>;
-}
-
-function friendlyNotificationTitle(notification: EventNotificationView) {
-  if (notification.kind !== "invitation_response") return notification.title;
-  const actor = notification.title.replace(/ (accepted|declined)$/i, "");
-  if (actor.length > 24 && !actor.includes(" ")) {
-    return notification.title.toLowerCase().endsWith(" declined") ? "A guest declined" : "A guest accepted";
-  }
-  return notification.title;
-}
-
-function notificationIcon(kind: EventNotificationView["kind"]): "bell" | "calendar" | "invite" | "check" {
-  if (kind === "availability_confirmed") return "check";
-  if (kind === "availability_shared" || kind === "arrangement" || kind === "change") return "calendar";
-  if (kind === "invitation" || kind === "invitation_response") return "invite";
-  return "bell";
-}
-
-function formatNotificationTime(value: string) {
-  const date = new Date(value);
-  return new Intl.DateTimeFormat(undefined, date.toDateString() === new Date().toDateString()
-    ? { hour: "numeric", minute: "2-digit" }
-    : { month: "short", day: "numeric" }).format(date);
 }
 
 export function EventActivityCardView({ activity, action = "View activity" }: { activity: EventActivityCard; action?: string }) {

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { logger } from "@/server/observability/logger";
 
 export function errorResponse(error: unknown): NextResponse {
   if (error instanceof ZodError) {
+    logger.warn("http.request.rejected", {
+      category: "validation",
+      issueCount: error.issues.length,
+      status: 400,
+    });
     return NextResponse.json(
       { error: "Invalid request", issues: error.issues },
       { status: 400 },
@@ -27,6 +33,11 @@ export function errorResponse(error: unknown): NextResponse {
             : message.includes("conflict") || message.includes("not valid")
               ? 409
               : 422;
+  logger.warn("http.request.failed", {
+    category: status >= 500 ? "server" : "application",
+    status,
+    errorType: error instanceof Error ? error.name : "unknown",
+  });
   return NextResponse.json({ error: message }, { status });
 }
 

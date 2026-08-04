@@ -131,6 +131,29 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
     };
   }, [reconnectConversationId, reconnectStatus, confirming, reconnectAfterSequence]);
 
+  const refreshConversationId = conversation?.conversationId ?? null;
+  const refreshStatus = conversation?.status ?? null;
+  const refreshQuestRunId = conversation?.questRunId ?? null;
+  const refreshUpdatedAt = conversation?.updatedAt ?? null;
+
+  useEffect(() => {
+    if (!refreshConversationId || !refreshStatus || !["no_match", "complete"].includes(refreshStatus)) return;
+    let active = true;
+    const refresh = async () => {
+      const latest = await getAssistantConversation(refreshConversationId).catch(() => null);
+      if (!active || !latest) return;
+      if (latest.status !== refreshStatus || latest.questRunId !== refreshQuestRunId || latest.updatedAt !== refreshUpdatedAt) {
+        setConversation(latest);
+        if (latest.questRunId) setQuest(await getQuestRun(latest.questRunId));
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 4_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [refreshConversationId, refreshStatus, refreshQuestRunId, refreshUpdatedAt]);
+
   const activeField = editingField ?? conversation?.nextField ?? null;
   const latestEvents = useMemo(() => {
     const byStage = new Map<AssistantWorkflowEvent["stage"], AssistantWorkflowEvent>();
@@ -279,12 +302,15 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
           <AgentProgress events={latestEvents} />
         ) : null}
 
-        {conversation.status === "no_match" ? (
+        {/* Once the user chooses to adjust the request, the result card is no
+         * longer an active step. Keeping it mounted alongside the composer
+         * makes the two controls overlap in the embedded/mobile chat. */}
+        {conversation.status === "no_match" && !editingField ? (
           <section className="assistant-result review-needed">
             <span className="result-icon"><Icon name="people" size={30} /></span>
             <h2>No strong match yet</h2>
             <p>{quest?.noMatch?.reason ?? "The available neighbours cannot directly support this request yet. Your request has been saved."}</p>
-            <button className="secondary-button" type="button" onClick={() => setEditingField("goal")}>Adjust my request</button>
+            <button className="secondary-button" type="button" onClick={() => { setError(null); setText(""); setEditingField("goal"); }}>Adjust my request</button>
             <button className="text-button" type="button" onClick={() => void startAgain()}>Start a new conversation</button>
           </section>
         ) : null}

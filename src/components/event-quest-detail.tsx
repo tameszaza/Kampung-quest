@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { EngineQuestDetail } from "@/components/engine-quest-views";
 import { Icon } from "@/components/icons";
-import { ProfileAvatar } from "@/components/profile-avatar";
 import { useUser } from "@/components/user-context";
 import {
   confirmEventRoster,
@@ -18,12 +17,11 @@ import {
   transitionEventQuest,
   updateEventRoster,
 } from "@/features/events/client";
-import { eventMemberPresentation } from "@/features/events/presentation";
-import type { EventQuestView } from "@/server/domain/event-coordination";
+import type { EventCoordinationState } from "@/server/domain/event-coordination";
 import type { ChatContact } from "@/server/identity/types";
 
 export function EventQuestDetail({ runId, showActivityActions = true }: { runId: string; showActivityActions?: boolean }) {
-  const [state, setState] = useState<EventQuestView | null | undefined>(undefined);
+  const [state, setState] = useState<EventCoordinationState | null | undefined>(undefined);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
@@ -40,8 +38,8 @@ export function EventQuestDetail({ runId, showActivityActions = true }: { runId:
 }
 
 function EventQuestWorkspace({ state, onChange }: {
-  state: EventQuestView;
-  onChange: (state: EventQuestView) => void;
+  state: EventCoordinationState;
+  onChange: (state: EventCoordinationState) => void;
 }) {
   const { user } = useUser();
   const [busy, setBusy] = useState("");
@@ -54,8 +52,9 @@ function EventQuestWorkspace({ state, onChange }: {
   const latestArrangement = state.arrangements.at(-1);
   const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const proposed = state.proposal.quest.proposedTimeWindow;
+  const participants = participantRoster(state);
 
-  async function act(label: string, action: () => Promise<EventQuestView>) {
+  async function act(label: string, action: () => Promise<EventCoordinationState>) {
     setBusy(label);
     setError("");
     try { onChange(await action()); }
@@ -98,17 +97,29 @@ function EventQuestWorkspace({ state, onChange }: {
           <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
-          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.roster.length} people</strong></span></div>
+          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{participants.length} people</strong></span></div>
         </div>
+
+        <section className="event-panel participant-summary">
+          <span className="section-kicker">Everyone has a role</span>
+          <h2>{participants.length} participants</h2>
+          <div className="event-roster">{participants.map((member) => {
+            const invitation = state.invitations.find((item) => item.guestId === member.userId);
+            const membership = state.memberships.find((item) => item.userId === member.userId);
+            const status = membership?.status ?? invitation?.status ?? (member.source === "recommended" ? "suggested" : "pending");
+            return <div key={member.userId}>
+              <span className="member-initial">{friendlyMember(member.userId).slice(0, 1)}</span>
+              <p><strong>{member.userId === user.id ? "You" : friendlyMember(member.userId)}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
+              <span className={`participant-status participant-status-${status}`}>{status.replaceAll("_", " ")}</span>
+            </div>;
+          })}</div>
+        </section>
 
         {organizer && state.lifecycle === "forming" ? <section className="event-panel">
           <span className="section-kicker">Step 1 · Review your group</span>
           <h2>Recommended and selected people</h2>
           <p>Change the guest list before any invitations are sent. Every change is checked against availability, consent, group limits, and safety rules.</p>
-          <div className="event-roster">{state.roster.map((member) => {
-            const presentation = eventMemberPresentation(state, member.userId);
-            return <div key={member.userId}><ProfileAvatar name={presentation.displayName} photoUrl={presentation.photoUrl} size={44} /><p><strong>{member.userId === user.id ? "You" : presentation.displayName}</strong><small>{member.source === "recommended" ? "Recommended match" : member.source === "manual" ? "Selected by you" : "Organizer"} · {member.explanation.join(" · ")}</small></p>{member.source !== "initiator" ? <button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}</div>;
-          })}</div>
+          <div className="event-roster">{state.roster.map((member) => <div key={member.userId}><span className="member-initial">{friendlyMember(member.userId).slice(0, 1)}</span><p><strong>{member.userId === user.id ? "You" : friendlyMember(member.userId)}</strong><small>{member.source === "recommended" ? "Recommended match" : member.source === "manual" ? "Selected by you" : "Organizer"} · {member.explanation.join(" · ")}</small></p>{member.source !== "initiator" ? <button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}</div>)}</div>
           {!state.rosterValidation.valid ? <ul className="validation-errors">{state.rosterValidation.errors.map((item) => <li key={`${item.field}-${item.message}`}>{item.message}</li>)}</ul> : null}
           <form className="event-person-search" onSubmit={search}><label><span>Invite people you know</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an existing member" /></label><button className="secondary-button" disabled={busy === "search"}>{busy === "search" ? "Searching…" : "Search"}</button></form>
           {contacts.length ? <div className="contact-picker event-contact-results">{contacts.map((contact) => <button type="button" key={contact.id} disabled={Boolean(busy)} onClick={() => void act(`add-${contact.id}`, () => updateEventRoster({ runId: state.runId, action: "add", userId: contact.id, expectedRevision: state.revision }))}><span className="member-initial">{contact.fullName.slice(0, 1)}</span><span><strong>{contact.fullName}</strong><small>{contact.username ? `@${contact.username}` : "Community member"}</small></span><b>+</b></button>)}</div> : null}
@@ -117,10 +128,7 @@ function EventQuestWorkspace({ state, onChange }: {
 
         {ownInvitation?.status === "pending" ? <section className="event-panel invitation-decision-panel"><span className="section-kicker">Invitation</span><h2>Would you like to join coordination?</h2><p>Accepting does not confirm this provisional time. Everyone will confirm the final arrangement later.</p><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("decline", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "decline", expectedRevision: state.revision }))}>Decline</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("accept", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "accept", expectedRevision: state.revision }))}>Accept & coordinate</button></div></section> : null}
 
-        {organizer && state.lifecycle !== "forming" && state.invitations.some((invitation) => ["pending", "accepted"].includes(invitation.status)) ? <section className="event-panel"><span className="section-kicker">Invitation status</span><h2>Current guest responses</h2><div className="event-roster">{state.invitations.filter((invitation) => ["pending", "accepted"].includes(invitation.status)).map((invitation) => {
-          const presentation = eventMemberPresentation(state, invitation.guestId);
-          return <div key={invitation.invitationId}><ProfileAvatar name={presentation.displayName} photoUrl={presentation.photoUrl} size={44} /><p><strong>{presentation.displayName}</strong><small>{invitation.status}</small></p><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button></div>;
-        })}</div><p className="assistant-note">Replacing preserves the invitation history and returns the quest to group selection. Choose and validate the new guest before sending another invitation.</p></section> : null}
+        {organizer && state.lifecycle !== "forming" && state.invitations.some((invitation) => ["pending", "accepted"].includes(invitation.status)) ? <section className="event-panel"><span className="section-kicker">Invitation status</span><h2>Current guest responses</h2><div className="event-roster">{state.invitations.filter((invitation) => ["pending", "accepted"].includes(invitation.status)).map((invitation) => <div key={invitation.invitationId}><span className="member-initial">{friendlyMember(invitation.guestId).slice(0, 1)}</span><p><strong>{friendlyMember(invitation.guestId)}</strong><small>{invitation.status}</small></p><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button></div>)}</div><p className="assistant-note">Replacing preserves the invitation history and returns the quest to group selection. Choose and validate the new guest before sending another invitation.</p></section> : null}
 
         {ownMembership ? <section className="event-panel coordination-entry"><span className="section-kicker">Private coordination</span><h2>Tell the coordinator what you need</h2><p>Share availability, accessibility, travel, dietary, environmental, or venue requirements privately. Other participants cannot see this conversation.</p><Link className="primary-button" href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Open coordination chat</Link></section> : null}
 
@@ -140,7 +148,7 @@ function EventQuestWorkspace({ state, onChange }: {
   </div>;
 }
 
-function ArrangementSummary({ state }: { state: EventQuestView }) {
+function ArrangementSummary({ state }: { state: EventCoordinationState }) {
   const arrangement = state.arrangements.at(-1)!;
   return <dl className="arrangement-summary"><div><dt>Date and time</dt><dd>{formatWindow(arrangement.start, arrangement.end)}</dd></div><div><dt>Venue</dt><dd>{arrangement.venueName}<small>{arrangement.venueStatus === "externally_confirmed" ? "Venue availability verified" : arrangement.venueStatus === "participant_confirmed" ? "Confirmed by all participants; check public opening hours" : "Opening hours not yet verified"}</small></dd></div>{arrangement.materialChanges.length ? <div><dt>Requires reconfirmation</dt><dd>{arrangement.materialChanges.map((change) => change.replaceAll("_", " ")).join(", ")}</dd></div> : null}</dl>;
 }
@@ -159,4 +167,46 @@ function formatWindow(start: string, end: string) {
 
 function friendlyStatus(value: string) {
   return value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function friendlyMember(value: string) {
+  return value.replace(/^demo_/, "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function participantRoster(state: EventCoordinationState) {
+  const participants = new Map<string, {
+    userId: string;
+    source: "initiator" | "recommended" | "manual";
+    proposedRole: string;
+    explanation: string[];
+  }>();
+  for (const member of state.roster) participants.set(member.userId, member);
+  for (const participant of state.proposal.proposedParticipants) {
+    if (participants.has(participant.candidateId)) continue;
+    participants.set(participant.candidateId, {
+      userId: participant.candidateId,
+      source: participant.candidateId === state.initiatorId ? "initiator" : "recommended",
+      proposedRole: participant.proposedRole,
+      explanation: ["Included in the current activity proposal"],
+    });
+  }
+  for (const membership of state.memberships) {
+    if (participants.has(membership.userId)) continue;
+    participants.set(membership.userId, {
+      userId: membership.userId,
+      source: membership.rosterSource,
+      proposedRole: membership.role,
+      explanation: ["Activity member"],
+    });
+  }
+  for (const invitation of state.invitations) {
+    if (participants.has(invitation.guestId)) continue;
+    participants.set(invitation.guestId, {
+      userId: invitation.guestId,
+      source: "recommended",
+      proposedRole: "participant",
+      explanation: ["Invited to the activity"],
+    });
+  }
+  return [...participants.values()];
 }

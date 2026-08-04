@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppState } from "@/components/app-state";
+import { Icon } from "@/components/icons";
 import { MenuRow } from "@/components/menu-row";
 import { PageHeader } from "@/components/page-header";
 import { SecuritySettings } from "@/components/security-settings";
 import { useUser } from "@/components/user-context";
 import { authClient } from "@/lib/auth-client";
-import type { ChatContact, UserPreferences, UserProfile } from "@/server/identity/types";
+import type { ChatContact, EmergencyContact, UserPreferences, UserProfile } from "@/server/identity/types";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -17,6 +18,13 @@ export default function SettingsPage() {
   const [preferences, setPreferences] = useState(user.preferences);
   const [language, setLanguage] = useState(user.preferredLanguage);
   const [area, setArea] = useState(user.area ?? "");
+  const [fullName, setFullName] = useState(user.fullName);
+  const [phone, setPhone] = useState(user.phone ?? "");
+  const [emergency, setEmergency] = useState<EmergencyContact | null>(user.emergencyContact);
+  const [emergencyName, setEmergencyName] = useState(user.emergencyContact?.name ?? "");
+  const [emergencyRelationship, setEmergencyRelationship] = useState(user.emergencyContact?.relationship ?? "");
+  const [emergencyPhone, setEmergencyPhone] = useState(user.emergencyContact?.phone ?? "");
+  const [emergencyEmail, setEmergencyEmail] = useState(user.emergencyContact?.email ?? "");
   const [saving, setSaving] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<ChatContact[]>([]);
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
@@ -37,11 +45,26 @@ export default function SettingsPage() {
       const response = await fetch("/api/users/me", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...preferences, preferredLanguage: language, area: area || null }),
+        body: JSON.stringify({
+          ...preferences,
+          preferredLanguage: language,
+          area: area || null,
+          fullName,
+          phone,
+          emergencyContact: emergencyName.trim() ? {
+            name: emergencyName,
+            relationship: emergencyRelationship,
+            phone: emergencyPhone,
+            email: emergencyEmail || null,
+          } : null,
+        }),
       });
       const result = await response.json() as { user?: UserProfile; error?: string };
       if (!response.ok || !result.user) throw new Error(result.error ?? "Could not save settings");
       setUser(result.user);
+      setEmergency(result.user.emergencyContact);
+      setFullName(result.user.fullName);
+      setPhone(result.user.phone ?? "");
       showToast("Your preferences have been saved");
     } catch (reason) {
       showToast(reason instanceof Error ? reason.message : "Could not save settings");
@@ -92,6 +115,12 @@ export default function SettingsPage() {
   return (
     <div className="page-container narrow-page settings-page">
       <PageHeader title="Settings & Safety" back />
+      <h2 className="settings-group-title">My profile</h2>
+      <section className="preference-card settings-profile-card">
+        <label><span>Full name</span><input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" /></label>
+        <label><span>Phone number</span><input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Optional" /></label>
+        <button className="primary-button settings-save" type="button" onClick={savePreferences} disabled={saving}>{saving ? "Saving…" : "Save profile"}</button>
+      </section>
       <h2 className="settings-group-title">Account</h2>
       <section className="menu-card">
         <MenuRow icon="privacy" label="Privacy & Password Security" ariaExpanded={securityOpen} onClick={() => setSecurityOpen((open) => !open)} />
@@ -122,7 +151,14 @@ export default function SettingsPage() {
         <MenuRow icon="blocked" label="Blocked Users" onClick={() => void toggleBlockedUsers()} />
         {showBlockedUsers ? <div className="blocked-users-panel">{blockedLoading ? <p>Loading blocked users…</p> : blockedUsers.length === 0 ? <p>You have not blocked anyone.</p> : blockedUsers.map((blocked) => <div className="blocked-user-row" key={blocked.id}><span><strong>{blocked.fullName}</strong>{blocked.username ? <small>@{blocked.username}</small> : null}</span><button type="button" onClick={() => void unblock(blocked)}>Unblock</button></div>)}</div> : null}
         <MenuRow icon="help" label="Help & Support" onClick={() => showToast("Support: 1800 555 010")} />
-        <MenuRow icon="shield" label="Emergency Contact" danger onClick={() => showToast("Call local emergency services if anyone is in immediate danger")} />
+      </section>
+      <section className="preference-card emergency-contact-card">
+        <div className="settings-card-heading"><span className="settings-card-icon"><Icon name="shield" size={20} /></span><div><h3>Emergency contact</h3><p>Someone trusted we can show to people in your conversations.</p></div></div>
+        <label><span>Contact name</span><input value={emergencyName} onChange={(event) => setEmergencyName(event.target.value)} placeholder="Full name" autoComplete="name" /></label>
+        <label><span>Relationship</span><input value={emergencyRelationship} onChange={(event) => setEmergencyRelationship(event.target.value)} placeholder="For example, daughter or neighbour" /></label>
+        <label><span>Phone number</span><input value={emergencyPhone} onChange={(event) => setEmergencyPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Required" /></label>
+        <label><span>Email (optional)</span><input value={emergencyEmail} onChange={(event) => setEmergencyEmail(event.target.value)} inputMode="email" autoComplete="email" placeholder="name@example.com" /></label>
+        <div className="settings-inline-actions"><button className="primary-button settings-save" type="button" onClick={savePreferences} disabled={saving}>{saving ? "Saving…" : emergency ? "Save contact" : "Add contact"}</button>{emergency ? <button className="quiet-button" type="button" onClick={() => { setEmergency(null); setEmergencyName(""); setEmergencyRelationship(""); setEmergencyPhone(""); setEmergencyEmail(""); }}>Clear</button> : null}</div>
       </section>
 
       <button className="logout-button" type="button" onClick={logOut}>Log Out</button>
