@@ -200,6 +200,7 @@ function participantRoster(state: EventCoordinationState) {
     });
   }
   for (const invitation of state.invitations) {
+    if (!["pending", "accepted"].includes(invitation.status)) continue;
     if (participants.has(invitation.guestId)) continue;
     participants.set(invitation.guestId, {
       userId: invitation.guestId,

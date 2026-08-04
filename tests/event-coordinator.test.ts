@@ -104,6 +104,101 @@ describe("EventCoordinator", () => {
     expect(replayed).toEqual(confirmed);
   });
 
+  it("allows the organizer to remove a recommendation and still open the smaller quest", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({ store });
+    const forming = await coordinator.createFormation(approvedRun());
+
+    const trimmed = await coordinator.updateRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      action: "remove",
+      userId: "anne",
+    });
+
+    expect(trimmed.lifecycle).toBe("forming");
+    expect(trimmed.roster.map((member) => member.userId)).toEqual(["maria", "david"]);
+    expect(trimmed.proposal.quest.groupSize).toBe(2);
+    expect(trimmed.rosterValidation.valid).toBe(true);
+
+    const confirmed = await coordinator.confirmRoster({
+      runId: trimmed.runId,
+      actorId: "maria",
+      expectedRevision: trimmed.revision,
+      idempotencyKey: "confirm-trimmed-roster",
+    });
+
+    expect(confirmed.lifecycle).toBe("awaiting_responses");
+    expect(confirmed.invitations.map((invitation) => invitation.guestId)).toEqual(["david"]);
+  });
+
+  it("reopens recruitment after a decline and supports a manual replacement", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveParticipant: async (userId) => userId === "sofia" ? {
+        participant: {
+          candidateId: "sofia",
+          proposedRole: "activity_helper",
+          needsAddressed: ["Would enjoy a friendly cooking group"],
+          contributionsUsed: ["Can help welcome guests"],
+        },
+        explanation: ["Selected by the organizer"],
+      } : null,
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "confirm-decline-recruitment",
+    });
+    const anneInvitation = state.invitations.find((invitation) => invitation.guestId === "anne")!;
+
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: anneInvitation.invitationId,
+      actorId: "anne",
+      response: "decline",
+      expectedRevision: state.revision,
+      idempotencyKey: "anne-declines-recruitment",
+    });
+
+    expect(state.lifecycle).toBe("forming");
+    expect(state.roster.map((member) => member.userId)).toEqual(["maria", "david"]);
+    expect(state.proposal.proposedParticipants.map((participant) => participant.candidateId))
+      .toEqual(["maria", "david"]);
+    expect((await coordinator.listActivities("maria")).suggested.map((activity) => activity.runId))
+      .toEqual([state.runId]);
+    expect((await coordinator.listActivities("maria")).my.awaitingCoordination).toEqual([]);
+
+    state = await coordinator.updateRoster({
+      runId: state.runId,
+      actorId: "maria",
+      expectedRevision: state.revision,
+      action: "add",
+      userId: "sofia",
+    });
+    expect(state.roster.at(-1)).toMatchObject({ userId: "sofia", source: "manual" });
+
+    const reconfirmed = await coordinator.confirmRoster({
+      runId: state.runId,
+      actorId: "maria",
+      expectedRevision: state.revision,
+      idempotencyKey: "reconfirm-with-sofia",
+    });
+
+    expect(reconfirmed.lifecycle).toBe("awaiting_responses");
+    expect(reconfirmed.invitations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ guestId: "anne", status: "declined" }),
+      expect.objectContaining({ guestId: "david", status: "pending" }),
+      expect.objectContaining({ guestId: "sofia", status: "pending" }),
+    ]));
+    expect(reconfirmed.proposal.proposedParticipants.map((participant) => participant.candidateId))
+      .toEqual(["maria", "david", "sofia"]);
+  });
+
   it("identifies the organizer without assigning a guest invitation", async () => {
     const store = new InMemoryKampungStore();
     const coordinator = new EventCoordinator({ store });
