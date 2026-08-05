@@ -36,4 +36,15 @@ describe("HTTP errors", () => {
       error: "Senior Quest is temporarily unavailable. Your request was not applied—please try again.",
     });
   });
+
+  it("hides missing provider configuration behind the same retryable error", async () => {
+    const response = errorResponse(new Error(
+      "agent provider unavailable: GEMINI_API_KEY is required when AGENT_PROVIDER=gemini",
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Senior Quest is temporarily unavailable. Your request was not applied—please try again.",
+    });
+  });
 });
