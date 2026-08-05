@@ -9,19 +9,24 @@ import {
   confirmEventRequirements,
   decideEventArrangement,
   getEventCoordinationThread,
+  getEventGroupCoordinationThread,
   getEventQuest,
   markEventNotificationsRead,
   respondToEventInvitation,
   sendEventCoordinationMessage,
+  sendEventGroupCoordinationMessage,
   suggestEventArrangement,
 } from "@/features/events/client";
+import { coordinationMessagePresentation } from "@/features/events/coordination-message-presentation";
 import type {
   EventCoordinationThread,
+  EventGroupCoordinationThread,
   EventParticipantProgress,
   EventQuestView,
 } from "@/server/domain/event-coordination";
+import { createClientRequestId } from "@/lib/client-request-id";
 
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 1_500;
 
 export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle }: {
   runId: string;
@@ -31,12 +36,18 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   onTitle?: (title: string, memberCount: number) => void;
 }) {
   const [thread, setThread] = useState<EventCoordinationThread | null>(null);
+  const [groupThread, setGroupThread] = useState<EventGroupCoordinationThread | null>(null);
+  const [scope, setScope] = useState<"private" | "group">("private");
   const [quest, setQuest] = useState<EventQuestView | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
+  const [sending, setSending] = useState(false);
+  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const sendingRef = useRef(false);
+  const acknowledgedNotificationsRef = useRef("");
 
   const scrollToLatest = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -49,13 +60,24 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
         getEventQuest(runId),
       ]);
       if (!nextQuest) throw new Error("This activity could not be found");
+      const activeMemberCount = nextQuest.memberships.filter((membership) => isActiveMembershipStatus(membership.status)).length;
+      const nextGroupThread = activeMemberCount >= 2 && ["organizer", "participant"].includes(nextQuest.viewer.role)
+        ? await getEventGroupCoordinationThread(runId)
+        : null;
       setThread(nextThread);
+      setGroupThread(nextGroupThread);
+      if (!nextGroupThread) setScope("private");
       setQuest(nextQuest);
       onTitle?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
       if (!quiet) scrollToLatest();
-      if (nextQuest.viewer.role === "organizer" && nextQuest.notifications.some((item) => item.readAt === null)) {
-        await markEventNotificationsRead(runId);
+      const unreadSignature = nextQuest.notifications.filter((item) => item.readAt === null)
+        .map((item) => item.notificationId).sort().join(":");
+      if (unreadSignature && acknowledgedNotificationsRef.current !== unreadSignature) {
+        acknowledgedNotificationsRef.current = unreadSignature;
+        void markEventNotificationsRead(runId).catch(() => {
+          acknowledgedNotificationsRef.current = "";
+        });
       }
     } catch (reason) {
       if (!quiet) setError(reason instanceof Error ? reason.message : "Coordination could not be loaded");
@@ -70,7 +92,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       if (active) void load();
     }, 0);
     const refresh = () => {
-      if (active && document.visibilityState === "visible") void load(true);
+      if (active && !sendingRef.current && document.visibilityState === "visible") void load(true);
     };
     const timer = window.setInterval(refresh, REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refresh);
@@ -87,19 +109,72 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = draft.trim();
-    if (!thread || !quest?.viewer.canChat || !body || busy) return;
-    setBusy("message");
+    if (!thread || !quest?.viewer.canChat || !body || busy || sending) return;
+    const activeThread = scope === "group" ? groupThread : thread;
+    if (!activeThread) return;
+    const clientMessageId = createClientRequestId();
+    const optimisticMessage = {
+      messageId: clientMessageId,
+      senderId: scope === "group" ? thread.userId : undefined,
+      role: "participant" as const,
+      body,
+      kind: "text" as const,
+      receipt: "delivered" as const,
+      createdAt: new Date().toISOString(),
+    };
+    setSending(true);
+    sendingRef.current = true;
+    setPendingMessageId(clientMessageId);
     setError("");
     setDraft("");
+    if (scope === "group") {
+      setGroupThread({ ...activeThread as EventGroupCoordinationThread, messages: [...activeThread.messages, optimisticMessage] });
+    } else {
+      setThread({ ...activeThread as EventCoordinationThread, messages: [...activeThread.messages, optimisticMessage] });
+    }
+    scrollToLatest();
     try {
-      setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: thread.revision }));
-      await refreshQuest();
+      if (scope === "group") {
+        setGroupThread(await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
+      } else {
+        setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
+      }
+      void refreshQuest().catch(() => {
+        // The faster thread response is authoritative for the message. Polling
+        // will reconcile the activity summary after a transient fetch failure.
+      });
       scrollToLatest();
     } catch (reason) {
-      setDraft(body);
-      setError(reason instanceof Error ? reason.message : "Message could not be sent");
+      const messageError = reason instanceof Error ? reason.message : "Message could not be sent";
+      try {
+        const reconciled = scope === "group"
+          ? await getEventGroupCoordinationThread(runId)
+          : await getEventCoordinationThread(runId);
+        const delivered = reconciled.messages.some((message) => message.messageId === clientMessageId);
+        if (scope === "group") {
+          setGroupThread(reconciled as EventGroupCoordinationThread);
+        } else {
+          setThread(reconciled as EventCoordinationThread);
+        }
+        if (delivered) {
+          setError("");
+        } else {
+          setDraft(body);
+          setError(messageError);
+        }
+      } catch {
+        setDraft(body);
+        setError(messageError);
+        if (scope === "group") {
+          setGroupThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+        } else {
+          setThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+        }
+      }
     } finally {
-      setBusy("");
+      setSending(false);
+      sendingRef.current = false;
+      setPendingMessageId(null);
     }
   }
 
@@ -176,18 +251,22 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const backHref = pendingInvitation ? "/quests" : "/my-quests";
   const finalized = [...quest.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const latestArrangement = quest.arrangements.at(-1);
+  const workingArrangement = latestArrangement?.status === "awaiting_participant_confirmation" ? latestArrangement : null;
   const proposed = quest.proposal.quest.proposedTimeWindow;
   const schedule = finalized
-    ? formatWindow(finalized.start, finalized.end)
-    : proposed ? formatWindow(proposed.start, proposed.end) : "Still to be discussed";
+    ? formatWindow(finalized.start, finalized.end, quest.timeZone)
+    : workingArrangement
+      ? formatWindow(workingArrangement.start, workingArrangement.end, quest.timeZone)
+      : proposed ? formatWindow(proposed.start, proposed.end, quest.timeZone) : "Still to be discussed";
   const venue = finalized?.venueName ?? latestArrangement?.venueName ?? "Still to be coordinated";
   const joinedCount = quest.participantProgress.filter((participant) =>
     participant.invitationStatus === "organizer" || isActiveMembershipStatus(participant.membershipStatus)).length;
   const title = quest.proposal.quest.title;
+  const activeMessages = scope === "group" ? groupThread?.messages ?? [] : thread.messages;
 
   const overviewDetails = <>
     <dl className="coordination-facts">
-      <div><dt><Icon name="calendar" size={18} /> {finalized ? "Confirmed time" : "Available time"}</dt><dd>{schedule}</dd>{!finalized ? <small>Not scheduled yet</small> : null}</div>
+      <div><dt><Icon name="calendar" size={18} /> {finalized ? "Confirmed time" : workingArrangement ? "Working appointment" : "Available time"}</dt><dd>{schedule}</dd>{!finalized ? <small>{workingArrangement ? "Waiting for everyone to confirm" : "Not scheduled yet"}</small> : null}</div>
       <div><dt><Icon name="pin" size={18} /> Venue</dt><dd>{venue}</dd></div>
     </dl>
     <ProgressSummary participants={quest.participantProgress} joinedCount={joinedCount} />
@@ -217,10 +296,16 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
         <details className="coordination-mobile-details"><summary>Schedule, venue &amp; group</summary><div>{overviewDetails}</div></details>
       </aside>
 
-      <section className="coordination-conversation" aria-label={`Private coordination for ${title}`}>
+      <section className="coordination-conversation" aria-label={`${scope === "private" ? "Private coordination" : "Group chat"} for ${title}`}>
         <header className="coordination-conversation-header">
-          <div><span className="coordination-online" aria-hidden="true" /><h2>Private coordination</h2></div>
-          <p>{quest.viewer.role === "organizer" ? "Plan the activity with Senior Quest" : "Only you and Senior Quest can see your details"}</p>
+          <div><span className="coordination-online" aria-hidden="true" /><h2>{scope === "private" ? "Private coordination" : "Group chat"}</h2></div>
+          <p>{scope === "private"
+            ? quest.viewer.role === "organizer" ? "Plan the activity with Senior Quest" : "Only you and Senior Quest can see your details"
+            : `${joinedCount} members · Senior Quest helps when coordination comes up`}</p>
+          {groupThread ? <div className="coordination-scope-tabs" role="tablist" aria-label="Coordination conversations">
+            <button type="button" role="tab" aria-selected={scope === "private"} onClick={() => setScope("private")}>Private coordination</button>
+            <button type="button" role="tab" aria-selected={scope === "group"} onClick={() => setScope("group")}>Group chat</button>
+          </div> : null}
         </header>
 
         <div className="coordination-conversation-notices">
@@ -232,17 +317,28 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
           </section> : null}
         </div>
 
-        <div className="message-history coordination-message-history" aria-live="polite" aria-busy={busy === "message"}>
+        <div className="message-history coordination-message-history" aria-live="polite" aria-busy={sending}>
           <ChatDayLabel />
-          {thread.messages.map((message) => <ChatMessageBubble
-            key={message.messageId}
-            body={message.body}
-            mine={message.role === "participant"}
-            heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : undefined}
-            time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-            receipt={message.role === "participant" ? message.receipt ?? "delivered" : undefined}
-          />)}
-          {quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
+          {activeMessages.map((message) => {
+            const presentation = coordinationMessagePresentation(message.kind);
+            return <ChatMessageBubble
+              key={message.messageId}
+              body={message.body}
+              mine={scope === "group" ? message.senderId === thread.userId : message.role === "participant"}
+              heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : scope === "group" && message.senderId !== thread.userId
+                ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName ?? "Community member"
+                : undefined}
+              time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              receipt={message.messageId !== pendingMessageId && message.role === "participant" && (scope === "private" || message.senderId === thread.userId)
+                ? message.receipt ?? "delivered"
+                : undefined}
+              actionLabel={message.messageId === pendingMessageId ? "Sending…" : undefined}
+              variant={presentation.variant}
+              label={presentation.label}
+            />;
+          })}
+          {sending ? <div className="coordination-agent-working" role="status"><span aria-hidden="true" />Senior Quest is checking the group’s preferences…</div> : null}
+          {scope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
             <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
             <h3>Start with what matters most</h3>
             <p>Senior Quest already knows this activity. Ask about timing, the venue, or what the group needs next.</p>
@@ -265,7 +361,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             }))}
           />
 
-          {quest.viewer.canChat && thread.pendingRequirements ? <section className="pending-requirements coordination-save-card">
+          {scope === "private" && quest.viewer.canChat && thread.pendingRequirements ? <section className="pending-requirements coordination-save-card">
             <div><span><Icon name="check" size={18} /> Senior Quest understood</span><p>{requirementSummary(thread.pendingRequirements)}</p><small>Check this before it is used to coordinate the activity.</small></div>
             <button className="primary-button" disabled={busy === "requirements"} onClick={() => void confirmRequirements()}>{busy === "requirements" ? "Saving…" : saveLabel(thread.pendingRequirements)}</button>
           </section> : null}
@@ -277,8 +373,8 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             onInputKeyDown={submitOnEnter}
             onSubmit={send}
             maxLength={2_000}
-            disabled={Boolean(busy)}
-            placeholder={quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
+            disabled={Boolean(busy) || sending}
+            placeholder={scope === "group" ? "Message the group or ask Senior Quest…" : quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
           /> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
         </div>
       </section>
@@ -309,10 +405,10 @@ function ArrangementAction({ quest, currentUserId, busy, onSuggest, onDecide }: 
   const arrangement = quest.arrangements.at(-1);
   const terminalArrangement = !arrangement || ["finalized", "rejected", "superseded"].includes(arrangement.status);
   const canStartArrangement = quest.viewer.role === "organizer"
-    && ["awaiting_responses", "coordinating", "scheduled"].includes(quest.lifecycle)
+    && ["awaiting_responses", "coordinating"].includes(quest.lifecycle)
     && terminalArrangement;
   const ownConfirmation = arrangement?.confirmations.find((confirmation) => confirmation.userId === currentUserId);
-  const needsParticipantDecision = quest.viewer.role === "participant"
+  const needsParticipantDecision = ["organizer", "participant"].includes(quest.viewer.role)
     && arrangement?.status === "awaiting_participant_confirmation"
     && ownConfirmation?.status === "pending";
   if (!canStartArrangement && !(quest.viewer.role === "organizer" && arrangement?.status === "proposed") && !needsParticipantDecision) return null;
@@ -321,7 +417,7 @@ function ArrangementAction({ quest, currentUserId, busy, onSuggest, onDecide }: 
     <div>
       <span><Icon name="calendar" size={18} /> Current coordination step</span>
       {canStartArrangement ? <><h3>Turn confirmed availability into a plan</h3><p>Senior Quest can find a compatible time and prepare it for your approval.</p></> : null}
-      {arrangement && !canStartArrangement ? <><h3>{needsParticipantDecision ? "Does this arrangement work for you?" : "Review the proposed arrangement"}</h3><p>{formatWindow(arrangement.start, arrangement.end)} · {arrangement.venueName}</p></> : null}
+      {arrangement && !canStartArrangement ? <><h3>{needsParticipantDecision ? "Does this arrangement work for you?" : "Review the proposed arrangement"}</h3><p>{formatWindow(arrangement.start, arrangement.end, quest.timeZone)} · {arrangement.venueName}</p></> : null}
     </div>
     <div className="coordination-arrangement-buttons">
       {canStartArrangement ? <><Link className="secondary-button" href={`/quests/${encodeURIComponent(quest.runId)}`}>Enter a different plan</Link><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void onSuggest()}>{busy === "suggest-arrangement" ? "Comparing…" : "Suggest best plan"}</button></> : null}
@@ -384,10 +480,10 @@ function friendlyRequirement(value: string) {
   return value.replaceAll(/([A-Z])/g, " $1").replaceAll("_", " ").trim().replace(/^./, (letter) => letter.toUpperCase());
 }
 
-function formatWindow(start: string, end: string) {
+function formatWindow(start: string, end: string, timeZone?: string) {
   const from = new Date(start);
   const until = new Date(end);
-  return `${from.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `${from.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", timeZone })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}`;
 }
 
 function friendlyLifecycle(value: string) {

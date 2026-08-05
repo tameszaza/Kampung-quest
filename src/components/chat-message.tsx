@@ -8,12 +8,15 @@ type ChatMessageBubbleProps = {
   receipt?: "delivered" | "read";
   actionLabel?: string;
   onAction?: () => void;
+  variant?: "default" | "activity-card";
+  label?: string | null;
 };
 
 /** The shared visual primitive for every incoming and outgoing chat message. */
-export function ChatMessageBubble({ body, mine = false, heading, time, receipt, actionLabel, onAction }: ChatMessageBubbleProps) {
+export function ChatMessageBubble({ body, mine = false, heading, time, receipt, actionLabel, onAction, variant = "default", label = null }: ChatMessageBubbleProps) {
   const content = (
     <>
+      {label ? <span className="message-bubble-label">{label}</span> : null}
       {heading ? <strong>{heading}</strong> : null}
       <p>{body}</p>
       {time ? <time>{time}{receipt ? <span className={`message-receipt ${receipt}`} aria-label={receipt === "read" ? "Read" : "Delivered"} title={receipt === "read" ? "Read" : "Delivered"}><span aria-hidden="true">✓</span>{receipt === "read" ? <span aria-hidden="true">✓</span> : null}</span> : null}</time> : null}
@@ -22,7 +25,7 @@ export function ChatMessageBubble({ body, mine = false, heading, time, receipt, 
   );
 
   return (
-    <div className={`message-bubble-row${mine ? " mine" : ""}`}>
+    <div className={`message-bubble-row${mine ? " mine" : ""}${variant === "activity-card" ? " activity-card" : ""}`}>
       {onAction ? <button className="message-bubble message-bubble-editable" type="button" onClick={onAction} title={actionLabel}>{content}</button> : <div className="message-bubble">{content}</div>}
     </div>
   );

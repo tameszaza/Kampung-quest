@@ -9,6 +9,10 @@ import {
 } from "@openai/agents";
 import type { AgentAuditSink, AgentRuntime, MemoryAgentInput } from "@/server/agents/agent-runtime";
 import { AGENT_INSTRUCTIONS } from "@/server/agents/agent-instructions";
+import {
+  coordinationProviderOutputSchema,
+  normalizeCoordinationProviderOutput,
+} from "@/server/agents/coordination-agent-output";
 import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
@@ -19,25 +23,7 @@ import {
   safetyReviewSchema,
   type CandidateProfile,
   type QuestProposal,
-  availabilityWindowSchema,
 } from "@/server/domain/schemas";
-import { coordinationIntentSchema } from "@/server/domain/event-coordination";
-import { z } from "zod";
-
-const coordinationAgentOutputSchema = z.object({
-  reply: z.string().min(1),
-  requirementPatch: z.object({
-    availableWindows: z.array(availabilityWindowSchema).optional(),
-    accessibility: z.array(z.string().min(1)).optional(),
-    travel: z.array(z.string().min(1)).optional(),
-    dietary: z.array(z.string().min(1)).optional(),
-    environmental: z.array(z.string().min(1)).optional(),
-    venuePreferences: z.array(z.string().min(1)).optional(),
-    temporaryConflicts: z.array(z.string().min(1)).optional(),
-    other: z.array(z.string().min(1)).optional(),
-  }),
-  intent: coordinationIntentSchema,
-});
 
 export function hostedRetrySettings(
   provider: Exclude<AgentProviderName, "deterministic">,
@@ -151,7 +137,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   private readonly synthesisAgent: Agent<unknown, typeof questSynthesisOutputSchema>;
   private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
-  private readonly coordinationAgent: Agent<unknown, typeof coordinationAgentOutputSchema>;
+  private readonly coordinationAgent: Agent<unknown, typeof coordinationProviderOutputSchema>;
   private readonly runner: Runner;
 
   constructor(private readonly options: HostedAgentRuntimeOptions) {
@@ -198,7 +184,7 @@ export class HostedAgentRuntime implements AgentRuntime {
       name: "Kampung event coordination",
       model: options.models.recovery,
       instructions: AGENT_INSTRUCTIONS.coordination,
-      outputType: coordinationAgentOutputSchema,
+      outputType: coordinationProviderOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
   }
@@ -337,7 +323,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   }
 
   async coordinateEvent(input: Parameters<AgentRuntime["coordinateEvent"]>[0]) {
-    return coordinationAgentOutputSchema.parse(await this.runStructured(this.coordinationAgent, {
+    return normalizeCoordinationProviderOutput(await this.runStructured(this.coordinationAgent, {
       quest: input.quest,
       transcript: input.messages,
       currentRequirements: input.currentRequirements,

@@ -17,10 +17,34 @@ describe("HTTP errors", () => {
   it.each([
     "Gemini request quota is temporarily exhausted. Please try again in about 47 seconds.",
     "Gemini's daily request quota for this model is exhausted. It resets at midnight Pacific time.",
-  ])("preserves provider rate limits as HTTP 429 responses", async (message) => {
+  ])("sanitizes provider rate limits as retryable HTTP 503 responses", async (message) => {
     const response = errorResponse(new Error(message));
 
-    expect(response.status).toBe(429);
-    await expect(response.json()).resolves.toEqual({ error: message });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Senior Quest is temporarily unavailable. Your request was not applied—please try again.",
+    });
+  });
+
+  it("hides hosted-provider internals behind a retryable coordination error", async () => {
+    const response = errorResponse(new Error(
+      "gemini provider unavailable: Schema field at properties/requirementPatch uses optional()",
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Senior Quest is temporarily unavailable. Your request was not applied—please try again.",
+    });
+  });
+
+  it("hides missing provider configuration behind the same retryable error", async () => {
+    const response = errorResponse(new Error(
+      "agent provider unavailable: GEMINI_API_KEY is required when AGENT_PROVIDER=gemini",
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Senior Quest is temporarily unavailable. Your request was not applied—please try again.",
+    });
   });
 });

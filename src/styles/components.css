@@ -870,6 +870,34 @@
   margin: 0;
 }
 
+.coordination-conversation-header .coordination-scope-tabs {
+  width: fit-content;
+  margin-top: 10px;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.coordination-scope-tabs button {
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: .76em;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.coordination-scope-tabs button[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(18, 49, 40, .12);
+}
+
 .coordination-conversation-header h2 {
   font-size: 1em;
   letter-spacing: -.015em;
