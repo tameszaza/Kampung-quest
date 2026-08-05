@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { CandidateProfile } from "@/server/domain/schemas";
+import type { CandidateProfile, QuestRun } from "@/server/domain/schemas";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
@@ -60,6 +60,44 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
 
   afterAll(async () => {
     await store?.pool.end();
+  });
+
+  it("persists a generated quest thumbnail with optimistic locking", async () => {
+    const now = new Date().toISOString();
+    const ownerId = `integration_thumbnail_owner_${randomUUID().slice(0, 8)}`;
+    integrationCandidateIds.add(ownerId);
+    const engine = new KampungQuestEngine({
+      store: store!,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile(ownerId), narrative: "Thumbnail integration owner" });
+    const run: QuestRun = {
+      runId: `integration_thumbnail_${randomUUID().slice(0, 8)}`,
+      initiatingCandidateId: ownerId,
+      idempotencyKey: null,
+      status: "human_review",
+      proposal: null,
+      validation: null,
+      safety: null,
+      coordination: null,
+      imageUrl: "/assets/quest-placeholder.svg",
+      createdAt: now,
+      updatedAt: now,
+    };
+    integrationRunIds.add(run.runId);
+    await store!.saveQuestRun(run);
+
+    expect(await store!.saveQuestImage(
+      run.runId,
+      "/api/quest-images/0123456789abcdef0123456789abcdef01234567",
+      run.updatedAt,
+    )).toBe(true);
+
+    const persisted = await store!.findQuestRun(run.runId);
+    expect(persisted?.imageUrl).toBe("/api/quest-images/0123456789abcdef0123456789abcdef01234567");
+    expect(Date.parse(persisted!.updatedAt)).toBeGreaterThan(Date.parse(run.updatedAt));
+    expect(await store!.saveQuestImage(run.runId, "/api/quest-images/stale", run.updatedAt)).toBe(false);
   });
 
   it("persists active memory, vectors, and quest state across engine instances", async () => {

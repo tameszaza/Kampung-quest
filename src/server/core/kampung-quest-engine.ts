@@ -59,6 +59,7 @@ export class KampungQuestEngine {
   private readonly validator = new ConstraintValidator();
   private readonly invitations: InvitationAdapter;
   private readonly venues: VenueAdapter;
+  private readonly queuedImageRuns = new Set<string>();
 
   constructor(private readonly dependencies: KampungQuestEngineDependencies) {
     this.invitations = dependencies.invitations ?? new MockInvitationAdapter();
@@ -674,13 +675,16 @@ export class KampungQuestEngine {
           });
         }
         await observe?.({ stage: "validation", status: "failed", message: "The proposal needs human review", kind: "system" });
-        return this.dependencies.store.saveQuestRun({
+        const saved = await this.dependencies.store.saveQuestRun({
           ...base,
           status: "human_review",
           proposal,
           validation,
+          imageUrl: QUEST_IMAGE_PLACEHOLDER,
           updatedAt: new Date().toISOString(),
         });
+        this.queueQuestImage(saved);
+        return saved;
       }
 
       await observe?.({
@@ -710,13 +714,16 @@ export class KampungQuestEngine {
           }],
         };
         await observe?.({ stage: "validation", status: "failed", message: "A participant accepted an overlapping quest", kind: "system" });
-        return this.dependencies.store.saveQuestRun({
+        const saved = await this.dependencies.store.saveQuestRun({
           ...base,
           status: "human_review",
           proposal,
           validation: eligibility,
+          imageUrl: QUEST_IMAGE_PLACEHOLDER,
           updatedAt: new Date().toISOString(),
         });
+        this.queueQuestImage(saved);
+        return saved;
       }
       activeStage = "safety";
       await observe?.({ stage: "safety", status: "started", message: "Safety Guardian is reviewing the quest", kind: "agent" });
@@ -837,8 +844,12 @@ export class KampungQuestEngine {
     return vector.some((value) => Math.abs(value) > Number.EPSILON);
   }
 
-  getQuest(runId: string): Promise<QuestRun | null> {
-    return this.dependencies.store.findQuestRun(runId);
+  async getQuest(runId: string): Promise<QuestRun | null> {
+    const run = await this.dependencies.store.findQuestRun(runId);
+    if (run?.proposal && (!run.imageUrl || run.imageUrl === QUEST_IMAGE_PLACEHOLDER)) {
+      this.queueQuestImage(run);
+    }
+    return run;
   }
 
   async applyCoordinationEvent(command: CoordinationEventCommand): Promise<QuestRun> {
@@ -1031,22 +1042,42 @@ export class KampungQuestEngine {
    * shown; the UI uses a neutral placeholder until the generated SVG is ready.
    */
   private queueQuestImage(run: QuestRun): void {
+    if (this.queuedImageRuns.has(run.runId)) return;
     if (!run.proposal || !this.dependencies.imageAgent || !this.dependencies.imageStorage) {
       logger.debug("quest_image.queue.skipped", { runId: run.runId, reason: "image_dependencies_unavailable" });
       return;
     }
+    this.queuedImageRuns.add(run.runId);
     void this.attachQuestImage(run)
       .then(async (generated) => {
         if (!generated.imageUrl || generated.imageUrl === QUEST_IMAGE_PLACEHOLDER) return;
-        const saved = await this.dependencies.store.saveQuestImage(run.runId, generated.imageUrl, run.updatedAt);
-        if (!saved) {
-          logger.warn("quest_image.queue.conflict", { runId: run.runId, reason: "quest_changed_before_thumbnail_ready" });
+        logger.info("quest_image.persist.start", { runId: run.runId, imageUrl: generated.imageUrl });
+        let saved: boolean;
+        try {
+          saved = await this.dependencies.store.saveQuestImage(run.runId, generated.imageUrl, run.updatedAt);
+        } catch (error) {
+          logger.error("quest_image.persist.error", {
+            runId: run.runId,
+            imageUrl: generated.imageUrl,
+            error: safeErrorMessage(error),
+          });
           return;
         }
-        logger.info("quest_image.queue.saved", { runId: run.runId, imageUrl: generated.imageUrl });
+        if (!saved) {
+          logger.warn("quest_image.persist.conflict", {
+            runId: run.runId,
+            imageUrl: generated.imageUrl,
+            reason: "quest_changed_before_thumbnail_ready",
+          });
+          return;
+        }
+        logger.info("quest_image.persist.success", { runId: run.runId, imageUrl: generated.imageUrl });
       })
       .catch((error) => {
         logger.error("quest_image.queue.error", { runId: run.runId, error: safeErrorMessage(error) });
+      })
+      .finally(() => {
+        this.queuedImageRuns.delete(run.runId);
       });
   }
 

@@ -3485,6 +3485,10 @@
   font-size: 14px;
 }
 
+.assistant-review > .primary-button {
+  margin-top: 16px;
+}
+
 .assistant-error,
 .assistant-note {
   margin: 14px 0 0;
@@ -5792,11 +5796,11 @@
   width: min(1320px, calc(100% - 48px));
   min-height: auto;
   margin: 0 auto;
-  border: 1px solid var(--line);
-  border-radius: 24px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
 }
 
 .quest-detail-ref .detail-header-wrap {

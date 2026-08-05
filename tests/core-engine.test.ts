@@ -549,8 +549,17 @@ describe("KampungQuestEngine memory", () => {
   });
 
   it("attaches a generated thumbnail without making image generation part of quest validity", async () => {
+    const imageResult = { bytes: Buffer.from("image"), mimeType: "image/png", model: "test" };
+    let releaseImage!: (result: typeof imageResult) => void;
+    const imageReady = new Promise<typeof imageResult>((resolve) => {
+      releaseImage = resolve;
+    });
+    let imageGenerationCalls = 0;
     const imageAgent: QuestImageAgent = {
-      generate: async () => ({ bytes: Buffer.from("image"), mimeType: "image/png", model: "test" }),
+      generate: async () => {
+        imageGenerationCalls += 1;
+        return imageReady;
+      },
     };
     const store = new InMemoryKampungStore();
     const engine = new KampungQuestEngine({
@@ -570,6 +579,11 @@ describe("KampungQuestEngine memory", () => {
 
     expect(run.status).toBe("awaiting_acceptance");
     expect(run.imageUrl).toBe(QUEST_IMAGE_PLACEHOLDER);
+    expect(imageGenerationCalls).toBe(1);
+    await engine.getQuest(run.runId);
+    await engine.getQuest(run.runId);
+    expect(imageGenerationCalls).toBe(1);
+    releaseImage(imageResult);
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if ((await engine.getQuest(run.runId))?.imageUrl === "/api/quest-images/test-image") break;
       await new Promise((resolve) => setTimeout(resolve, 0));
