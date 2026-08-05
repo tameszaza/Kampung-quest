@@ -1415,7 +1415,10 @@ export class EventCoordinator {
               ? { canRequest: false, notices: assessment.notices }
               : null;
         activity = this.activityCard(state, ownJoinRequest?.status ?? null, viewerEligibility);
-        suggestedScores.set(state.runId, related ? 1 : assessment?.eligible ? assessment.candidate.score ?? 0 : 0);
+        suggestedScores.set(
+          state.runId,
+          related ? 2 : assessment?.eligible ? 1 + (assessment.candidate.score ?? 0) : 0,
+        );
         if (discoverable) result.suggested.push(activity);
       }
       for (const invitation of state.invitations) {

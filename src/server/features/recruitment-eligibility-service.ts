@@ -34,6 +34,13 @@ export class RecruitmentEligibilityService {
     if (rosterProfiles.some((profile) => !profile)) {
       return this.hidden("A current roster member's profile could not be verified.");
     }
+    if ([organizer, ...rosterProfiles].some((profile) => profile
+      && (profile.memoryStatus !== "active"
+        || profile.relationshipBlocked
+        || !profile.constraints.verified
+        || !profile.constraints.invitationConsent))) {
+      return this.hidden("The current group is no longer available for public recruitment.");
+    }
     const target = state.recruitment.targetGroupSize;
     if (rosterProfiles.some((profile) => profile
       && (target < profile.constraints.minimumGroupSize || target > profile.constraints.maximumGroupSize))) {
@@ -48,14 +55,14 @@ export class RecruitmentEligibilityService {
     }
     if (![candidate, ...rosterProfiles].every((profile) => profile
       && profile.constraints.languages.some((language) => candidate.constraints.languages.includes(language)))) {
-      notices.push("Your profile does not currently share a group language with this quest.");
+      notices.push("This quest's group-language requirements do not match your profile.");
     }
 
     const distance = candidate.distanceFromInitiatorM;
     if (distance === null) {
       notices.push("Confirm your location preferences before requesting to join.");
     } else if (distance > Math.min(organizer.constraints.maximumDistanceM, candidate.constraints.maximumDistanceM)) {
-      notices.push("This quest is outside your preferred travel distance.");
+      notices.push("This quest's travel range is not compatible with your profile.");
     }
     if (candidate.constraints.indoorRequired && !state.proposal.quest.venueRequirements.includes("indoor")) {
       notices.push("This quest does not meet your indoor venue requirement.");

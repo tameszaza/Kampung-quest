@@ -126,6 +126,12 @@ describe("open quest recruitment eligibility", () => {
       canRequest: false,
       notices: ["Confirm your location preferences before requesting to join."],
     });
+    expect(noorView.initiatorId).toBe("");
+    expect(noorView.roster).toEqual([]);
+    expect(noorView.proposal.proposedParticipants).toEqual([]);
+    expect(noorView.proposal.quest.needsAddressed).toEqual([]);
+    expect(noorView.memberships).toEqual([]);
+    expect(noorView.arrangements).toEqual([]);
     await expect(coordinator.requestToJoin({
       runId: draft.runId,
       actorId: "noor",
@@ -136,8 +142,13 @@ describe("open quest recruitment eligibility", () => {
     expect(farahActivities.suggested.map((activity) => activity.runId)).toEqual([draft.runId]);
     expect(farahActivities.suggested[0]).toHaveProperty("recruitment.viewerEligibility", {
       canRequest: false,
-      notices: ["Your profile does not currently share a group language with this quest."],
+      notices: ["This quest's group-language requirements do not match your profile."],
     });
+
+    const inactiveRosterMember = profile("anne");
+    inactiveRosterMember.memoryStatus = "expired";
+    await engine.recordMemory({ profile: inactiveRosterMember, narrative: inactiveRosterMember.need });
+    expect((await coordinator.listActivities("noor")).suggested).toEqual([]);
   });
 
   it("keeps safety-excluded neighbours from discovering the recruiting quest", async () => {

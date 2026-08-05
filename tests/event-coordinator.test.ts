@@ -130,6 +130,54 @@ describe("EventCoordinator", () => {
     expect((await coordinator.listActivities("unknown")).suggested).toEqual([]);
   });
 
+  it("ranks eligible recruiting quests above discoverable mismatches", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 4 }),
+      assessRecruitmentCandidate: async (state) => state.runId === "quest_joinable_match"
+        ? { eligible: true, candidate: {
+            participant: {
+              candidateId: "sofia",
+              proposedRole: "supporting_participant",
+              needsAddressed: ["Would enjoy meeting neighbours"],
+              contributionsUsed: ["can welcome newcomers"],
+            },
+            explanation: ["Eligible match"],
+            score: 0,
+          } }
+        : {
+            eligible: false,
+            discoverable: true,
+            reason: "Your availability does not include this quest's provisional time.",
+            notices: ["Your availability does not include this quest's provisional time."],
+          },
+    });
+    async function publish(runId: string) {
+      const run = approvedRun();
+      run.runId = runId;
+      run.idempotencyKey = `formation-${runId}`;
+      run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+      run.proposal!.quest.groupSize = 2;
+      run.validation = { valid: false, errors: [{ field: "groupSize", message: "Three people are required." }] };
+      const draft = await coordinator.createFormation(run);
+      await coordinator.publishRecruitment({
+        runId,
+        actorId: "maria",
+        targetGroupSize: 3,
+        expectedRevision: draft.revision,
+        idempotencyKey: `publish-${runId}`,
+      });
+    }
+    await publish("quest_discoverable_mismatch");
+    await publish("quest_joinable_match");
+
+    expect((await coordinator.listActivities("sofia")).suggested.map((activity) => activity.runId)).toEqual([
+      "quest_joinable_match",
+      "quest_discoverable_mismatch",
+    ]);
+  });
+
   it("keeps join requests pending until organizer approval and closes at the target", async () => {
     const run = approvedRun();
     run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);

@@ -66,9 +66,9 @@ A recruiting quest appears in Suggested for active, verified members even when o
 - no overlapping active commitment; and
 - space below the quest's target and maximum group sizes.
 
-An ordinary mismatch produces one or more privacy-safe notices based only on the viewer's own profile and public quest facts. For example, the notice may say that the viewer's availability does not include the provisional time or that the quest is outside their preferred travel distance. The request action remains disabled.
+An ordinary mismatch produces one or more privacy-safe notices based on the viewer's own profile, public quest facts, or the generic outcome of a group-level compatibility check. A group-level notice may name the category, such as language or travel compatibility, but must not identify another person or reveal anyone else's constraint value. For example, the notice may say that the viewer's availability does not include the provisional time or that the quest's travel range is not compatible with their profile. The request action remains disabled.
 
-Safety and access exclusions remain visibility gates. A quest must stay hidden when the viewer has no active or verified participation profile, a relationship block applies, the viewer is already part of the roster, the quest is full or closed, or the current roster cannot be safely verified. The response must never reveal that a relationship block or another member's private constraint caused the exclusion.
+Safety and access exclusions remain visibility gates. A quest must stay hidden when the viewer has no active or verified participation profile, a relationship block applies, the quest is full or closed, or the current roster cannot be safely verified. The response must never reveal that a relationship block or another member's private constraint caused the exclusion. Organizers and selected roster members may still see a related recruiting quest for management or status, but it must not be presented to them as an application opportunity.
 
 Eligible quests should be ranked using relevant soft signals such as needs, interests, offers, and overall compatibility. Ineligible but discoverable quests rank below eligible matches.
 
