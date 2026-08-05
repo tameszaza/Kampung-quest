@@ -461,7 +461,12 @@ describe("EventCoordinator", () => {
 
   it("returns privacy-safe participant progress for the coordination hub", async () => {
     const store = new InMemoryKampungStore();
-    const coordinator = new EventCoordinator({ store });
+    const coordinator = new EventCoordinator({
+      store,
+      resolveMember: async (userId) => userId === "anne"
+        ? { displayName: "Anne", photoUrl: null }
+        : null,
+    });
     const forming = await coordinator.createFormation(approvedRun());
     const confirmed = await coordinator.confirmRoster({
       runId: forming.runId,
@@ -911,6 +916,9 @@ describe("EventCoordinator", () => {
     const store = new InMemoryKampungStore();
     const coordinator = new EventCoordinator({
       store,
+      resolveMember: async (userId) => userId === "anne"
+        ? { displayName: "Anne", photoUrl: null }
+        : null,
       coordinate: async () => ({
         reply: "Please save this availability if it is correct.",
         requirementPatch: {
@@ -973,7 +981,14 @@ describe("EventCoordinator", () => {
 
   it("schedules only after organizer approval and every accepted guest confirms", async () => {
     const store = new InMemoryKampungStore();
-    const coordinator = new EventCoordinator({ store });
+    const coordinator = new EventCoordinator({
+      store,
+      resolveMember: async (userId) => ({
+        id: userId,
+        displayName: ({ maria: "Maria", anne: "Anne", david: "David" } as Record<string, string>)[userId] ?? "Community member",
+        photoUrl: null,
+      }),
+    });
     const forming = await coordinator.createFormation(approvedRun());
     let state = await coordinator.confirmRoster({
       runId: forming.runId,
@@ -1021,6 +1036,18 @@ describe("EventCoordinator", () => {
       idempotencyKey: "anne-confirms-v1",
     });
     expect(state.lifecycle).toBe("awaiting_confirmation");
+    expect(state.notifications).toContainEqual(expect.objectContaining({
+      userId: "maria",
+      title: "Anne confirmed the plan",
+    }));
+    expect(state.notifications).toContainEqual(expect.objectContaining({
+      userId: "david",
+      title: "Anne confirmed the plan",
+    }));
+    expect(state.groupThread?.messages).toContainEqual(expect.objectContaining({
+      kind: "arrangement_card",
+      body: expect.stringContaining("Anne confirmed appointment version"),
+    }));
     state = await coordinator.decideArrangement({
       runId: state.runId,
       arrangementId: state.arrangements.at(-1)!.arrangementId,
@@ -1033,6 +1060,10 @@ describe("EventCoordinator", () => {
     expect(state.lifecycle).toBe("scheduled");
     expect(state.arrangements.at(-1)?.status).toBe("finalized");
     expect(state.memberships.every((membership) => membership.status === "confirmed")).toBe(true);
+    expect(state.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: "anne", title: "Everyone confirmed the plan" }),
+      expect.objectContaining({ userId: "david", title: "Everyone confirmed the plan" }),
+    ]));
   });
 
   it("applies a compatible participant appointment change immediately and asks everyone to confirm", async () => {

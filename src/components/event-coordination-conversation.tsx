@@ -24,8 +24,9 @@ import type {
   EventParticipantProgress,
   EventQuestView,
 } from "@/server/domain/event-coordination";
+import { createClientRequestId } from "@/lib/client-request-id";
 
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 1_500;
 
 export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle }: {
   runId: string;
@@ -40,9 +41,13 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const [quest, setQuest] = useState<EventQuestView | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
+  const [sending, setSending] = useState(false);
+  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const sendingRef = useRef(false);
+  const acknowledgedNotificationsRef = useRef("");
 
   const scrollToLatest = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -66,8 +71,13 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       onTitle?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
       if (!quiet) scrollToLatest();
-      if (nextQuest.viewer.role === "organizer" && nextQuest.notifications.some((item) => item.readAt === null)) {
-        await markEventNotificationsRead(runId);
+      const unreadSignature = nextQuest.notifications.filter((item) => item.readAt === null)
+        .map((item) => item.notificationId).sort().join(":");
+      if (unreadSignature && acknowledgedNotificationsRef.current !== unreadSignature) {
+        acknowledgedNotificationsRef.current = unreadSignature;
+        void markEventNotificationsRead(runId).catch(() => {
+          acknowledgedNotificationsRef.current = "";
+        });
       }
     } catch (reason) {
       if (!quiet) setError(reason instanceof Error ? reason.message : "Coordination could not be loaded");
@@ -82,7 +92,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       if (active) void load();
     }, 0);
     const refresh = () => {
-      if (active && document.visibilityState === "visible") void load(true);
+      if (active && !sendingRef.current && document.visibilityState === "visible") void load(true);
     };
     const timer = window.setInterval(refresh, REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refresh);
@@ -99,25 +109,53 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = draft.trim();
-    if (!thread || !quest?.viewer.canChat || !body || busy) return;
+    if (!thread || !quest?.viewer.canChat || !body || busy || sending) return;
     const activeThread = scope === "group" ? groupThread : thread;
     if (!activeThread) return;
-    setBusy("message");
+    const clientMessageId = createClientRequestId();
+    const optimisticMessage = {
+      messageId: clientMessageId,
+      senderId: scope === "group" ? thread.userId : undefined,
+      role: "participant" as const,
+      body,
+      kind: "text" as const,
+      receipt: "delivered" as const,
+      createdAt: new Date().toISOString(),
+    };
+    setSending(true);
+    sendingRef.current = true;
+    setPendingMessageId(clientMessageId);
     setError("");
     setDraft("");
+    if (scope === "group") {
+      setGroupThread({ ...activeThread as EventGroupCoordinationThread, messages: [...activeThread.messages, optimisticMessage] });
+    } else {
+      setThread({ ...activeThread as EventCoordinationThread, messages: [...activeThread.messages, optimisticMessage] });
+    }
+    scrollToLatest();
     try {
       if (scope === "group") {
-        setGroupThread(await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision }));
+        setGroupThread(await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
       } else {
-        setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision }));
+        setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
       }
-      await refreshQuest();
+      void refreshQuest().catch(() => {
+        // The faster thread response is authoritative for the message. Polling
+        // will reconcile the activity summary after a transient fetch failure.
+      });
       scrollToLatest();
     } catch (reason) {
       setDraft(body);
       setError(reason instanceof Error ? reason.message : "Message could not be sent");
+      if (scope === "group") {
+        setGroupThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+      } else {
+        setThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+      }
     } finally {
-      setBusy("");
+      setSending(false);
+      sendingRef.current = false;
+      setPendingMessageId(null);
     }
   }
 
@@ -260,7 +298,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
           </section> : null}
         </div>
 
-        <div className="message-history coordination-message-history" aria-live="polite" aria-busy={busy === "message"}>
+        <div className="message-history coordination-message-history" aria-live="polite" aria-busy={sending}>
           <ChatDayLabel />
           {activeMessages.map((message) => {
             const presentation = coordinationMessagePresentation(message.kind);
@@ -269,16 +307,18 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
               body={message.body}
               mine={scope === "group" ? message.senderId === thread.userId : message.role === "participant"}
               heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : scope === "group" && message.senderId !== thread.userId
-                ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName
+                ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName ?? "Community member"
                 : undefined}
               time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              receipt={message.role === "participant" && (scope === "private" || message.senderId === thread.userId)
+              receipt={message.messageId !== pendingMessageId && message.role === "participant" && (scope === "private" || message.senderId === thread.userId)
                 ? message.receipt ?? "delivered"
                 : undefined}
+              actionLabel={message.messageId === pendingMessageId ? "Sending…" : undefined}
               variant={presentation.variant}
               label={presentation.label}
             />;
           })}
+          {sending ? <div className="coordination-agent-working" role="status"><span aria-hidden="true" />Senior Quest is checking the group’s preferences…</div> : null}
           {scope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
             <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
             <h3>Start with what matters most</h3>
@@ -314,7 +354,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             onInputKeyDown={submitOnEnter}
             onSubmit={send}
             maxLength={2_000}
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || sending}
             placeholder={scope === "group" ? "Message the group or ask Senior Quest…" : quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
           /> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
         </div>
@@ -346,7 +386,7 @@ function ArrangementAction({ quest, currentUserId, busy, onSuggest, onDecide }: 
   const arrangement = quest.arrangements.at(-1);
   const terminalArrangement = !arrangement || ["finalized", "rejected", "superseded"].includes(arrangement.status);
   const canStartArrangement = quest.viewer.role === "organizer"
-    && ["awaiting_responses", "coordinating", "scheduled"].includes(quest.lifecycle)
+    && ["awaiting_responses", "coordinating"].includes(quest.lifecycle)
     && terminalArrangement;
   const ownConfirmation = arrangement?.confirmations.find((confirmation) => confirmation.userId === currentUserId);
   const needsParticipantDecision = ["organizer", "participant"].includes(quest.viewer.role)

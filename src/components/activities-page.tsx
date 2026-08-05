@@ -104,7 +104,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
           {sent.map((invitation) => <article className="invite-card event-invite-card" key={invitation.invitationId}>
             <span className={`image-badge quest-status-${invitation.status}`}>{invitation.status.replaceAll("_", " ")}</span>
             <h2>{invitation.activity.title}</h2>
-            <p>Guest: {friendlyMember(invitation.guestId)}</p>
+            <p>Guest invitation sent</p>
             <AvailabilityLabel activity={invitation.activity} />
           </article>)}
         </section> : <EmptyActivities title="No sent invitations" body="Invitations are created after you confirm a suggested group." />}
@@ -142,8 +142,4 @@ function formatWindow(start: string, end: string) {
   const from = new Date(start);
   const until = new Date(end);
   return `${from.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
-
-function friendlyMember(value: string) {
-  return value.replace(/^demo_/, "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
