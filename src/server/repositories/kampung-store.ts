@@ -52,6 +52,8 @@ export interface KampungStore {
   ): Promise<EventCoordinationState>;
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
   listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]>;
+  listHiddenEventSuggestionIds(userId: string): Promise<string[]>;
+  hideEventSuggestion(userId: string, runId: string): Promise<void>;
   listAllEventCoordinationStates(limit?: number): Promise<EventCoordinationState[]>;
   saveQuestRunWithFormation(run: QuestRun, state: EventCoordinationState, expectedUpdatedAt: string): Promise<QuestRun>;
   createAssistantConversation(conversation: AssistantConversationSnapshot): Promise<AssistantConversationSnapshot>;
@@ -105,6 +107,7 @@ export class InMemoryKampungStore implements KampungStore {
   private readonly memoryAttempts = new Map<string, MemoryUpdateCommand>();
   private readonly agentRuns: AgentRunAudit[] = [];
   private readonly eventCoordinationStates = new Map<string, EventCoordinationState>();
+  private readonly hiddenEventSuggestions = new Map<string, Set<string>>();
 
   async saveQuestRunWithFormation(
     run: QuestRun,
@@ -178,6 +181,17 @@ export class InMemoryKampungStore implements KampungStore {
       .filter((state) => state.lifecycle === "recruiting" && state.recruitment?.status === "open")
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((state) => structuredClone(state));
+  }
+
+  async listHiddenEventSuggestionIds(userId: string): Promise<string[]> {
+    return [...(this.hiddenEventSuggestions.get(userId) ?? [])];
+  }
+
+  async hideEventSuggestion(userId: string, runId: string): Promise<void> {
+    if (!this.eventCoordinationStates.has(runId)) throw new Error("Event coordination state was not found");
+    const hidden = this.hiddenEventSuggestions.get(userId) ?? new Set<string>();
+    hidden.add(runId);
+    this.hiddenEventSuggestions.set(userId, hidden);
   }
 
   async createAssistantConversation(

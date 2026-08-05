@@ -26,6 +26,7 @@ The following conservative defaults complete lifecycle branches that were not re
 
 - A rejected request is final for that quest publication; the applicant cannot reapply to the same recruiting quest.
 - When an approval reaches the target, any surplus pending requests close as rejected so no request remains indefinitely pending.
+- A viewer may persistently hide a recruiting suggestion from their own Suggested feed. Hiding is private to that viewer and does not cancel, delete, or change access to the quest.
 
 ## Definitions
 
@@ -132,6 +133,7 @@ The Suggested screen must not describe every item as safely matched because it m
 - Include broadly discoverable recruiting quests in **Activities → Suggested**.
 - Show privacy-safe red notices when ordinary hard constraints fail.
 - Disable **Request to join** while any ordinary hard constraint fails.
+- Provide **Hide from Suggested** for third-party recruiting suggestions.
 - Clearly label recruiting status and available progress.
 - Provide a **Request to join** action on the detail view.
 - Replace the action with an unambiguous pending state after submission.
@@ -163,6 +165,7 @@ Join-request approval must use authorization, optimistic concurrency or an equiv
 10. Reaching the minimum leaves recruitment open when the target is higher.
 11. Reaching the target closes recruitment and removes the quest from Suggested feeds.
 12. No pre-approval response exposes participant identities, exact locations, private needs, private availability, or coordination messages.
+13. Hiding a suggestion removes it only from that viewer's Suggested feed and does not affect another viewer or direct privacy-safe access.
 
 ## Deferred decisions
 

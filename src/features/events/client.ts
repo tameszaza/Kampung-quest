@@ -16,6 +16,12 @@ export async function listEventActivities(): Promise<UserEventActivities> {
   return json(await fetch("/api/v1/activities", { cache: "no-store" }));
 }
 
+export async function hideEventSuggestion(runId: string): Promise<void> {
+  await json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/suggestion`, {
+    method: "DELETE",
+  }));
+}
+
 export async function getEventQuest(runId: string): Promise<EventQuestView | null> {
   const response = await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}`, { cache: "no-store" });
   if (response.status === 404) return null;

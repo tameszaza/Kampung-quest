@@ -215,6 +215,23 @@ export class PostgresKampungStore implements KampungStore {
     return result.rows.map((row) => row.payload);
   }
 
+  async listHiddenEventSuggestionIds(userId: string): Promise<string[]> {
+    const result = await this.pool.query<{ run_id: string }>(
+      `SELECT run_id FROM quest.event_suggestion_dismissals WHERE user_id = $1`,
+      [userId],
+    );
+    return result.rows.map((row) => row.run_id);
+  }
+
+  async hideEventSuggestion(userId: string, runId: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO quest.event_suggestion_dismissals (user_id, run_id, hidden_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (user_id, run_id) DO NOTHING`,
+      [userId, runId],
+    );
+  }
+
   private async persistEventCoordinationChildren(client: PoolClient, state: EventCoordinationState): Promise<void> {
     await client.query(
       `INSERT INTO quest.event_roster_versions (run_id, roster_revision, validation, created_at)

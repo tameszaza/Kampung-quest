@@ -1313,6 +1313,11 @@
   text-align: center;
 }
 
+.event-hide-suggestion {
+  width: calc(100% - 48px);
+  margin: -8px 24px 20px;
+}
+
 .recruitment-eligibility-notice {
   display: grid;
   gap: 7px;

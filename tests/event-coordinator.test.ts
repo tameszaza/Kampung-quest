@@ -178,6 +178,54 @@ describe("EventCoordinator", () => {
     ]);
   });
 
+  it("lets one viewer hide a recruiting suggestion without affecting anyone else", async () => {
+    const run = approvedRun();
+    run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+    run.proposal!.quest.groupSize = 2;
+    run.validation = { valid: false, errors: [{ field: "groupSize", message: "Three people are required." }] };
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 4 }),
+      assessRecruitmentCandidate: async (_state, userId) => ({ eligible: true, candidate: {
+        participant: {
+          candidateId: userId,
+          proposedRole: "supporting_participant",
+          needsAddressed: ["Would enjoy meeting neighbours"],
+          contributionsUsed: ["can welcome newcomers"],
+        },
+        explanation: ["Eligible match"],
+      } }),
+    });
+    const draft = await coordinator.createFormation(run);
+    await coordinator.publishRecruitment({
+      runId: draft.runId,
+      actorId: "maria",
+      targetGroupSize: 3,
+      expectedRevision: draft.revision,
+      idempotencyKey: "publish-hideable-suggestion",
+    });
+
+    expect((await coordinator.listActivities("sofia")).suggested.map((activity) => activity.runId)).toEqual([run.runId]);
+    await expect(coordinator.hideSuggestion({ runId: run.runId, actorId: "maria" }))
+      .rejects.toThrow("Only the recipient of an open recruiting suggestion can hide it");
+    await coordinator.hideSuggestion({ runId: run.runId, actorId: "sofia" });
+
+    expect((await coordinator.listActivities("sofia")).suggested).toEqual([]);
+    expect((await coordinator.listActivities("noor")).suggested.map((activity) => activity.runId)).toEqual([run.runId]);
+    await expect(coordinator.getStateForUser(run.runId, "sofia")).resolves.toMatchObject({ runId: run.runId });
+
+    const current = (await coordinator.getStateForUser(run.runId, "noor"));
+    await coordinator.requestToJoin({
+      runId: run.runId,
+      actorId: "noor",
+      expectedRevision: current.revision,
+      idempotencyKey: "noor-requests-before-hiding",
+    });
+    await coordinator.hideSuggestion({ runId: run.runId, actorId: "noor" });
+    expect((await coordinator.listActivities("noor")).suggested).toEqual([]);
+  });
+
   it("keeps join requests pending until organizer approval and closes at the target", async () => {
     const run = approvedRun();
     run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);

@@ -26,6 +26,8 @@ export interface EventCoordinationStore {
   ): Promise<EventCoordinationState>;
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
   listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]>;
+  listHiddenEventSuggestionIds(userId: string): Promise<string[]>;
+  hideEventSuggestion(userId: string, runId: string): Promise<void>;
   saveQuestRunWithFormation(
     run: QuestRun,
     state: EventCoordinationState,
@@ -1364,11 +1366,24 @@ export class EventCoordinator {
     return marked;
   }
 
+  async hideSuggestion(input: { runId: string; actorId: string }): Promise<void> {
+    const view = await this.getStateForUser(input.runId, input.actorId);
+    if (view.lifecycle !== "recruiting"
+      || view.recruitment.status !== "open"
+      || view.viewer.role !== "applicant"
+      || view.viewer.recruitmentEligibility === null) {
+      throw new Error("Only the recipient of an open recruiting suggestion can hide it");
+    }
+    await this.dependencies.store.hideEventSuggestion(input.actorId, input.runId);
+  }
+
   async listActivities(userId: string): Promise<UserEventActivities> {
-    const [relatedStates, recruitingStates] = await Promise.all([
+    const [relatedStates, recruitingStates, hiddenSuggestionIds] = await Promise.all([
       this.dependencies.store.listEventCoordinationStates(userId),
       this.dependencies.store.listRecruitingEventCoordinationStates(),
+      this.dependencies.store.listHiddenEventSuggestionIds(userId),
     ]);
+    const hiddenSuggestions = new Set(hiddenSuggestionIds);
     const states = [...new Map([...relatedStates, ...recruitingStates].map((state) => [state.runId, this.withRecruitmentDefaults(state)])).values()];
     const result: UserEventActivities = {
       unreadCount: 0,
@@ -1400,7 +1415,9 @@ export class EventCoordinator {
           || (state.recruitment.status !== "draft" && state.roster.some((member) => member.userId === userId)))) {
         result.suggested.push(activity);
       }
-      if (state.lifecycle === "recruiting" && state.recruitment.status === "open") {
+      if (state.lifecycle === "recruiting"
+        && state.recruitment.status === "open"
+        && !hiddenSuggestions.has(state.runId)) {
         const related = state.initiatorId === userId
           || state.roster.some((member) => member.userId === userId);
         const assessment = related ? null : await this.dependencies.assessRecruitmentCandidate?.(state, userId);

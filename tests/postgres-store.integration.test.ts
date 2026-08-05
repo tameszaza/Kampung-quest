@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { CandidateProfile } from "@/server/domain/schemas";
 import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import { DeterministicEmbeddingProvider } from "@/server/agents/embedding-provider";
@@ -10,6 +10,8 @@ import { AssistantConversationService } from "@/server/features/assistant-conver
 
 const databaseUrl = process.env.DATABASE_URL;
 const store = databaseUrl ? new PostgresKampungStore(databaseUrl) : null;
+const integrationCandidateIds = new Set<string>();
+const integrationRunIds = new Set<string>();
 
 function profile(candidateId: string): CandidateProfile {
   return {
@@ -39,6 +41,23 @@ function profile(candidateId: string): CandidateProfile {
 }
 
 describe.skipIf(!store)("PostgreSQL Kampung store", () => {
+  afterEach(async () => {
+    if (integrationRunIds.size) {
+      await store!.pool.query(
+        "DELETE FROM quest.quest_runs WHERE run_id = ANY($1::text[])",
+        [[...integrationRunIds]],
+      );
+    }
+    if (integrationCandidateIds.size) {
+      await store!.pool.query(
+        "DELETE FROM memory.candidates WHERE candidate_id = ANY($1::text[])",
+        [[...integrationCandidateIds]],
+      );
+    }
+    integrationRunIds.clear();
+    integrationCandidateIds.clear();
+  });
+
   afterAll(async () => {
     await store?.pool.end();
   });
@@ -47,6 +66,8 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     const suffix = randomUUID().slice(0, 8);
     const firstId = `integration_1_${suffix}`;
     const secondId = `integration_2_${suffix}`;
+    integrationCandidateIds.add(firstId);
+    integrationCandidateIds.add(secondId);
     const engine = new KampungQuestEngine({
       store: store!,
       agents: new DeterministicAgentRuntime(),
@@ -56,6 +77,7 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     await engine.recordMemory({ profile: profile(firstId), narrative: "First participant" });
     await engine.recordMemory({ profile: profile(secondId), narrative: "Second participant" });
     const run = await engine.proposeQuest({ initiatingCandidateId: firstId });
+    integrationRunIds.add(run.runId);
     const coordinator = new EventCoordinator({ store: store! });
     let state = (await store!.findEventCoordinationState(run.runId))!;
     state = await coordinator.confirmRoster({ runId: run.runId, actorId: firstId, expectedRevision: state.revision, idempotencyKey: `integration-roster-${suffix}` });
@@ -91,6 +113,8 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     const suffix = randomUUID().slice(0, 8);
     const organizerId = `integration_recruiting_organizer_${suffix}`;
     const participantId = `integration_recruiting_participant_${suffix}`;
+    integrationCandidateIds.add(organizerId);
+    integrationCandidateIds.add(participantId);
     const language = `Integration-${suffix}`;
     const organizerProfile = profile(organizerId);
     const participantProfile = profile(participantId);
@@ -111,6 +135,7 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     await engine.recordMemory({ profile: organizerProfile, narrative: "Recruiting organizer" });
     await engine.recordMemory({ profile: participantProfile, narrative: "Recruiting participant" });
     const run = await engine.proposeQuest({ initiatingCandidateId: organizerId });
+    integrationRunIds.add(run.runId);
     const draft = (await coordinator.getStateForUser(run.runId, organizerId))!;
 
     const published = await coordinator.publishRecruitment({
@@ -123,10 +148,18 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
 
     expect(published.lifecycle).toBe("recruiting");
     expect((await coordinator.getStateForUser(run.runId, organizerId))?.lifecycle).toBe("recruiting");
+    await store!.hideEventSuggestion(participantId, run.runId);
+    const restartedStore = new PostgresKampungStore(databaseUrl!);
+    try {
+      expect(await restartedStore.listHiddenEventSuggestionIds(participantId)).toContain(run.runId);
+    } finally {
+      await restartedStore.pool.end();
+    }
   });
 
   it("does not let a slower older memory activation replace a newer version", async () => {
     const candidateId = `integration_order_${randomUUID().slice(0, 8)}`;
+    integrationCandidateIds.add(candidateId);
     const engine = new KampungQuestEngine({
       store: store!,
       agents: new DeterministicAgentRuntime(),

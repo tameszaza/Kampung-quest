@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
 import { useUser } from "@/components/user-context";
-import { listEventActivities, markEventNotificationsRead, respondToEventInvitation } from "@/features/events/client";
+import { hideEventSuggestion, listEventActivities, markEventNotificationsRead, respondToEventInvitation } from "@/features/events/client";
 import type {
   EventActivityCard,
   EventInvitationView,
@@ -68,6 +68,23 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
     }
   }
 
+  async function hideSuggestion(activity: EventActivityCard) {
+    setBusyId(activity.runId);
+    setError("");
+    setActivities((current) => current ? {
+      ...current,
+      suggested: current.suggested.filter((candidate) => candidate.runId !== activity.runId),
+    } : current);
+    try {
+      await hideEventSuggestion(activity.runId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "This suggestion could not be hidden");
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function currentRevision(runId: string) {
     const response = await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}`, { cache: "no-store" });
     const payload = await response.json() as { revision?: number; error?: string };
@@ -89,7 +106,13 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
         <p className="matched-copy">Activities available for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>
         {activities.suggested.length ? (
           <section className="quest-grid" aria-label="Your suggested activities">
-            {activities.suggested.map((activity) => <EventActivityCardView activity={activity} key={activity.runId} action="Review group" />)}
+            {activities.suggested.map((activity) => <EventActivityCardView
+              activity={activity}
+              key={activity.runId}
+              action="Review group"
+              hiding={busyId === activity.runId}
+              onHide={activity.recruitment?.viewerEligibility ? () => void hideSuggestion(activity) : undefined}
+            />)}
           </section>
         ) : <EmptyActivities title="No new suggestions" body="Talk to Senior Quest when you would like help finding another activity." />}
       </> : null}
@@ -168,7 +191,12 @@ function formatNotificationTime(value: string) {
     : { month: "short", day: "numeric" }).format(date);
 }
 
-export function EventActivityCardView({ activity, action = "View activity" }: { activity: EventActivityCard; action?: string }) {
+export function EventActivityCardView({ activity, action = "View activity", hiding = false, onHide }: {
+  activity: EventActivityCard;
+  action?: string;
+  hiding?: boolean;
+  onHide?: () => void;
+}) {
   const requestAction = {
     pending: "Request pending",
     approved: "Added to proposed group",
@@ -190,6 +218,7 @@ export function EventActivityCardView({ activity, action = "View activity" }: { 
         <span className="primary-button event-card-action">{recruitmentAction}</span>
       </div>
     </Link>
+    {onHide ? <button className="quiet-button event-hide-suggestion" type="button" disabled={hiding} onClick={onHide}>{hiding ? "Hiding…" : "Hide from Suggested"}</button> : null}
   </article>;
 }
 

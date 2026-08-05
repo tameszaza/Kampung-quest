@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { respondToEventInvitation } from "@/features/events/client";
+import { hideEventSuggestion, respondToEventInvitation } from "@/features/events/client";
 
 describe("event coordination client", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -24,5 +24,17 @@ describe("event coordination client", () => {
     expect(request?.headers).toEqual(expect.objectContaining({
       "Idempotency-Key": expect.any(String),
     }));
+  });
+
+  it("hides a suggested quest for the signed-in viewer", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ hidden: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await hideEventSuggestion("quest_hidden_from_feed");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/event-quests/quest_hidden_from_feed/suggestion",
+      { method: "DELETE" },
+    );
   });
 });
