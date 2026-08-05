@@ -1266,7 +1266,7 @@ describe("EventCoordinator", () => {
       alternative: expect.objectContaining({ start: "2026-08-10T07:00:00.000Z", venueName: "Middle Ground Cafe" }),
     }));
     expect(result.messages.at(-1)).toMatchObject({
-      kind: "change_card",
+      kind: "text",
       body: expect.stringMatching(/does not work for the whole group.*3:00 pm.*Middle Ground Cafe/i),
     });
     expect(result.messages.at(-1)?.body).not.toContain("private availability");

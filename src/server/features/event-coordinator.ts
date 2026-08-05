@@ -682,7 +682,7 @@ export class EventCoordinator {
         messageId: `message_${randomUUID()}`,
         role: "assistant",
         body: appointmentMutation?.reply ?? appointmentConflict?.reply ?? organizerAction?.reply ?? questionReply ?? output.reply,
-        kind: appointmentMutation?.broadcastKind ?? (appointmentConflict || organizerAction?.mutation ? "change_card" : "text"),
+        kind: appointmentMutation?.broadcastKind ?? (organizerAction?.mutation ? "change_card" : "text"),
         createdAt: now,
       }],
       pendingRequirements: output.requirementPatch
@@ -882,7 +882,7 @@ export class EventCoordinator {
         senderId: null,
         role: "assistant" as const,
         body: appointmentMutation?.reply ?? appointmentConflict?.reply ?? organizerAction?.reply ?? questionReply ?? output.reply,
-        kind: appointmentMutation?.broadcastKind ?? (appointmentConflict || organizerAction?.mutation ? "change_card" as const : "text" as const),
+        kind: appointmentMutation?.broadcastKind ?? (organizerAction?.mutation ? "change_card" as const : "text" as const),
         createdAt: now,
       }] : []),
     ];
