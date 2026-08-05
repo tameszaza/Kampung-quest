@@ -686,7 +686,7 @@ export class PostgresIdentityStore implements IdentityStore {
                   FROM chat.conversation_members recipient
                   WHERE recipient.conversation_id = message.conversation_id
                     AND recipient.user_id <> $2
-                    AND recipient.last_read_at < message.created_at
+                    AND (recipient.last_read_at IS NULL OR recipient.last_read_at < message.created_at)
                 ) THEN 'read' ELSE 'delivered' END
               ELSE NULL END AS receipt
        FROM chat.messages message

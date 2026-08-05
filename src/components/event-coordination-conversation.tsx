@@ -23,9 +23,10 @@ import type {
 
 const REFRESH_INTERVAL_MS = 5_000;
 
-export function EventCoordinationConversation({ runId, embedded = false, onBack, onTitle }: {
+export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle }: {
   runId: string;
   embedded?: boolean;
+  showHeader?: boolean;
   onBack?: () => void;
   onTitle?: (title: string, memberCount: number) => void;
 }) {
@@ -102,7 +103,7 @@ export function EventCoordinationConversation({ runId, embedded = false, onBack,
     }
   }
 
-  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -193,15 +194,15 @@ export function EventCoordinationConversation({ runId, embedded = false, onBack,
     {quest.viewer.role === "organizer" ? <div className="coordination-organizer-note"><Icon name="bell" size={18} /><p><strong>You’re coordinating this activity.</strong><span>We’ll alert you when a guest shares or confirms availability.</span></p></div> : null}
   </>;
 
-  return <div className={`coordination-hub${embedded ? " coordination-hub-embedded" : ""}`}>
-    <header className="coordination-hub-header">
+  return <div className={`coordination-hub${embedded ? " coordination-hub-embedded" : ""}${!showHeader ? " coordination-hub-no-header" : ""}`}>
+    {showHeader ? <header className="coordination-hub-header">
       {embedded ? <button className="icon-button coordination-back" type="button" onClick={onBack} aria-label="Back to messages"><Icon name="back" /></button> : <Link className="icon-button" href={backHref} aria-label="Back"><Icon name="back" /></Link>}
       <div className="coordination-hub-title">
         <span className="coordination-mark" aria-hidden="true">♥</span>
         <span><strong>Senior Quest</strong><small>Activity coordinator</small></span>
       </div>
       <Link className="coordination-details-link" href={`/quests/${encodeURIComponent(runId)}`}>Activity details <Icon name="chevron" size={16} /></Link>
-    </header>
+    </header> : null}
 
     <div className="coordination-hub-layout">
       <aside className="coordination-overview" aria-label="Activity coordination overview">
@@ -239,6 +240,7 @@ export function EventCoordinationConversation({ runId, embedded = false, onBack,
             mine={message.role === "participant"}
             heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : undefined}
             time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+            receipt={message.role === "participant" ? message.receipt ?? "delivered" : undefined}
           />)}
           {quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
             <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
@@ -269,16 +271,15 @@ export function EventCoordinationConversation({ runId, embedded = false, onBack,
           </section> : null}
 
           {quest.viewer.canChat ? <ChatComposer
-            multiline
             id="coordination-message"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={submitOnEnter}
+            inputValue={draft}
+            onInputChange={(event) => setDraft(event.target.value)}
+            onInputKeyDown={submitOnEnter}
             onSubmit={send}
             maxLength={2_000}
             disabled={Boolean(busy)}
             placeholder={quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
-          ><button type="submit" aria-label="Send message" disabled={Boolean(busy) || !draft.trim()}><Icon name="chevron" /></button></ChatComposer> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
+          /> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
         </div>
       </section>
     </div>

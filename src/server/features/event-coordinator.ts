@@ -360,6 +360,9 @@ export class EventCoordinator {
       body: input.body,
       kind: "text" as const,
       createdAt: now,
+      // Senior Quest processes the message before returning its reply, so the
+      // participant can see that the assistant has read it immediately.
+      receipt: "read" as const,
     };
     const output = this.dependencies.coordinate
       ? await this.dependencies.coordinate({ state: current, thread, message: input.body })

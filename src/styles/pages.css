@@ -1970,7 +1970,8 @@
   box-shadow: var(--shadow-md);
 }
 
-.chat-options-menu button {
+.chat-options-menu button,
+.chat-options-menu a {
   width: 100%;
   min-height: 46px;
   padding: 0 10px;
@@ -1988,7 +1989,9 @@
 }
 
 .chat-options-menu button:hover,
-.chat-options-menu button:focus-visible {
+.chat-options-menu button:focus-visible,
+.chat-options-menu a:hover,
+.chat-options-menu a:focus-visible {
   background: var(--green-50);
   color: var(--green-700);
 }
@@ -3559,7 +3562,7 @@
 }
 
 .chat-panel:has(.coordination-hub-embedded) {
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .coordination-hub-embedded {
@@ -3574,6 +3577,10 @@
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.coordination-hub-embedded.coordination-hub-no-header {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .coordination-hub-embedded .coordination-hub-header {
@@ -3625,18 +3632,6 @@
 
 .coordination-hub-embedded .coordination-arrangement-action p {
   max-width: 56ch;
-}
-
-.coordination-hub-embedded .coordination-conversation-actions > .message-composer {
-  min-height: 72px;
-  padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
-}
-
-.coordination-hub-embedded .coordination-conversation-actions > .message-composer textarea {
-  border-radius: 999px;
-  background: #fbfcfb;
-  white-space: nowrap;
-  overflow: hidden;
 }
 
 @media (max-width: 767px) {

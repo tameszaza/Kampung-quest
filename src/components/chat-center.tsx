@@ -7,10 +7,14 @@ import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat
 import { EventCoordinationConversation } from "@/components/event-coordination-conversation";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
+import { getQuestRun } from "@/features/assistant/client";
+import { getEventCoordinationThread, getEventQuest, listEventActivities } from "@/features/events/client";
+import type { EventActivityCard } from "@/server/domain/event-coordination";
 import type { ChatContact, ChatMessage, ChatProfile, ConversationSummary } from "@/server/identity/types";
 import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
+const ACTIVITY_CONVERSATION_PREFIX = "activity:";
 
 const assistantConversation: ConversationSummary = {
   id: ASSISTANT_CONVERSATION_ID,
@@ -28,20 +32,11 @@ const assistantConversation: ConversationSummary = {
 
 export function ChatCenter({ initialConversation, initialQuest }: { initialConversation?: "assistant"; initialQuest?: string }) {
   const { showToast } = useAppState();
-  const activityConversationId = initialQuest ? `activity:${initialQuest}` : null;
-  const [activitySummary, setActivitySummary] = useState<ConversationSummary>(() => ({
-    id: activityConversationId ?? "activity:pending",
-    type: "group",
-    title: "Activity coordination",
-    imageUrl: null,
-    preview: "Plan this activity with Senior Quest",
-    lastMessageAt: "now",
-    unreadCount: 0,
-    memberCount: 0,
-  }));
+  const initialActivityId = initialQuest ? `${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}` : null;
+  const [activitySummaries, setActivitySummaries] = useState<ConversationSummary[]>(() => initialQuest ? [activitySummary(initialQuest)] : []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [assistant, setAssistant] = useState<ConversationSummary>(assistantConversation);
-  const [selectedId, setSelectedId] = useState<string | null>(activityConversationId ?? (initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null));
+  const [selectedId, setSelectedId] = useState<string | null>(initialActivityId ?? (initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null));
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -55,21 +50,42 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
   const [profile, setProfile] = useState<ChatProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const handleActivityTitle = useCallback((title: string, memberCount: number) => {
-    setActivitySummary((current) => ({ ...current, title, memberCount }));
+  const handleActivityTitle = useCallback((runId: string, title: string, memberCount: number) => {
+    setActivitySummaries((items) => items.map((item) => item.id === `${ACTIVITY_CONVERSATION_PREFIX}${runId}` ? { ...item, title, memberCount } : item));
   }, []);
 
-  const activitySelected = activityConversationId !== null && selectedId === activityConversationId;
+  const activityRunId = selectedId?.startsWith(ACTIVITY_CONVERSATION_PREFIX) ? selectedId.slice(ACTIVITY_CONVERSATION_PREFIX.length) : null;
+  const activitySelected = Boolean(activityRunId);
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const assistantSelected = selectedId === ASSISTANT_CONVERSATION_ID;
-  const activeConversation = activitySelected ? activitySummary : assistantSelected ? assistant : selected;
+  const activeConversation = activitySelected
+    ? activitySummaries.find((item) => item.id === selectedId) ?? (activityRunId ? activitySummary(activityRunId) : null)
+    : assistantSelected ? assistant : selected;
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    const items = [ ...(activityConversationId ? [activitySummary] : []), assistant, ...conversations ];
+    const items = [...activitySummaries, assistant, ...conversations];
     return value
       ? items.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
       : items;
-  }, [activityConversationId, activitySummary, assistant, conversations, query]);
+  }, [activitySummaries, assistant, conversations, query]);
+
+  const loadActivityConversations = useCallback(async () => {
+    try {
+      const activities = await listEventActivities();
+      const cards = uniqueActivityCards([
+        ...(initialQuest ? [activityCardPlaceholder(initialQuest)] : []),
+        ...activities.my.awaitingCoordination,
+        ...activities.my.awaitingConfirmation,
+        ...activities.my.upcoming,
+        ...activities.invitations.map((invitation) => invitation.activity),
+        ...activities.sentInvitations.map((invitation) => invitation.activity),
+      ]);
+      const next = await Promise.all(cards.map((card) => toActivitySummary(card, activities.notifications)));
+      setActivitySummaries((current) => mergeActivitySummaries(current, next, initialQuest));
+    } catch {
+      // The normal chat list remains usable if the activity feed is unavailable.
+    }
+  }, [initialQuest]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -112,6 +128,11 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
    * chat view to remote conversation state; state updates occur after fetches resolve. */
   useEffect(() => { void loadConversations(); }, [loadConversations]);
   useEffect(() => {
+    void loadActivityConversations();
+    const timer = window.setInterval(() => void loadActivityConversations(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadActivityConversations]);
+  useEffect(() => {
     const timer = window.setInterval(() => void loadConversations(), 4_000);
     return () => window.clearInterval(timer);
   }, [loadConversations]);
@@ -127,9 +148,10 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
 
   function openConversation(id: string) {
     setSelectedId(id);
-    if (id === ASSISTANT_CONVERSATION_ID || id === activityConversationId) setMessages([]);
+    if (id === ASSISTANT_CONVERSATION_ID || id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) setMessages([]);
     setMenuOpen(false);
     setConfirmAction(null);
+    setActivitySummaries((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   }
 
@@ -240,7 +262,7 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
           {filtered.map((conversation) => (
             <button className={`conversation-row${selectedId === conversation.id ? " selected" : ""}`} type="button" key={conversation.id} onClick={() => openConversation(conversation.id)}>
               {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={conversation.type === "group"} />}
-              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.id === activityConversationId ? "Activity planning · " : conversation.type === "group" ? `${memberLabel(conversation.memberCount)} · ` : ""}{conversation.preview}</small></span>
+              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.id.startsWith(ACTIVITY_CONVERSATION_PREFIX) ? "Activity planning · " : conversation.type === "group" ? `${memberLabel(conversation.memberCount)} · ` : ""}{conversation.preview}</small></span>
               {conversation.unreadCount ? <b className="unread-badge" aria-label={`${conversation.unreadCount} unread messages`}>{conversation.unreadCount}</b> : null}
             </button>
           ))}
@@ -248,12 +270,37 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
       </section>
 
       <section className="chat-panel" aria-label={activeConversation ? `Conversation with ${activeConversation.title}` : "Selected conversation"}>
-        {activitySelected && initialQuest ? <EventCoordinationConversation
-          runId={initialQuest}
-          embedded
-          onBack={() => setSelectedId(null)}
-          onTitle={handleActivityTitle}
-        /> : activeConversation ? (
+        {activitySelected && activityRunId && activeConversation ? <>
+          <div className="chat-header-stack">
+            <header className="chat-header">
+              <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
+              <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />
+              <span><h2>{activeConversation.title}</h2><p>{memberLabel(activeConversation.memberCount)} · Activity planning</p></span>
+              <div className="chat-header-actions">
+                <button
+                  className="chat-more-button"
+                  type="button"
+                  onClick={() => { setMenuOpen((open) => !open); setConfirmAction(null); }}
+                  aria-label="More activity options"
+                  aria-expanded={menuOpen}
+                >
+                  <span aria-hidden="true">⋮</span>
+                </button>
+              </div>
+            </header>
+            {menuOpen ? <div className="chat-options-menu" role="menu" aria-label="Activity options">
+              <a href={`/quests/${encodeURIComponent(activityRunId)}`} role="menuitem"><Icon name="quests" size={18} /> Activity details</a>
+              <a href="/my-quests" role="menuitem"><Icon name="calendar" size={18} /> My Activities</a>
+            </div> : null}
+          </div>
+          <EventCoordinationConversation
+            runId={activityRunId}
+            embedded
+            showHeader={false}
+            onBack={() => setSelectedId(null)}
+            onTitle={(title, memberCount) => handleActivityTitle(activityRunId, title, memberCount)}
+          />
+        </> : activeConversation ? (
           <>
             <div className="chat-header-stack">
               <header className="chat-header">
@@ -435,4 +482,61 @@ function formatMessageTime(value: string) {
 
 function memberLabel(count: number) {
   return `${count} member${count === 1 ? "" : "s"}`;
+}
+
+function activitySummary(runId: string): ConversationSummary {
+  return {
+    id: `${ACTIVITY_CONVERSATION_PREFIX}${runId}`,
+    type: "group",
+    title: "Activity coordination",
+    imageUrl: null,
+    preview: "Plan this activity with Senior Quest",
+    lastMessageAt: "now",
+    unreadCount: 0,
+    memberCount: 0,
+  };
+}
+
+function uniqueActivityCards(cards: EventActivityCard[]) {
+  return [...new Map(cards.map((card) => [card.runId, card])).values()];
+}
+
+function activityCardPlaceholder(runId: string): EventActivityCard {
+  return {
+    runId,
+    title: "Activity coordination",
+    description: "Plan this activity with Senior Quest.",
+    lifecycle: "forming",
+    durationMinutes: 0,
+    provisionalAvailability: null,
+    finalArrangement: null,
+  };
+}
+
+async function toActivitySummary(card: EventActivityCard, notifications: Array<{ runId: string; readAt: string | null }>): Promise<ConversationSummary> {
+  const [run, view, thread] = await Promise.all([
+    getQuestRun(card.runId).catch(() => null),
+    getEventQuest(card.runId).catch(() => null),
+    getEventCoordinationThread(card.runId).catch(() => null),
+  ]);
+  const latestMessage = thread?.messages.at(-1);
+  return {
+    id: `${ACTIVITY_CONVERSATION_PREFIX}${card.runId}`,
+    type: "group",
+    title: card.title,
+    imageUrl: run?.imageUrl ?? null,
+    preview: latestMessage?.body ?? "Activity planning · Open to coordinate",
+    lastMessageAt: thread?.updatedAt ?? view?.updatedAt ?? card.finalArrangement?.start ?? card.provisionalAvailability?.start ?? "now",
+    unreadCount: notifications.filter((notification) => notification.runId === card.runId && notification.readAt === null).length,
+    memberCount: view?.participantProgress.length ?? 0,
+  };
+}
+
+function mergeActivitySummaries(current: ConversationSummary[], next: ConversationSummary[], initialQuest?: string) {
+  const merged = new Map(current.map((item) => [item.id, item]));
+  for (const item of next) merged.set(item.id, item);
+  if (initialQuest && !merged.has(`${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}`)) {
+    merged.set(`${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}`, activitySummary(initialQuest));
+  }
+  return [...merged.values()].sort((left, right) => right.lastMessageAt.localeCompare(left.lastMessageAt));
 }

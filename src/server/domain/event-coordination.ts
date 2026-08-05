@@ -133,6 +133,8 @@ export interface EventCoordinationMessage {
   body: string;
   kind: "text" | "invitation_card" | "arrangement_card" | "change_card";
   createdAt: string;
+  /** Receipt state for messages sent by the participant in this private thread. */
+  receipt?: "delivered" | "read";
 }
 
 export interface EventCoordinationThread {

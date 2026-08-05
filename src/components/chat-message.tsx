@@ -42,19 +42,22 @@ type ChatComposerProps = {
   value?: string;
   onChange?: ChangeEventHandler<HTMLTextAreaElement>;
   onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;
+  inputValue?: string;
+  onInputChange?: ChangeEventHandler<HTMLInputElement>;
+  onInputKeyDown?: KeyboardEventHandler<HTMLInputElement>;
   name?: string;
   maxLength?: number;
   children?: ReactNode;
 };
 
 /** Shared composer shell used by direct, group, and guided conversations. */
-export function ChatComposer({ onSubmit, placeholder, disabled = false, multiline = false, id = "chat-message", autoFocus = false, value, onChange, onKeyDown, name = "message", maxLength, children }: ChatComposerProps) {
+export function ChatComposer({ onSubmit, placeholder, disabled = false, multiline = false, id = "chat-message", autoFocus = false, value, onChange, onKeyDown, inputValue, onInputChange, onInputKeyDown, name = "message", maxLength, children }: ChatComposerProps) {
   return (
     <form className="message-composer" onSubmit={onSubmit}>
       {multiline ? <>
         <label className="sr-only" htmlFor={id}>Your answer</label>
         <textarea id={id} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} rows={1} maxLength={maxLength} disabled={disabled} autoFocus={autoFocus} />
-      </> : <label><span className="sr-only">Type a message</span><input name={name} autoComplete="off" maxLength={maxLength} disabled={disabled} placeholder={placeholder} /></label>}
+  </> : <label><span className="sr-only">Type a message</span><input name={name} value={inputValue} onChange={onInputChange} onKeyDown={onInputKeyDown} autoComplete="off" maxLength={maxLength} disabled={disabled} placeholder={placeholder} /></label>}
       {children ?? <button type="submit" aria-label="Send message" disabled={disabled}><span aria-hidden="true">➤</span></button>}
     </form>
   );
