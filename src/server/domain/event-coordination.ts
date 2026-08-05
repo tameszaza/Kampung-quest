@@ -1,4 +1,5 @@
 import { availabilityWindowSchema, type Participant, type QuestProposal, type ValidationResult } from "@/server/domain/schemas";
+import type { EventRewardEntry, EventTaskPlan } from "@/server/domain/event-tasks";
 import { z } from "zod";
 
 export type EventQuestLifecycle =
@@ -270,6 +271,8 @@ export interface EventCoordinationState {
   threads: EventCoordinationThread[];
   groupThread: EventGroupCoordinationThread | null;
   arrangements: EventArrangement[];
+  taskPlans: EventTaskPlan[];
+  rewardEntries: EventRewardEntry[];
   appointmentSuggestions: EventAppointmentSuggestion[];
   notifications: EventNotification[];
   auditEvents: EventCoordinationAuditEvent[];

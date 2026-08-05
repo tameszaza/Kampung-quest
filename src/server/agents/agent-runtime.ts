@@ -15,6 +15,11 @@ import type {
   ValidationErrorItem,
 } from "@/server/domain/schemas";
 import type { CoordinationIntent, CoordinationRequirements, EventAppointmentSuggestion, EventArrangement } from "@/server/domain/event-coordination";
+import type {
+  EventTaskPlanAgentInput,
+  EventTaskPlanAgentOutput,
+  EventTaskReassignmentAgentInput,
+} from "@/server/domain/event-tasks";
 
 export type AgentAuditSink = (record: AgentRunAudit) => Promise<void>;
 
@@ -54,6 +59,12 @@ export interface AgentRuntime {
     run: QuestRun;
     unavailableCandidateId: string;
   }): Promise<{ replacementCandidateId: string | null }>;
+  generateEventTaskPlan(input: EventTaskPlanAgentInput): Promise<EventTaskPlanAgentOutput>;
+  proposeEventTaskReassignment(input: EventTaskReassignmentAgentInput): Promise<{
+    title: string;
+    instruction: string;
+    difficulty: EventTaskReassignmentAgentInput["task"]["difficulty"];
+  }>;
   coordinateEvent(input: {
     quest: { title: string; description: string; durationMinutes: number };
     messages: Array<{ role: "participant" | "assistant" | "system"; body: string }>;

@@ -229,3 +229,52 @@ export async function decideEventArrangement(input: {
     },
   ));
 }
+
+export async function respondToEventRole(input: {
+  runId: string;
+  action: "acknowledge" | "raise_concern";
+  concern?: string;
+  expectedRevision: number;
+}): Promise<EventQuestView> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/roles/respond`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+    body: JSON.stringify(input),
+  }));
+}
+
+export async function actOnEventTask(input: {
+  runId: string;
+  taskId: string;
+  action: "submit" | "approve" | "needs_retry" | "reverse";
+  reason?: string;
+  expectedRevision: number;
+}): Promise<EventQuestView> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/tasks/${encodeURIComponent(input.taskId)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+    body: JSON.stringify(input),
+  }));
+}
+
+export async function retryEventTaskPlan(runId: string, expectedRevision: number): Promise<EventQuestView> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/task-plan/retry`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+    body: JSON.stringify({ expectedRevision }),
+  }));
+}
+
+export async function decideEventTaskReassignment(input: {
+  runId: string;
+  requestId: string;
+  action: "approve" | "reject";
+  reason?: string;
+  expectedRevision: number;
+}): Promise<EventQuestView> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/task-reassignments/${encodeURIComponent(input.requestId)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
+    body: JSON.stringify(input),
+  }));
+}

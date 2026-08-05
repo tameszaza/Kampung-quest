@@ -67,6 +67,8 @@ describe("matchmaking output contract", () => {
       "synthesis",
       "safety",
       "recovery",
+      "taskPlan",
+      "taskReassignment",
       "coordination",
     ]);
     expect(AGENT_INSTRUCTIONS.synthesis).toContain("Copy the exact ref string character-for-character");

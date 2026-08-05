@@ -99,6 +99,44 @@ export class DeterministicAgentRuntime implements AgentRuntime {
     };
   }
 
+  async generateEventTaskPlan(
+    input: Parameters<AgentRuntime["generateEventTaskPlan"]>[0],
+  ): ReturnType<AgentRuntime["generateEventTaskPlan"]> {
+    const roles = input.participants.map((participant) => ({
+      userId: participant.userId,
+      name: humanizeRole(participant.proposedRole),
+      responsibility: `${humanizeRole(participant.proposedRole)}: ${participant.contributions[0] ?? "help the group"}`.slice(0, 120),
+      mainContribution: participant.contributions[0] ?? "Help welcome and support the group",
+    }));
+    const tasks = input.participants.map((participant, index) => ({
+      title: `${humanizeRole(participant.proposedRole)} task`,
+      instruction: `${participant.contributions[0] ?? "Welcome everyone and help the activity begin smoothly"}. Tell the group when it is done.`,
+      roleUserId: participant.userId,
+      difficulty: index === 0 ? "medium" as const : "easy" as const,
+      assigneeIds: [participant.userId],
+    }));
+    if (tasks.length < 3) {
+      tasks.push({
+        title: "Welcome the group",
+        instruction: "Greet everyone and help the activity begin smoothly.",
+        roleUserId: input.participants[0].userId,
+        difficulty: "easy",
+        assigneeIds: [input.participants[0].userId],
+      });
+    }
+    return { roles, tasks: tasks.slice(0, 5) };
+  }
+
+  async proposeEventTaskReassignment(
+    input: Parameters<AgentRuntime["proposeEventTaskReassignment"]>[0],
+  ): ReturnType<AgentRuntime["proposeEventTaskReassignment"]> {
+    return {
+      title: `Alternative: ${input.task.title}`.slice(0, 60),
+      instruction: `${input.participant.contributions[0] ?? "Welcome everyone and help the activity begin smoothly"}. Tell the group when it is done.`.slice(0, 180),
+      difficulty: input.task.difficulty,
+    };
+  }
+
   async coordinateEvent(
     input: Parameters<AgentRuntime["coordinateEvent"]>[0],
   ): ReturnType<AgentRuntime["coordinateEvent"]> {
@@ -192,6 +230,11 @@ export class DeterministicAgentRuntime implements AgentRuntime {
       intent: { type: "update_requirement", patch: requirementPatch },
     };
   }
+}
+
+function humanizeRole(value: string): string {
+  const text = value.replaceAll("_", " ").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Quest helper";
 }
 
 function parseRequestedLocalTime(message: string): string | null {

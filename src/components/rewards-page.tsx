@@ -29,12 +29,12 @@ export function RewardsPage() {
       <section className="rewards-balance" aria-labelledby="rewards-balance-title">
         <span className="rewards-balance-icon" aria-hidden="true"><Icon name="gift" size={30} /></span>
         <div><p id="rewards-balance-title">Your Senior Quest points</p><strong>{summary.balance.toLocaleString()}</strong><small>points available</small></div>
-        <div className="rewards-earned"><b>{summary.completedActivityCount}</b><span>completed {summary.completedActivityCount === 1 ? "activity" : "activities"}</span></div>
+        <div className="rewards-earned"><b>{summary.approvedTaskCount}</b><span>approved {summary.approvedTaskCount === 1 ? "task" : "tasks"}</span></div>
       </section>
 
       <section className="rewards-how" aria-label="How points work">
         <span><Icon name="check" size={22} /></span>
-        <div><strong>Complete an activity</strong><small>Every completed activity earns {summary.pointsPerCompletedActivity} points automatically.</small></div>
+        <div><strong>Complete a task</strong><small>Your event admin reviews each task before points are added.</small></div>
         {summary.pointsUntilNextReward > 0 ? <b>{summary.pointsUntilNextReward} points to your next reward</b> : <b>You can preview available rewards</b>}
       </section>
 
@@ -49,7 +49,7 @@ export function RewardsPage() {
 
       <section className="reward-history" aria-labelledby="reward-history-title">
         <div className="rewards-heading"><div><p>Your progress</p><h2 id="reward-history-title">Points history</h2></div></div>
-        {summary.earnings.length ? <ul>{summary.earnings.map((earning) => <li key={earning.runId}><span><Icon name="badge" size={20} /><span><strong>{earning.title}</strong><small>Activity completed</small></span></span><b>+{earning.points}</b></li>)}</ul> : <div className="reward-history-empty"><span aria-hidden="true">✨</span><div><strong>Your first points are waiting</strong><small>Complete a Senior Quest activity to earn {summary.pointsPerCompletedActivity} points.</small></div><Link className="secondary-button" href="/quests">Find an activity</Link></div>}
+        {summary.earnings.length ? <ul>{summary.earnings.map((earning) => <li key={earning.earningId}><span><Icon name="badge" size={20} /><span><strong>{earning.title}</strong><small>{earning.difficulty ? `${earning.difficulty} task approved` : "Activity completed"}</small></span></span><b>{earning.points >= 0 ? "+" : ""}{earning.points}</b></li>)}</ul> : <div className="reward-history-empty"><span aria-hidden="true">✨</span><div><strong>Your first points are waiting</strong><small>Complete a task and ask the event admin to review it.</small></div><Link className="secondary-button" href="/quests">Find an activity</Link></div>}
       </section>
     </> : null}
   </div>;
