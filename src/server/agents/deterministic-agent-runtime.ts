@@ -116,6 +116,13 @@ export class DeterministicAgentRuntime implements AgentRuntime {
         intent: { type: "confirm_appointment", appointmentVersion: input.currentAppointment?.version ?? null },
       };
     }
+    if (input.currentAppointment && /\b(reject|decline|cannot confirm|can't confirm|cannot make it|can't make it)\b/i.test(message)) {
+      return {
+        reply: "I will record that this appointment does not work for you.",
+        requirementPatch,
+        intent: { type: "reject_appointment", appointmentVersion: input.currentAppointment.version },
+      };
+    }
     if (/\b(use|take|choose|go with|accept)\s+(that|the)\s+(option|suggestion|time|one)\b/i.test(message)
       && input.latestSuggestion) {
       return {

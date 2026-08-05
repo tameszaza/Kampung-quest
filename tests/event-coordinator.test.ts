@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuestRun } from "@/server/domain/schemas";
 import { EventCoordinator } from "@/server/features/event-coordinator";
-import { expandAvailability, findCommonAvailability } from "@/server/features/availability-service";
+import { expandAvailability, findClosestCommonAvailability, findCommonAvailability } from "@/server/features/availability-service";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
 
 function approvedRun(): QuestRun {
@@ -64,6 +64,24 @@ function approvedRun(): QuestRun {
 }
 
 describe("EventCoordinator", () => {
+  it("chooses the compatible appointment nearest to the requested time", () => {
+    const windows = [
+      [
+        { start: "2026-08-10T01:00:00.000Z", end: "2026-08-10T03:00:00.000Z" },
+        { start: "2026-08-10T07:00:00.000Z", end: "2026-08-10T10:00:00.000Z" },
+      ],
+      [
+        { start: "2026-08-10T02:00:00.000Z", end: "2026-08-10T03:00:00.000Z" },
+        { start: "2026-08-10T08:00:00.000Z", end: "2026-08-10T11:00:00.000Z" },
+      ],
+    ];
+
+    expect(findClosestCommonAvailability(windows, 60, "2026-08-10T07:30:00.000Z")).toEqual({
+      start: "2026-08-10T08:00:00.000Z",
+      end: "2026-08-10T09:00:00.000Z",
+    });
+  });
+
   it("publishes an undersized quest to the Suggested feed only after organizer consent", async () => {
     const run = approvedRun();
     run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);

@@ -21,6 +21,7 @@ import {
   type QuestProposal,
   availabilityWindowSchema,
 } from "@/server/domain/schemas";
+import { coordinationIntentSchema } from "@/server/domain/event-coordination";
 import { z } from "zod";
 
 const coordinationAgentOutputSchema = z.object({
@@ -35,44 +36,7 @@ const coordinationAgentOutputSchema = z.object({
     temporaryConflicts: z.array(z.string().min(1)).optional(),
     other: z.array(z.string().min(1)).optional(),
   }),
-  intent: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("social") }),
-    z.object({ type: z.literal("question"), topic: z.enum(["status", "confirmations", "compatibility", "other"]) }),
-    z.object({
-      type: z.literal("update_requirement"),
-      patch: z.object({
-        availableWindows: z.array(availabilityWindowSchema).optional(),
-        accessibility: z.array(z.string().min(1)).optional(),
-        travel: z.array(z.string().min(1)).optional(),
-        dietary: z.array(z.string().min(1)).optional(),
-        environmental: z.array(z.string().min(1)).optional(),
-        venuePreferences: z.array(z.string().min(1)).optional(),
-        temporaryConflicts: z.array(z.string().min(1)).optional(),
-        other: z.array(z.string().min(1)).optional(),
-      }),
-      ambiguity: z.array(z.string()).optional(),
-    }),
-    z.object({
-      type: z.literal("change_appointment"),
-      patch: z.object({
-        start: z.iso.datetime({ offset: true }).optional(),
-        end: z.iso.datetime({ offset: true }).optional(),
-        localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
-        durationMinutes: z.number().int().min(15).max(120).optional(),
-        venueName: z.string().min(1).optional(),
-        venueAddress: z.string().nullable().optional(),
-      }),
-      referencesSuggestionId: z.string().optional(),
-    }),
-    z.object({ type: z.literal("confirm_appointment"), appointmentVersion: z.number().int().positive().nullable() }),
-    z.object({ type: z.literal("reject_appointment"), appointmentVersion: z.number().int().positive().nullable(), reason: z.string().optional() }),
-    z.object({
-      type: z.literal("organizer_action"),
-      action: z.enum(["change_roster", "cancel", "start", "complete"]),
-      details: z.record(z.string(), z.unknown()).optional(),
-    }),
-    z.object({ type: z.literal("unsupported"), reason: z.string().min(1) }),
-  ]),
+  intent: coordinationIntentSchema,
 });
 
 export function hostedRetrySettings(

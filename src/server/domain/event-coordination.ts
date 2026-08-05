@@ -1,4 +1,4 @@
-import type { Participant, QuestProposal, ValidationResult } from "@/server/domain/schemas";
+import { availabilityWindowSchema, type Participant, type QuestProposal, type ValidationResult } from "@/server/domain/schemas";
 import { z } from "zod";
 
 export type EventQuestLifecycle =
@@ -127,29 +127,53 @@ export interface CoordinationRequirements {
   other: string[];
 }
 
-export interface AppointmentPatch {
-  start?: string;
-  end?: string;
-  /** Local wall-clock time in HH:mm, resolved on the current appointment date. */
-  localTime?: string;
-  durationMinutes?: number;
-  venueName?: string;
-  venueAddress?: string | null;
-}
+const coordinationRequirementPatchSchema = z.object({
+  availableWindows: z.array(availabilityWindowSchema).optional(),
+  accessibility: z.array(z.string().min(1)).optional(),
+  travel: z.array(z.string().min(1)).optional(),
+  dietary: z.array(z.string().min(1)).optional(),
+  environmental: z.array(z.string().min(1)).optional(),
+  venuePreferences: z.array(z.string().min(1)).optional(),
+  temporaryConflicts: z.array(z.string().min(1)).optional(),
+  other: z.array(z.string().min(1)).optional(),
+});
 
-export type CoordinationIntent =
-  | { type: "social" }
-  | { type: "question"; topic: "status" | "confirmations" | "compatibility" | "other" }
-  | { type: "update_requirement"; patch: Partial<CoordinationRequirements>; ambiguity?: string[] }
-  | { type: "change_appointment"; patch: AppointmentPatch; referencesSuggestionId?: string }
-  | { type: "confirm_appointment"; appointmentVersion: number | null }
-  | { type: "reject_appointment"; appointmentVersion: number | null; reason?: string }
-  | {
-      type: "organizer_action";
-      action: "change_roster" | "cancel" | "start" | "complete";
-      details?: Record<string, unknown>;
-    }
-  | { type: "unsupported"; reason: string };
+export const appointmentPatchSchema = z.object({
+  start: z.iso.datetime({ offset: true }).optional(),
+  end: z.iso.datetime({ offset: true }).optional(),
+  /** Local wall-clock time in HH:mm, resolved on the current appointment date. */
+  localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  durationMinutes: z.number().int().min(15).max(120).optional(),
+  venueName: z.string().min(1).optional(),
+  venueAddress: z.string().nullable().optional(),
+});
+
+export type AppointmentPatch = z.infer<typeof appointmentPatchSchema>;
+
+export const coordinationIntentSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("social") }),
+  z.object({ type: z.literal("question"), topic: z.enum(["status", "confirmations", "compatibility", "other"]) }),
+  z.object({
+    type: z.literal("update_requirement"),
+    patch: coordinationRequirementPatchSchema,
+    ambiguity: z.array(z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal("change_appointment"),
+    patch: appointmentPatchSchema,
+    referencesSuggestionId: z.string().optional(),
+  }),
+  z.object({ type: z.literal("confirm_appointment"), appointmentVersion: z.number().int().positive().nullable() }),
+  z.object({ type: z.literal("reject_appointment"), appointmentVersion: z.number().int().positive().nullable(), reason: z.string().optional() }),
+  z.object({
+    type: z.literal("organizer_action"),
+    action: z.enum(["change_roster", "cancel", "start", "complete"]),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({ type: z.literal("unsupported"), reason: z.string().min(1) }),
+]);
+
+export type CoordinationIntent = z.infer<typeof coordinationIntentSchema>;
 
 export interface EventCoordinationMessage {
   messageId: string;
@@ -165,6 +189,7 @@ export interface EventGroupCoordinationThread {
   runId: string;
   revision: number;
   messages: EventCoordinationMessage[];
+  visibleAppointmentVersion: number | null;
   readBy: Record<string, string>;
   updatedAt: string;
 }
@@ -175,6 +200,7 @@ export interface EventCoordinationThread {
   userId: string;
   revision: number;
   messages: EventCoordinationMessage[];
+  visibleAppointmentVersion: number | null;
   confirmedRequirements: CoordinationRequirements;
   pendingRequirements: Partial<CoordinationRequirements> | null;
   lastReadAt: string | null;

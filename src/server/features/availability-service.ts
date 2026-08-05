@@ -60,6 +60,41 @@ export function findCommonAvailability(
   return match ? { start: match.start, end: new Date(Date.parse(match.start) + requiredMs).toISOString() } : null;
 }
 
+export function findClosestCommonAvailability(
+  windowsByParticipant: AvailabilityWindow[][],
+  durationMinutes: number,
+  requestedStart: string,
+): AvailabilityWindow | null {
+  if (!windowsByParticipant.length || windowsByParticipant.some((windows) => windows.length === 0)) return null;
+  let overlaps = mergeWindows(windowsByParticipant[0]);
+  for (const windows of windowsByParticipant.slice(1)) {
+    const next: AvailabilityWindow[] = [];
+    for (const left of overlaps) {
+      for (const right of windows) {
+        const start = Math.max(Date.parse(left.start), Date.parse(right.start));
+        const end = Math.min(Date.parse(left.end), Date.parse(right.end));
+        if (end > start) next.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString() });
+      }
+    }
+    overlaps = mergeWindows(next);
+  }
+  const requested = Date.parse(requestedStart);
+  const requiredMs = durationMinutes * 60_000;
+  return overlaps
+    .filter((window) => Date.parse(window.end) - Date.parse(window.start) >= requiredMs)
+    .map((window) => {
+      const earliest = Date.parse(window.start);
+      const latest = Date.parse(window.end) - requiredMs;
+      const start = Math.min(Math.max(requested, earliest), latest);
+      return { start, distance: Math.abs(start - requested) };
+    })
+    .sort((left, right) => left.distance - right.distance || left.start - right.start)
+    .map(({ start }) => ({
+      start: new Date(start).toISOString(),
+      end: new Date(start + requiredMs).toISOString(),
+    }))[0] ?? null;
+}
+
 function validateRule(rule: WeeklyAvailabilityRule) {
   if (!rule.daysOfWeek.length || rule.daysOfWeek.some((day) => !Number.isInteger(day) || day < 1 || day > 7)) {
     throw new Error("Recurring availability requires valid weekdays");

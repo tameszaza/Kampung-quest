@@ -64,7 +64,11 @@ interface EventCoordinatorDependencies {
     end: string;
     venueName: string;
   }) => Promise<ValidationResult>;
-  suggestArrangement?: (state: EventCoordinationState) => Promise<{
+  suggestArrangement?: (state: EventCoordinationState, requested?: {
+    start: string;
+    end: string;
+    venueName: string;
+  }) => Promise<{
     start: string;
     end: string;
     venueName: string;
@@ -538,6 +542,7 @@ export class EventCoordinator {
         kind: member.userId === current.initiatorId ? "text" : "invitation_card",
         createdAt: now,
       }],
+      visibleAppointmentVersion: null,
       confirmedRequirements: this.emptyRequirements(),
       pendingRequirements: null,
       lastReadAt: null,
@@ -565,6 +570,7 @@ export class EventCoordinator {
         kind: "text",
         createdAt: now,
       }],
+      visibleAppointmentVersion: null,
       readBy: {},
       updatedAt: now,
     };
@@ -663,9 +669,12 @@ export class EventCoordinator {
       }
     }
     const appointmentConfirmation = output.intent?.type === "confirm_appointment"
-      ? this.prepareAppointmentConfirmation(current, input.actorId, output.intent.appointmentVersion, now)
+      ? this.prepareAppointmentConfirmation(current, input.actorId, thread.visibleAppointmentVersion, now)
       : null;
-    const appointmentMutation = appointmentChange ?? appointmentConfirmation;
+    const appointmentRejection = output.intent?.type === "reject_appointment"
+      ? this.prepareAppointmentRejection(current, input.actorId, thread.visibleAppointmentVersion, now)
+      : null;
+    const appointmentMutation = appointmentChange ?? appointmentConfirmation ?? appointmentRejection;
     const updatedThread: EventCoordinationThread = {
       ...thread,
       revision: thread.revision + 1,
@@ -679,6 +688,7 @@ export class EventCoordinator {
       pendingRequirements: output.requirementPatch
         ? { ...(thread.pendingRequirements ?? {}), ...output.requirementPatch }
         : thread.pendingRequirements,
+      visibleAppointmentVersion: appointmentMutation?.version ?? thread.visibleAppointmentVersion,
       updatedAt: now,
     };
     const sharedAvailability = input.actorId !== current.initiatorId
@@ -735,13 +745,28 @@ export class EventCoordinator {
         kind: appointmentMutation?.broadcastKind ?? "change_card" as const,
         createdAt: now,
       }],
+      visibleAppointmentVersion: appointmentMutation?.version ?? current.groupThread.visibleAppointmentVersion,
       updatedAt: now,
     } : current.groupThread;
     await this.dependencies.store.saveEventCoordinationState({
       ...current,
       lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? current.lifecycle,
       revision: current.revision + 1,
-      threads: current.threads.map((candidate) => candidate.threadId === thread.threadId ? updatedThread : candidate),
+      threads: current.threads.map((candidate) => candidate.threadId === thread.threadId
+        ? updatedThread
+        : appointmentMutation ? {
+            ...candidate,
+            revision: candidate.revision + 1,
+            messages: [...candidate.messages, {
+              messageId: `message_${randomUUID()}`,
+              role: "system" as const,
+              body: appointmentMutation.reply,
+              kind: appointmentMutation.broadcastKind,
+              createdAt: now,
+            }],
+            visibleAppointmentVersion: appointmentMutation.version,
+            updatedAt: now,
+          } : candidate),
       groupThread,
       arrangements: organizerAction?.mutation?.arrangements ?? appointmentMutation?.arrangements ?? current.arrangements,
       appointmentSuggestions: appointmentConflict?.suggestion
@@ -842,9 +867,12 @@ export class EventCoordinator {
       }
     }
     const appointmentConfirmation = output.intent?.type === "confirm_appointment"
-      ? this.prepareAppointmentConfirmation(current, input.actorId, output.intent.appointmentVersion, now)
+      ? this.prepareAppointmentConfirmation(current, input.actorId, group.visibleAppointmentVersion, now)
       : null;
-    const appointmentMutation = appointmentChange ?? appointmentConfirmation;
+    const appointmentRejection = output.intent?.type === "reject_appointment"
+      ? this.prepareAppointmentRejection(current, input.actorId, group.visibleAppointmentVersion, now)
+      : null;
+    const appointmentMutation = appointmentChange ?? appointmentConfirmation ?? appointmentRejection;
     const shouldReply = output.intent?.type !== "social";
     const messages: EventCoordinationMessage[] = [
       ...group.messages,
@@ -862,6 +890,7 @@ export class EventCoordinator {
       ...group,
       revision: group.revision + 1,
       messages,
+      visibleAppointmentVersion: appointmentMutation?.version ?? group.visibleAppointmentVersion,
       updatedAt: now,
     };
     const hasRequirementPatch = Boolean(output.requirementPatch && Object.keys(output.requirementPatch).length > 0);
@@ -906,7 +935,23 @@ export class EventCoordinator {
       lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? current.lifecycle,
       revision: current.revision + 1,
       groupThread: updatedGroup,
-      threads: current.threads.map((thread) => thread.threadId === privateThread.threadId ? updatedPrivateThread : thread),
+      threads: current.threads.map((thread) => {
+        const base = thread.threadId === privateThread.threadId ? updatedPrivateThread : thread;
+        if (!appointmentMutation) return base;
+        return {
+          ...base,
+          revision: base.revision + 1,
+          messages: [...base.messages, {
+            messageId: `message_${randomUUID()}`,
+            role: "system" as const,
+            body: appointmentMutation.reply,
+            kind: appointmentMutation.broadcastKind,
+            createdAt: now,
+          }],
+          visibleAppointmentVersion: appointmentMutation.version,
+          updatedAt: now,
+        };
+      }),
       arrangements: organizerAction?.mutation?.arrangements ?? appointmentMutation?.arrangements ?? current.arrangements,
       appointmentSuggestions: appointmentConflict?.suggestion
         ? [...current.appointmentSuggestions, appointmentConflict.suggestion]
@@ -1150,6 +1195,7 @@ export class EventCoordinator {
     let lifecycle = current.lifecycle;
     let memberships = current.memberships;
     let threads = current.threads;
+    let groupThread = current.groupThread;
     let notifications = current.notifications;
 
     if (input.action === "approve" || (input.action === "reject" && target.status === "proposed")) {
@@ -1178,6 +1224,7 @@ export class EventCoordinator {
         }) : membership);
         threads = threads.map((thread) => ({
           ...thread,
+          revision: thread.revision + 1,
           messages: [...thread.messages, {
             messageId: `message_${randomUUID()}`,
             role: "system" as const,
@@ -1185,8 +1232,25 @@ export class EventCoordinator {
             kind: "arrangement_card" as const,
             createdAt: now,
           }],
+          visibleAppointmentVersion: arrangement.version,
           updatedAt: now,
         }));
+        if (groupThread) {
+          groupThread = {
+            ...groupThread,
+            revision: groupThread.revision + 1,
+            messages: [...groupThread.messages, {
+              messageId: `message_${randomUUID()}`,
+              senderId: null,
+              role: "system",
+              body: `${arrangement.venueName}, ${formatAppointmentInstant(arrangement.start, current.timeZone)} is ready for confirmation.`,
+              kind: "arrangement_card",
+              createdAt: now,
+            }],
+            visibleAppointmentVersion: arrangement.version,
+            updatedAt: now,
+          };
+        }
         notifications = [...notifications, ...current.memberships
           .filter((membership) => membership.role === "participant" && this.isActiveMembership(membership))
           .map((membership) => ({
@@ -1249,6 +1313,7 @@ export class EventCoordinator {
       arrangements: current.arrangements.map((candidate) => candidate.arrangementId === target.arrangementId ? arrangement : candidate),
       memberships,
       threads,
+      groupThread,
       notifications,
       auditEvents: [...current.auditEvents, this.auditEvent(current, `arrangement_${input.action}`, input.actorId, input.idempotencyKey, {
         arrangementId: target.arrangementId,
@@ -1848,7 +1913,13 @@ export class EventCoordinator {
     return {
       ...state,
       timeZone: state.timeZone ?? "Asia/Singapore",
-      groupThread: state.groupThread ?? null,
+      groupThread: state.groupThread
+        ? { ...state.groupThread, visibleAppointmentVersion: state.groupThread.visibleAppointmentVersion ?? null }
+        : null,
+      threads: state.threads.map((thread) => ({
+        ...thread,
+        visibleAppointmentVersion: thread.visibleAppointmentVersion ?? null,
+      })),
       appointmentSuggestions: state.appointmentSuggestions ?? [],
       recruitment: state.recruitment ?? {
         status: "closed",
@@ -2096,7 +2167,7 @@ export class EventCoordinator {
       venueName,
     });
     if (validation && !validation.valid) {
-      const alternative = await this.dependencies.suggestArrangement?.(current) ?? null;
+      const alternative = await this.dependencies.suggestArrangement?.(current, { start, end, venueName }) ?? null;
       const alternativeValidation = alternative ? await this.dependencies.validateArrangement?.({
         state: current,
         start: alternative.start,
@@ -2212,7 +2283,7 @@ export class EventCoordinator {
     const target = [...current.arrangements].reverse().find((arrangement) =>
       arrangement.status === "awaiting_participant_confirmation");
     if (!target) throw new Error("There is no working appointment awaiting confirmation");
-    if (requestedVersion !== null && requestedVersion !== target.version) {
+    if (requestedVersion === null || requestedVersion !== target.version) {
       throw new Error("That confirmation refers to an older appointment version");
     }
     const ownConfirmation = target.confirmations.find((confirmation) => confirmation.userId === actorId);
@@ -2256,6 +2327,68 @@ export class EventCoordinator {
       reply: finalized
         ? `The appointment is final: ${formatAppointmentInstant(target.start, current.timeZone)} at ${target.venueName}.`
         : `Your confirmation is recorded for version ${target.version}. ${remaining} ${remaining === 1 ? "person still needs" : "people still need"} to confirm.`,
+      broadcastKind: "arrangement_card",
+    };
+  }
+
+  private prepareAppointmentRejection(
+    current: EventCoordinationState,
+    actorId: string,
+    visibleVersion: number | null,
+    now: string,
+  ): {
+    arrangements: EventArrangement[];
+    memberships: EventMembership[];
+    notifications: EventCoordinationState["notifications"];
+    newNotifications: EventCoordinationState["notifications"];
+    lifecycle: "coordinating";
+    version: number;
+    reply: string;
+    broadcastKind: "arrangement_card";
+  } {
+    const membership = current.memberships.find((candidate) =>
+      candidate.userId === actorId && this.isActiveMembership(candidate));
+    if (!membership) throw new Error("Only an accepted participant can reject the appointment");
+    const target = [...current.arrangements].reverse().find((arrangement) =>
+      arrangement.status === "awaiting_participant_confirmation");
+    if (!target) throw new Error("There is no working appointment awaiting a response");
+    if (visibleVersion === null || visibleVersion !== target.version) {
+      throw new Error("That response refers to an older appointment version");
+    }
+    const actor = target.confirmations.find((confirmation) => confirmation.userId === actorId);
+    if (!actor) throw new Error("You are not included in this appointment version");
+    const confirmations = target.confirmations.map((confirmation) => confirmation.userId === actorId
+      ? { ...confirmation, status: "rejected" as const, respondedAt: now }
+      : confirmation);
+    const updatedTarget: EventArrangement = {
+      ...target,
+      confirmations,
+      status: "rejected",
+      updatedAt: now,
+    };
+    const memberships = current.memberships.map((candidate) => this.isActiveMembership(candidate)
+      ? { ...candidate, status: "coordinating" as const, updatedAt: now }
+      : candidate);
+    const profileName = this.displayMember(actorId);
+    const newNotifications = actorId === current.initiatorId ? [] : [{
+      notificationId: `notification_${randomUUID()}`,
+      userId: current.initiatorId,
+      kind: "change" as const,
+      title: "Appointment needs another option",
+      body: `${profileName} cannot confirm appointment version ${target.version}.`,
+      readAt: null,
+      deduplicationKey: `appointment-rejected:${current.runId}:${target.version}:${actorId}`,
+      createdAt: now,
+    }];
+    return {
+      arrangements: current.arrangements.map((arrangement) =>
+        arrangement.arrangementId === target.arrangementId ? updatedTarget : arrangement),
+      memberships,
+      notifications: [...current.notifications, ...newNotifications],
+      newNotifications,
+      lifecycle: "coordinating",
+      version: target.version,
+      reply: `${profileName} cannot confirm appointment version ${target.version}. The group needs another compatible option.`,
       broadcastKind: "arrangement_card",
     };
   }

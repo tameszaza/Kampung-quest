@@ -17,7 +17,7 @@ import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
 import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
 import { EventCoordinator } from "@/server/features/event-coordinator";
-import { findCommonAvailability } from "@/server/features/availability-service";
+import { findClosestCommonAvailability, findCommonAvailability } from "@/server/features/availability-service";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import { SafetyGuardianService } from "@/server/features/safety-service";
 import { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
@@ -161,7 +161,7 @@ export const eventCoordinator = new EventCoordinator({
       errors: [{ field: "safety", message: "The modified group requires coordinator review." }],
     };
   },
-  validateArrangement: async ({ state, start, end }) => {
+  validateArrangement: async ({ state, start, end, venueName }) => {
     const cards = await kampungStore.listMemories();
     const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
     const errors = state.memberships
@@ -180,9 +180,35 @@ export const eventCoordinator = new EventCoordinator({
           message: "The proposed time is outside at least one participant's confirmed availability.",
         }];
       });
+    const normalizedVenue = venueName.toLowerCase();
+    const venueRequirements = state.proposal.quest.venueRequirements.map((requirement) => requirement.toLowerCase());
+    if (venueRequirements.some((requirement) => requirement.includes("public"))
+      && /\b(home|house|apartment|flat|unit)\b/.test(normalizedVenue)) {
+      errors.push({ candidateId: state.initiatorId, field: "venue", message: "The proposed venue is not an approved public location." });
+    }
+    if (venueRequirements.some((requirement) => requirement.includes("indoor"))
+      && /\b(park|garden|outdoor|open-air|beach)\b/.test(normalizedVenue)) {
+      errors.push({ candidateId: state.initiatorId, field: "venue", message: "The proposed venue conflicts with the activity's indoor requirement." });
+    }
+    for (const thread of state.threads) {
+      const requirements = thread.confirmedRequirements;
+      const mandatoryVenues = requirements.venuePreferences.filter((preference) => /\b(must|only|need)\b/i.test(preference));
+      if (mandatoryVenues.length && !mandatoryVenues.some((preference) =>
+        normalizedVenue.includes(preference.toLowerCase().replace(/.*?\b(?:at|in)\b\s*/i, "").trim()))) {
+        errors.push({ candidateId: thread.userId, field: "venue", message: "The proposed venue conflicts with a confirmed venue requirement." });
+      }
+      if (requirements.accessibility.length
+        && /\b(stairs?|upstairs|no lift|no elevator|not accessible)\b/.test(normalizedVenue)) {
+        errors.push({ candidateId: thread.userId, field: "accessibility", message: "The proposed venue conflicts with a confirmed accessibility requirement." });
+      }
+      if (requirements.environmental.some((requirement) => /\bindoor\b/i.test(requirement))
+        && /\b(park|garden|outdoor|open-air|beach)\b/.test(normalizedVenue)) {
+        errors.push({ candidateId: thread.userId, field: "environment", message: "The proposed venue conflicts with a confirmed environmental requirement." });
+      }
+    }
     return { valid: errors.length === 0, errors };
   },
-  suggestArrangement: async (state) => {
+  suggestArrangement: async (state, requested) => {
     const cards = await kampungStore.listMemories();
     const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
     const activeMemberships = state.memberships.filter((membership) =>
@@ -192,11 +218,16 @@ export const eventCoordinator = new EventCoordinator({
         ?.confirmedRequirements.availableWindows ?? [];
       return confirmed.length ? confirmed : profiles.get(membership.userId)?.constraints.availableWindows ?? [];
     });
-    const overlap = findCommonAvailability(windows, state.proposal.quest.durationMinutes);
+    const requestedDuration = requested
+      ? Math.max(15, (Date.parse(requested.end) - Date.parse(requested.start)) / 60_000)
+      : state.proposal.quest.durationMinutes;
+    const overlap = requested
+      ? findClosestCommonAvailability(windows, requestedDuration, requested.start)
+      : findCommonAvailability(windows, requestedDuration);
     if (!overlap) return null;
     return {
       ...overlap,
-      venueName: "Community venue (opening hours to verify)",
+      venueName: requested?.venueName ?? "Community venue (opening hours to verify)",
       venueAddress: null,
     };
   },
