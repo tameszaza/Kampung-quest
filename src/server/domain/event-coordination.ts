@@ -202,6 +202,7 @@ export interface EventQuestView extends EventCoordinationState {
     role: "organizer" | "pending_invitee" | "participant" | "selected" | "applicant";
     canChat: boolean;
     pendingInvitationId: string | null;
+    recruitmentEligibility: EventRecruitmentViewerEligibility | null;
   };
   participantProgress: EventParticipantProgress[];
   recruitmentProgress: {
@@ -248,9 +249,14 @@ export interface EventRecruitmentEligibilityGuard {
   excludeRunId: string;
 }
 
+export interface EventRecruitmentViewerEligibility {
+  canRequest: boolean;
+  notices: string[];
+}
+
 export type EventRecruitmentAssessment =
   | { eligible: true; candidate: EventRecruitmentCandidate }
-  | { eligible: false; reason: string };
+  | { eligible: false; discoverable: boolean; reason: string; notices: string[] };
 
 export interface EventParticipantProgress {
   userId: string;
@@ -341,6 +347,7 @@ export interface EventActivityCard {
   recruitment: (EventRecruitment & {
     currentApprovedCount: number;
     viewerRequestStatus: EventJoinRequest["status"] | null;
+    viewerEligibility: EventRecruitmentViewerEligibility | null;
   }) | null;
 }
 

@@ -12,6 +12,7 @@ import type {
   EventQuestView,
   EventRecruitmentAssessment,
   EventRecruitmentEligibilityGuard,
+  EventRecruitmentViewerEligibility,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 
@@ -170,7 +171,9 @@ export class EventCoordinator {
       ? await this.dependencies.assessRecruitmentCandidate?.(current, userId)
       : undefined;
     const eligibleApplicant = applicantAssessment?.eligible === true;
-    if (!organizer && !pendingInvitation && !activeMembership && !selectedMember && !ownJoinRequestGrantsAccess && !eligibleApplicant) {
+    const discoverableApplicant = eligibleApplicant
+      || (applicantAssessment?.eligible === false && applicantAssessment.discoverable);
+    if (!organizer && !pendingInvitation && !activeMembership && !selectedMember && !ownJoinRequestGrantsAccess && !discoverableApplicant) {
       throw new Error("Event coordination state was not found");
     }
     const safe = structuredClone(current) as EventQuestView;
@@ -183,6 +186,11 @@ export class EventCoordinator {
       role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : activeMembership ? "participant" : selectedMember ? "selected" : "applicant",
       canChat: this.canCoordinate(current, userId),
       pendingInvitationId: pendingInvitation?.invitationId ?? null,
+      recruitmentEligibility: applicantAssessment?.eligible === true
+        ? { canRequest: true, notices: [] }
+        : applicantAssessment?.eligible === false && applicantAssessment.discoverable
+          ? { canRequest: false, notices: applicantAssessment.notices }
+          : null,
     };
     safe.participantProgress = await Promise.all(current.roster.map(async (rosterMember) => {
       const invitation = [...current.invitations].reverse().find((candidate) =>
@@ -316,7 +324,11 @@ export class EventCoordinator {
         : "Your request for this quest has already been decided");
     }
     const assessment = await this.dependencies.assessRecruitmentCandidate?.(current, input.actorId);
-    if (!assessment?.eligible) throw new Error(assessment?.reason ?? "You are not currently eligible for this quest");
+    if (!assessment?.eligible) {
+      throw new Error(assessment?.discoverable
+        ? assessment.reason
+        : "You are not currently eligible for this quest");
+    }
     const now = new Date().toISOString();
     const request: EventJoinRequest = {
       requestId: `join_request_${randomUUID()}`,
@@ -372,7 +384,9 @@ export class EventCoordinator {
       }
       const assessment = await this.dependencies.assessRecruitmentCandidate?.(current, request.applicantId);
       if (!assessment?.eligible) {
-        throw new Error(assessment?.reason ?? "This applicant is no longer eligible for this quest");
+        throw new Error(assessment?.discoverable
+          ? assessment.reason
+          : "This applicant is no longer eligible for this quest");
       }
       const resolved = assessment.candidate;
       eligibilityGuard = resolved.eligibilityGuard;
@@ -1379,7 +1393,7 @@ export class EventCoordinator {
         runId: state.runId,
       })));
       const ownJoinRequest = [...state.joinRequests].reverse().find((request) => request.applicantId === userId);
-      const activity = this.activityCard(state, ownJoinRequest?.status ?? null);
+      let activity = this.activityCard(state, ownJoinRequest?.status ?? null);
       if (state.lifecycle === "forming"
         && state.memberships.length === 0
         && (state.initiatorId === userId
@@ -1390,9 +1404,19 @@ export class EventCoordinator {
         const related = state.initiatorId === userId
           || state.roster.some((member) => member.userId === userId);
         const assessment = related ? null : await this.dependencies.assessRecruitmentCandidate?.(state, userId);
-        const eligible = related || assessment?.eligible === true;
+        const eligible = assessment?.eligible === true;
+        const discoverable = related || eligible
+          || (assessment?.eligible === false && assessment.discoverable);
+        const viewerEligibility = related || !assessment
+          ? null
+          : eligible
+            ? { canRequest: true, notices: [] }
+            : assessment.discoverable
+              ? { canRequest: false, notices: assessment.notices }
+              : null;
+        activity = this.activityCard(state, ownJoinRequest?.status ?? null, viewerEligibility);
         suggestedScores.set(state.runId, related ? 1 : assessment?.eligible ? assessment.candidate.score ?? 0 : 0);
-        if (eligible) result.suggested.push(activity);
+        if (discoverable) result.suggested.push(activity);
       }
       for (const invitation of state.invitations) {
         const view = { ...invitation, activity };
@@ -1418,6 +1442,7 @@ export class EventCoordinator {
   private activityCard(
     state: EventCoordinationState,
     viewerRequestStatus: EventJoinRequest["status"] | null = null,
+    viewerEligibility: EventRecruitmentViewerEligibility | null = null,
   ): EventActivityCard {
     const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
     return {
@@ -1439,6 +1464,7 @@ export class EventCoordinator {
             ...state.recruitment,
             currentApprovedCount: state.roster.length,
             viewerRequestStatus,
+            viewerEligibility,
           },
     };
   }

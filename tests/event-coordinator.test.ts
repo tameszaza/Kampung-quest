@@ -84,7 +84,7 @@ describe("EventCoordinator", () => {
           contributionsUsed: ["can welcome newcomers"],
         },
         explanation: ["Compatible availability and group preferences"],
-      } } : { eligible: false, reason: "Not eligible" },
+      } } : { eligible: false, discoverable: false, reason: "Not eligible", notices: [] },
     });
 
     const draft = await coordinator.createFormation(run);
@@ -151,7 +151,12 @@ describe("EventCoordinator", () => {
           contributionsUsed: ["can welcome newcomers"],
         },
         explanation: ["Compatible availability and group preferences"],
-      } } : { eligible: false, reason: "The applicant's availability no longer includes this quest window." },
+      } } : {
+        eligible: false,
+        discoverable: true,
+        reason: "The applicant's availability no longer includes this quest window.",
+        notices: ["The applicant's availability no longer includes this quest window."],
+      },
       validateRoster: async (proposal) => proposal.proposedParticipants.length >= 3
         ? { valid: true, errors: [] }
         : { valid: false, errors: [{ field: "groupSize", message: "Three people are required." }] },
@@ -205,7 +210,17 @@ describe("EventCoordinator", () => {
     ]);
 
     sofiaEligible = false;
-    expect((await coordinator.listActivities("sofia")).suggested).toEqual([]);
+    expect((await coordinator.listActivities("sofia")).suggested).toEqual([
+      expect.objectContaining({
+        recruitment: expect.objectContaining({
+          viewerRequestStatus: "pending",
+          viewerEligibility: {
+            canRequest: false,
+            notices: ["The applicant's availability no longer includes this quest window."],
+          },
+        }),
+      }),
+    ]);
     await expect(coordinator.decideJoinRequest({
       runId: requested.runId,
       requestId: requested.joinRequests[0].requestId,
@@ -325,6 +340,7 @@ describe("EventCoordinator", () => {
       role: "organizer",
       canChat: true,
       pendingInvitationId: null,
+      recruitmentEligibility: null,
     });
     expect(organizerView.invitations.every((invitation) => invitation.guestId !== "maria")).toBe(true);
   });
@@ -458,6 +474,7 @@ describe("EventCoordinator", () => {
       role: "pending_invitee",
       canChat: false,
       pendingInvitationId: anneInvitation.invitationId,
+      recruitmentEligibility: null,
     });
 
     const accepted = await coordinator.respondToInvitation({
@@ -480,6 +497,7 @@ describe("EventCoordinator", () => {
       role: "participant",
       canChat: true,
       pendingInvitationId: null,
+      recruitmentEligibility: null,
     });
     expect(anneActivities.invitations).toEqual([]);
     expect(anneActivities.my.awaitingCoordination.map((activity) => activity.runId)).toEqual([confirmed.runId]);

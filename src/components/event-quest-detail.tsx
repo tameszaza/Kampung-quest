@@ -60,6 +60,7 @@ function EventQuestWorkspace({ state, onChange }: {
   const proposed = state.proposal.quest.proposedTimeWindow;
   const ownJoinRequest = state.joinRequests.find((request) => request.applicantId === user.id);
   const approvedCount = state.recruitmentProgress.currentApprovedCount;
+  const recruitmentEligibility = state.viewer.recruitmentEligibility;
 
   async function act(label: string, action: () => Promise<EventQuestView>) {
     setBusy(label);
@@ -116,10 +117,11 @@ function EventQuestWorkspace({ state, onChange }: {
         </section> : null}
 
         {state.viewer.role === "applicant" && state.recruitment.status === "open" ? <section className="event-panel recruitment-request-panel">
-          <span className="section-kicker">Safely matched for you</span>
-          <h2>{ownJoinRequest?.status === "pending" ? "Your request is pending" : ownJoinRequest?.status === "approved" ? "You were added to the proposed group" : ownJoinRequest?.status === "rejected" ? "Your request was not approved" : "Would you like to join this quest?"}</h2>
-          <p>{ownJoinRequest?.status === "pending" ? "The organizer will review your request. You have not been added to the group yet." : ownJoinRequest?.status === "approved" ? "The organizer is still recruiting the remaining people. Invitations and coordination will begin after the group is complete." : ownJoinRequest?.status === "rejected" ? "This request is closed. Talk to Senior Quest to find another suitable activity." : `The activity is recruiting toward ${state.recruitment.targetGroupSize} people. The organizer must approve your request before you join.`}</p>
-          {ownJoinRequest ? <button className="primary-button" type="button" disabled>{ownJoinRequest.status === "pending" ? "Request pending" : ownJoinRequest.status === "approved" ? "Added to group" : "Request closed"}</button> : <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act("request-to-join", () => requestToJoinEventQuest(state.runId, state.revision))}>{busy === "request-to-join" ? "Sending request…" : "Request to join"}</button>}
+          <span className="section-kicker">{recruitmentEligibility?.canRequest === false && !ownJoinRequest ? "Eligibility notice" : "Recruiting neighbours"}</span>
+          <h2>{ownJoinRequest?.status === "pending" ? "Your request is pending" : ownJoinRequest?.status === "approved" ? "You were added to the proposed group" : ownJoinRequest?.status === "rejected" ? "Your request was not approved" : recruitmentEligibility?.canRequest === false ? "You cannot request to join yet" : "Would you like to join this quest?"}</h2>
+          <p>{ownJoinRequest?.status === "pending" ? "The organizer will review your request. You have not been added to the group yet." : ownJoinRequest?.status === "approved" ? "The organizer is still recruiting the remaining people. Invitations and coordination will begin after the group is complete." : ownJoinRequest?.status === "rejected" ? "This request is closed. Talk to Senior Quest to find another suitable activity." : recruitmentEligibility?.canRequest === false ? "This quest is visible to you, but the following hard eligibility checks must pass before you can apply." : `The activity is recruiting toward ${state.recruitment.targetGroupSize} people. The organizer must approve your request before you join.`}</p>
+          {!ownJoinRequest && recruitmentEligibility?.canRequest === false ? <div className="recruitment-eligibility-notice" role="status"><strong>Not currently eligible</strong><ul>{recruitmentEligibility.notices.map((notice) => <li key={notice}>{notice}</li>)}</ul></div> : null}
+          {ownJoinRequest ? <button className="primary-button" type="button" disabled>{ownJoinRequest.status === "pending" ? "Request pending" : ownJoinRequest.status === "approved" ? "Added to group" : "Request closed"}</button> : recruitmentEligibility?.canRequest === false ? <button className="primary-button" type="button" disabled>Not currently eligible</button> : <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act("request-to-join", () => requestToJoinEventQuest(state.runId, state.revision))}>{busy === "request-to-join" ? "Sending request…" : "Request to join"}</button>}
         </section> : null}
 
         {state.viewer.role === "selected" && state.recruitment.status === "open" ? <section className="event-panel recruitment-request-panel">
@@ -136,7 +138,7 @@ function EventQuestWorkspace({ state, onChange }: {
           {state.joinRequests.filter((request) => request.status === "pending").length ? <div className="event-roster">{state.joinRequests.filter((request) => request.status === "pending").map((request) => {
             const profile = state.applicantProfiles.find((candidate) => candidate.userId === request.applicantId);
             return <div key={request.requestId}><ProfileAvatar name={profile?.displayName ?? "Community member"} photoUrl={profile?.photoUrl} size={44} /><p><strong>{profile?.displayName ?? "Community member"}</strong><small>Requested to join · eligibility will be checked again</small></p><div className="split-actions"><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`reject-${request.requestId}`, () => decideEventJoinRequest({ runId: state.runId, requestId: request.requestId, decision: "reject", expectedRevision: state.revision }))}>Reject</button>{state.recruitment.status === "open" ? <button type="button" className="primary-button" disabled={Boolean(busy)} onClick={() => void act(`approve-${request.requestId}`, () => decideEventJoinRequest({ runId: state.runId, requestId: request.requestId, decision: "approve", expectedRevision: state.revision }))}>Approve</button> : null}</div></div>;
-          })}</div> : <p className="assistant-note">No pending join requests yet. Only people who pass the quest’s hard eligibility checks can see and apply.</p>}
+          })}</div> : <p className="assistant-note">No pending join requests yet. People may discover this quest broadly, but only those who pass its hard eligibility checks can apply.</p>}
         </section> : null}
 
         {organizer && state.lifecycle === "forming" ? <section className="event-panel">

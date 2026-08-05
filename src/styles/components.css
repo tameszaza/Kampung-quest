@@ -1313,6 +1313,27 @@
   text-align: center;
 }
 
+.recruitment-eligibility-notice {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 1px solid #efb6b2;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: #9c1e24;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.recruitment-eligibility-notice ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.recruitment-eligibility-notice li + li {
+  margin-top: 4px;
+}
+
 .provisional-time {
   align-items: flex-start;
   padding: 12px;

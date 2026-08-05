@@ -74,7 +74,7 @@ function understaffedRun(): QuestRun {
 }
 
 describe("open quest recruitment eligibility", () => {
-  it("shows a recruiting quest to a hard-eligible neighbour and hides it from an incompatible one", async () => {
+  it("shows an ordinary hard-mismatch neighbour why they cannot request to join", async () => {
     const store = new InMemoryKampungStore();
     const engine = new KampungQuestEngine({
       store,
@@ -115,7 +115,65 @@ describe("open quest recruitment eligibility", () => {
     })).rejects.toThrow("profile changed during approval");
 
     expect((await coordinator.listActivities("sofia")).suggested.map((activity) => activity.runId)).toEqual([draft.runId]);
-    expect((await coordinator.listActivities("noor")).suggested).toEqual([]);
-    expect((await coordinator.listActivities("farah")).suggested).toEqual([]);
+    const noorActivities = await coordinator.listActivities("noor");
+    expect(noorActivities.suggested.map((activity) => activity.runId)).toEqual([draft.runId]);
+    expect(noorActivities.suggested[0]).toHaveProperty("recruitment.viewerEligibility", {
+      canRequest: false,
+      notices: ["Confirm your location preferences before requesting to join."],
+    });
+    const noorView = await coordinator.getStateForUser(draft.runId, "noor");
+    expect(noorView).toHaveProperty("viewer.recruitmentEligibility", {
+      canRequest: false,
+      notices: ["Confirm your location preferences before requesting to join."],
+    });
+    await expect(coordinator.requestToJoin({
+      runId: draft.runId,
+      actorId: "noor",
+      expectedRevision: published.revision,
+      idempotencyKey: "ineligible-noor-request",
+    })).rejects.toThrow("Confirm your location preferences before requesting to join.");
+    const farahActivities = await coordinator.listActivities("farah");
+    expect(farahActivities.suggested.map((activity) => activity.runId)).toEqual([draft.runId]);
+    expect(farahActivities.suggested[0]).toHaveProperty("recruitment.viewerEligibility", {
+      canRequest: false,
+      notices: ["Your profile does not currently share a group language with this quest."],
+    });
+  });
+
+  it("keeps safety-excluded neighbours from discovering the recruiting quest", async () => {
+    const store = new InMemoryKampungStore();
+    const engine = new KampungQuestEngine({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    const blocked = profile("liam");
+    blocked.relationshipBlocked = true;
+    for (const candidate of [profile("maria"), profile("anne"), blocked]) {
+      await engine.recordMemory({ profile: candidate, narrative: candidate.need });
+    }
+    const eligibility = new RecruitmentEligibilityService(store);
+    const coordinator = new EventCoordinator({
+      store,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 4 }),
+      assessRecruitmentCandidate: (state, userId) => eligibility.assess(state, userId),
+    });
+    const draft = await coordinator.createFormation(understaffedRun());
+    await coordinator.publishRecruitment({
+      runId: draft.runId,
+      actorId: "maria",
+      targetGroupSize: 3,
+      expectedRevision: draft.revision,
+      idempotencyKey: "publish-hidden-safety-quest",
+    });
+
+    expect((await coordinator.listActivities("liam")).suggested).toEqual([]);
+    await expect(coordinator.getStateForUser(draft.runId, "liam")).rejects.toThrow("not found");
+    await expect(coordinator.requestToJoin({
+      runId: draft.runId,
+      actorId: "liam",
+      expectedRevision: 2,
+      idempotencyKey: "blocked-liam-request",
+    })).rejects.toThrow("You are not currently eligible for this quest");
   });
 });

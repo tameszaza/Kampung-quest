@@ -86,7 +86,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
       {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button className="text-button" type="button" onClick={() => void load()}>Try again</button></div> : null}
       {!activities && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading activities…</div> : null}
       {activities && tab === "Suggested" ? <>
-        <p className="matched-copy">Safely matched for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>
+        <p className="matched-copy">Activities available for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>
         {activities.suggested.length ? (
           <section className="quest-grid" aria-label="Your suggested activities">
             {activities.suggested.map((activity) => <EventActivityCardView activity={activity} key={activity.runId} action="Review group" />)}
@@ -176,6 +176,7 @@ export function EventActivityCardView({ activity, action = "View activity" }: { 
   } as const;
   const recruitmentAction = activity.recruitment?.viewerRequestStatus
     ? requestAction[activity.recruitment.viewerRequestStatus]
+    : activity.recruitment?.viewerEligibility?.canRequest === false ? "View eligibility details"
     : activity.recruitment?.status === "open" ? "View recruiting quest" : action;
   return <article className="quest-card event-activity-card">
     <Link className="quest-card-link" href={`/quests/${activity.runId}`}>
@@ -185,6 +186,7 @@ export function EventActivityCardView({ activity, action = "View activity" }: { 
         <p>{activity.description}</p>
         <AvailabilityLabel activity={activity} />
         {activity.recruitment ? <div className="meta-row"><Icon name="people" size={19} /><span><strong>{activity.recruitment.currentApprovedCount} approved</strong><small>Minimum {activity.recruitment.minimumGroupSize} · target {activity.recruitment.targetGroupSize} · maximum {activity.recruitment.maximumGroupSize}</small></span></div> : null}
+        {activity.recruitment?.viewerEligibility?.canRequest === false ? <div className="recruitment-eligibility-notice"><strong>Not currently eligible</strong><ul>{activity.recruitment.viewerEligibility.notices.map((notice) => <li key={notice}>{notice}</li>)}</ul></div> : null}
         <span className="primary-button event-card-action">{recruitmentAction}</span>
       </div>
     </Link>

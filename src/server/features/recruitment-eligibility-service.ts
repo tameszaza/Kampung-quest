@@ -6,11 +6,11 @@ export class RecruitmentEligibilityService {
 
   async assess(state: EventCoordinationState, userId: string): Promise<EventRecruitmentAssessment> {
     if (state.initiatorId === userId || state.roster.some((member) => member.userId === userId)) {
-      return { eligible: false, reason: "This person is already in the proposed group." };
+      return this.hidden("This person is already in the proposed group.");
     }
     if (state.roster.length >= state.recruitment.targetGroupSize
       || state.roster.length >= state.recruitment.maximumGroupSize) {
-      return { eligible: false, reason: "This quest has reached its recruitment capacity." };
+      return this.hidden("This quest has reached its recruitment capacity.");
     }
 
     const [candidateMemory, organizerMemory, memories, commitments] = await Promise.all([
@@ -21,54 +21,60 @@ export class RecruitmentEligibilityService {
     ]);
     const candidate = candidateMemory?.profile;
     const organizer = organizerMemory?.profile;
-    if (!candidate || !organizer) return { eligible: false, reason: "An active participant profile could not be verified." };
+    if (!candidate || !organizer) return this.hidden("An active participant profile could not be verified.");
     if (candidate.memoryStatus !== "active"
       || candidate.relationshipBlocked
-      || !candidate.constraints.verified
-      || !candidate.constraints.invitationConsent) {
-      return { eligible: false, reason: "The applicant's active profile, consent, or participation status changed." };
+      || !candidate.constraints.verified) {
+      return this.hidden("The applicant's active profile or participation status changed.");
     }
 
     const memoryByCandidate = new Map(memories.map((memory) => [memory.profile.candidateId, memory]));
     const profiles = new Map(memories.map((memory) => [memory.profile.candidateId, memory.profile]));
     const rosterProfiles = state.roster.map((member) => profiles.get(member.userId));
     if (rosterProfiles.some((profile) => !profile)) {
-      return { eligible: false, reason: "A current roster member's profile could not be verified." };
+      return this.hidden("A current roster member's profile could not be verified.");
     }
     const target = state.recruitment.targetGroupSize;
-    if ([candidate, ...rosterProfiles].some((profile) => profile
+    if (rosterProfiles.some((profile) => profile
       && (target < profile.constraints.minimumGroupSize || target > profile.constraints.maximumGroupSize))) {
-      return { eligible: false, reason: "The recruitment target no longer fits everyone's group-size limits." };
+      return this.hidden("The recruitment target no longer fits the current group's limits.");
+    }
+    const notices: string[] = [];
+    if (!candidate.constraints.invitationConsent) {
+      notices.push("Enable activity invitations in your profile before requesting to join.");
+    }
+    if (target < candidate.constraints.minimumGroupSize || target > candidate.constraints.maximumGroupSize) {
+      notices.push("This quest's target size is outside your group-size preference.");
     }
     if (![candidate, ...rosterProfiles].every((profile) => profile
       && profile.constraints.languages.some((language) => candidate.constraints.languages.includes(language)))) {
-      return { eligible: false, reason: "The applicant no longer shares a suitable group language." };
+      notices.push("Your profile does not currently share a group language with this quest.");
     }
 
     const distance = candidate.distanceFromInitiatorM;
     if (distance === null) {
-      return { eligible: false, reason: "The applicant's distance from this quest could not be verified." };
-    }
-    if (distance > Math.min(organizer.constraints.maximumDistanceM, candidate.constraints.maximumDistanceM)) {
-      return { eligible: false, reason: "The quest is now outside the applicant's travel distance." };
+      notices.push("Confirm your location preferences before requesting to join.");
+    } else if (distance > Math.min(organizer.constraints.maximumDistanceM, candidate.constraints.maximumDistanceM)) {
+      notices.push("This quest is outside your preferred travel distance.");
     }
     if (candidate.constraints.indoorRequired && !state.proposal.quest.venueRequirements.includes("indoor")) {
-      return { eligible: false, reason: "The quest no longer meets the applicant's indoor requirement." };
+      notices.push("This quest does not meet your indoor venue requirement.");
     }
     if (!candidate.constraints.stairsAllowed && !state.proposal.quest.venueRequirements.includes("no_stairs")) {
-      return { eligible: false, reason: "The quest no longer meets the applicant's stair-free access requirement." };
+      notices.push("This quest does not currently confirm step-free access.");
     }
     const proposed = state.proposal.quest.proposedTimeWindow;
     if (!candidate.constraints.availableWindows.some((window) =>
       Date.parse(window.start) <= Date.parse(proposed.start) && Date.parse(window.end) >= Date.parse(proposed.end))) {
-      return { eligible: false, reason: "The applicant's availability no longer includes this quest window." };
+      notices.push("Your availability does not include this quest's provisional time.");
     }
     if (commitments.some((commitment) => commitment.candidateId === userId
       && (commitment.start === null || commitment.end === null
         || (Date.parse(commitment.start) < Date.parse(proposed.end)
           && Date.parse(commitment.end) > Date.parse(proposed.start))))) {
-      return { eligible: false, reason: "The applicant now has an overlapping active commitment." };
+      notices.push("You already have an activity that overlaps this quest's provisional time.");
     }
+    if (notices.length) return { eligible: false, discoverable: true, reason: notices[0], notices };
 
     const score = this.relevanceScore(state, candidate.need, candidate.interests, candidate.offers);
     return {
@@ -97,6 +103,10 @@ export class RecruitmentEligibilityService {
         },
       },
     };
+  }
+
+  private hidden(reason: string): EventRecruitmentAssessment {
+    return { eligible: false, discoverable: false, reason, notices: [] };
   }
 
   private relevanceScore(
