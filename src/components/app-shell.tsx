@@ -38,6 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [unreadActivityCount, setUnreadActivityCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const knownActivityNotifications = useRef<Set<string> | null>(null);
+  const activityReadVersion = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -75,9 +76,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     let active = true;
     async function refreshActivityNotifications() {
       if (document.visibilityState !== "visible") return;
+      const requestVersion = activityReadVersion.current;
       try {
         const activities = await listEventActivities();
-        if (!active) return;
+        if (!active || requestVersion !== activityReadVersion.current) return;
         window.dispatchEvent(new CustomEvent("event-activities-refreshed", { detail: activities }));
         const unread = activities.notifications.filter((notification) => notification.readAt === null);
         const previous = knownActivityNotifications.current;
@@ -103,6 +105,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [showToast]);
+
+  useEffect(() => {
+    const clearActivityBadge = () => {
+      activityReadVersion.current += 1;
+      knownActivityNotifications.current = new Set();
+      setUnreadActivityCount(0);
+    };
+    window.addEventListener("event-activities-read", clearActivityBadge);
+    return () => window.removeEventListener("event-activities-read", clearActivityBadge);
+  }, []);
 
   return (
     <div className="app-shell">

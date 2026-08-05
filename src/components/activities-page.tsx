@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 import { ActivityNotifications } from "@/components/activity-notifications";
 import { PageHeader } from "@/components/page-header";
@@ -20,6 +20,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
   const [activities, setActivities] = useState<UserEventActivities | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const notificationsRead = useRef(false);
   const { user } = useUser();
 
   const load = useCallback(async () => {
@@ -34,9 +35,23 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
   useEffect(() => {
     let active = true;
     void listEventActivities().then((next) => {
-      if (active) setActivities(next);
+      if (active) setActivities(notificationsRead.current ? { ...next, unreadCount: 0 } : next);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "Activities could not be loaded");
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void markEventNotificationsRead().then(() => {
+      notificationsRead.current = true;
+      if (active) {
+        setActivities((current) => current ? { ...current, unreadCount: 0 } : current);
+        window.dispatchEvent(new Event("event-activities-read"));
+      }
+    }).catch(() => {
+      // Reading notifications is best effort and must not block activities.
     });
     return () => { active = false; };
   }, []);
@@ -68,12 +83,22 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
 
   const received = activities?.invitations ?? [];
   const sent = activities?.sentInvitations ?? [];
+  const suggestedCount = activities?.suggested.length ?? 0;
+  const invitedCount = received.length;
+  const notificationCount = activities?.unreadCount ?? 0;
 
   return (
     <div className="page-container">
       <PageHeader title="Activities" />
-      {activities?.unreadCount ? <div className="event-unread-banner" role="status"><Icon name="invite" size={18} /><span>{activities.unreadCount} activity update{activities.unreadCount === 1 ? "" : "s"} need your attention.</span><button type="button" className="text-button" onClick={() => void markEventNotificationsRead().then(load)}>Mark read</button></div> : null}
-      <Tabs tabs={["Suggested", "Invited", "Notifications"]} active={tab} onChange={(value) => setTab(value as "Suggested" | "Invited" | "Notifications")} />
+      <Tabs
+        tabs={[
+          { label: "Suggested", count: suggestedCount },
+          { label: "Invited", count: invitedCount },
+          { label: "Notifications", count: notificationCount },
+        ]}
+        active={tab}
+        onChange={(value) => setTab(value as "Suggested" | "Invited" | "Notifications")}
+      />
       {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button className="text-button" type="button" onClick={() => void load()}>Try again</button></div> : null}
       {!activities && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading activities…</div> : null}
       {activities && tab === "Suggested" ? <>
