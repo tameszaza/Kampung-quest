@@ -79,11 +79,50 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     expect((await restartedEngine.getQuest(run.runId))?.status).toBe("forming");
     const restartedCoordinator = new EventCoordinator({ store: store! });
     const persistedState = await restartedCoordinator.getStateForUser(run.runId, firstId);
+    const persistedInternalState = await store!.findEventCoordinationState(run.runId);
     expect(persistedState.memberships).toHaveLength(run.proposal?.proposedParticipants.length ?? 0);
-    expect(persistedState.auditEvents.length).toBeGreaterThan(1);
-    expect(persistedState.outbox.length).toBeGreaterThan(0);
+    expect(persistedInternalState?.auditEvents.length).toBeGreaterThan(1);
+    expect(persistedInternalState?.outbox.length).toBeGreaterThan(0);
     const persistedRunIds = (await store!.listQuestRuns(firstId, 10)).map((item) => item.runId);
     expect(persistedRunIds).toContain(run.runId);
+  });
+
+  it("publishes an understaffed quest for recruitment", async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const organizerId = `integration_recruiting_organizer_${suffix}`;
+    const participantId = `integration_recruiting_participant_${suffix}`;
+    const language = `Integration-${suffix}`;
+    const organizerProfile = profile(organizerId);
+    const participantProfile = profile(participantId);
+    organizerProfile.constraints.languages = [language];
+    participantProfile.constraints.languages = [language];
+    organizerProfile.constraints.minimumGroupSize = 3;
+    participantProfile.constraints.minimumGroupSize = 3;
+    const coordinator = new EventCoordinator({
+      store: store!,
+      resolveGroupSizeRange: async () => ({ minimum: 3, maximum: 4 }),
+    });
+    const engine = new KampungQuestEngine({
+      store: store!,
+      agents: new DeterministicAgentRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+      eventCoordinator: coordinator,
+    });
+    await engine.recordMemory({ profile: organizerProfile, narrative: "Recruiting organizer" });
+    await engine.recordMemory({ profile: participantProfile, narrative: "Recruiting participant" });
+    const run = await engine.proposeQuest({ initiatingCandidateId: organizerId });
+    const draft = (await coordinator.getStateForUser(run.runId, organizerId))!;
+
+    const published = await coordinator.publishRecruitment({
+      runId: run.runId,
+      actorId: organizerId,
+      targetGroupSize: draft.roster.length + 1,
+      expectedRevision: draft.revision,
+      idempotencyKey: `integration-publish-recruitment-${suffix}`,
+    });
+
+    expect(published.lifecycle).toBe("recruiting");
+    expect((await coordinator.getStateForUser(run.runId, organizerId))?.lifecycle).toBe("recruiting");
   });
 
   it("does not let a slower older memory activation replace a newer version", async () => {

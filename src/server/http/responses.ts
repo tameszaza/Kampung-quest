@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+function isPostgresError(error: unknown): error is Error & { code: string } {
+  return error instanceof Error
+    && "code" in error
+    && typeof error.code === "string"
+    && /^[0-9A-Z]{5}$/.test(error.code);
+}
+
 export function errorResponse(error: unknown): NextResponse {
   if (error instanceof ZodError) {
     return NextResponse.json(
       { error: "Invalid request", issues: error.issues },
       { status: 400 },
     );
+  }
+  if (isPostgresError(error)) {
+    return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
   }
   const message = error instanceof Error ? error.message : "Unexpected server error";
   const status = message.includes("Authentication required")
