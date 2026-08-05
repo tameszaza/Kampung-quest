@@ -19,6 +19,7 @@ import type {
   EventRecruitmentViewerEligibility,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
+import { logger, safeErrorMessage } from "@/server/observability/logger";
 
 export interface EventCoordinationStore {
   createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
@@ -646,56 +647,117 @@ export class EventCoordinator {
       kind: "text" as const,
       createdAt: now,
     };
-    const output = this.dependencies.coordinate
-      ? await this.dependencies.coordinate({ state: current, thread, message: input.body, scope: "private" })
-      : { reply: "Thank you. I have noted this for coordination.", requirementPatch: undefined };
+    const acceptedThread: EventCoordinationThread = {
+      ...thread,
+      revision: thread.revision + 1,
+      messages: [...thread.messages, participantMessage],
+      updatedAt: now,
+    };
+    // A participant's send is authoritative and must not share the hosted
+    // agent's failure boundary. Agent output is a follow-up mutation.
+    const acceptedState = await this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      revision: current.revision + 1,
+      threads: current.threads.map((candidate) => candidate.threadId === thread.threadId ? acceptedThread : candidate),
+      auditEvents: [...current.auditEvents, this.auditEvent(current, "coordination_message_added", input.actorId, null, {
+        threadId: thread.threadId,
+        messageId: input.clientMessageId,
+      }, current.lifecycle)],
+      updatedAt: now,
+    }, current.revision);
+    let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
+    try {
+      output = this.dependencies.coordinate
+        ? await this.dependencies.coordinate({ state: acceptedState, thread, message: input.body, scope: "private" })
+        : { reply: "Thank you. I have noted this for coordination.", requirementPatch: undefined };
+    } catch (error) {
+      logger.warn("event_coordination.agent_failed", {
+        runId: input.runId,
+        scope: "private",
+        error: safeErrorMessage(error),
+      });
+      const failureAt = new Date().toISOString();
+      const failedThread: EventCoordinationThread = {
+        ...acceptedThread,
+        messages: [...acceptedThread.messages, {
+          messageId: `message_${randomUUID()}`,
+          role: "assistant",
+          body: "I couldn't process that message right now. Your message was saved; please try asking Senior Quest again.",
+          kind: "text",
+          createdAt: failureAt,
+        }],
+        updatedAt: failureAt,
+      };
+      try {
+        await this.dependencies.store.saveEventCoordinationState({
+          ...acceptedState,
+          revision: acceptedState.revision + 1,
+          threads: acceptedState.threads.map((candidate) => candidate.threadId === thread.threadId ? failedThread : candidate),
+          updatedAt: failureAt,
+        }, acceptedState.revision);
+        return structuredClone(failedThread);
+      } catch {
+        return structuredClone(acceptedThread);
+      }
+    }
+    const responseState = await this.requireState(input.runId);
+    const responseThread = responseState.threads.find((candidate) => candidate.userId === input.actorId);
+    if (!responseThread || !responseThread.messages.some((message) => message.messageId === input.clientMessageId)) {
+      return structuredClone(acceptedThread);
+    }
     const questionReply = output.intent?.type === "question"
-      ? await this.answerCoordinationQuestion(current, output.intent.topic)
+      ? await this.answerCoordinationQuestion(responseState, output.intent.topic)
       : null;
     const organizerAction = output.intent?.type === "organizer_action"
-      ? this.prepareOrganizerAction(current, input.actorId, output.intent, now)
+      ? this.prepareOrganizerAction(responseState, input.actorId, output.intent, now)
       : null;
     let appointmentChange: Awaited<ReturnType<EventCoordinator["prepareAppointmentChange"]>> | null = null;
     let appointmentConflict: { suggestion: EventAppointmentSuggestion | null; reply: string } | null = null;
     let acceptedSuggestionId: string | null = null;
     if (output.intent?.type === "change_appointment") {
       try {
-        const resolved = this.resolveAppointmentIntentPatch(current, output.intent, now);
+        const resolved = this.resolveAppointmentIntentPatch(responseState, output.intent, now);
         acceptedSuggestionId = resolved.suggestionId;
-        appointmentChange = await this.prepareAppointmentChange(current, input.actorId, resolved.patch, input.clientMessageId, now);
+        appointmentChange = await this.prepareAppointmentChange(responseState, input.actorId, resolved.patch, input.clientMessageId, now);
       } catch (error) {
         if (!(error instanceof AppointmentIncompatibleError)) throw error;
-        appointmentConflict = this.prepareAppointmentConflict(current, output.intent.patch, input.clientMessageId, error, now);
+        appointmentConflict = this.prepareAppointmentConflict(responseState, output.intent.patch, input.clientMessageId, error, now);
       }
     }
     const responseActorProfile = output.intent?.type === "confirm_appointment" || output.intent?.type === "reject_appointment"
       ? await this.dependencies.resolveMember?.(input.actorId)
       : null;
     const responseActorName = responseActorProfile?.displayName ?? "A participant";
-    const appointmentConfirmation = output.intent?.type === "confirm_appointment"
-      ? this.prepareAppointmentConfirmation(current, input.actorId, responseActorName, thread.visibleAppointmentVersion, now)
-      : null;
-    const appointmentRejection = output.intent?.type === "reject_appointment"
-      ? this.prepareAppointmentRejection(current, input.actorId, responseActorName, thread.visibleAppointmentVersion, now)
-      : null;
+    let appointmentConfirmation: ReturnType<EventCoordinator["prepareAppointmentConfirmation"]> | null = null;
+    let appointmentRejection: ReturnType<EventCoordinator["prepareAppointmentRejection"]> | null = null;
+    let appointmentResponseError: string | null = null;
+    try {
+      appointmentConfirmation = output.intent?.type === "confirm_appointment"
+        ? this.prepareAppointmentConfirmation(responseState, input.actorId, responseActorName, responseThread.visibleAppointmentVersion, now)
+        : null;
+      appointmentRejection = output.intent?.type === "reject_appointment"
+        ? this.prepareAppointmentRejection(responseState, input.actorId, responseActorName, responseThread.visibleAppointmentVersion, now)
+        : null;
+    } catch (error) {
+      appointmentResponseError = safeErrorMessage(error);
+    }
     const appointmentMutation = appointmentChange ?? appointmentConfirmation ?? appointmentRejection;
     const updatedThread: EventCoordinationThread = {
-      ...thread,
-      revision: thread.revision + 1,
-      messages: [...thread.messages, participantMessage, {
+      ...responseThread,
+      messages: [...responseThread.messages, {
         messageId: `message_${randomUUID()}`,
         role: "assistant",
-        body: appointmentMutation?.reply ?? appointmentConflict?.reply ?? organizerAction?.reply ?? questionReply ?? output.reply,
+        body: appointmentMutation?.reply ?? appointmentConflict?.reply ?? appointmentResponseError ?? organizerAction?.reply ?? questionReply ?? output.reply,
         kind: appointmentMutation?.broadcastKind ?? (organizerAction?.mutation ? "change_card" : "text"),
         createdAt: now,
       }],
       pendingRequirements: output.requirementPatch
-        ? { ...(thread.pendingRequirements ?? {}), ...output.requirementPatch }
-        : thread.pendingRequirements,
-      visibleAppointmentVersion: appointmentMutation?.version ?? thread.visibleAppointmentVersion,
+        ? { ...(responseThread.pendingRequirements ?? {}), ...output.requirementPatch }
+        : responseThread.pendingRequirements,
+      visibleAppointmentVersion: appointmentMutation?.version ?? responseThread.visibleAppointmentVersion,
       updatedAt: now,
     };
-    const sharedAvailability = input.actorId !== current.initiatorId
+    const sharedAvailability = input.actorId !== responseState.initiatorId
       && this.hasAvailabilityUpdate(output.requirementPatch);
     const actorProfile = sharedAvailability
       ? await this.dependencies.resolveMember?.(input.actorId)
@@ -703,7 +765,7 @@ export class EventCoordinator {
     const actorName = actorProfile?.displayName ?? this.displayMember(input.actorId);
     const availabilityNotification = sharedAvailability ? {
       notificationId: `notification_${randomUUID()}`,
-      userId: current.initiatorId,
+      userId: responseState.initiatorId,
       kind: "availability_shared" as const,
       title: `${actorName} shared availability`,
       body: `Availability is waiting for ${actorName} to confirm.`,
@@ -712,7 +774,7 @@ export class EventCoordinator {
       createdAt: now,
     } : null;
     const notifications = [
-      ...(organizerAction?.mutation?.notifications ?? appointmentMutation?.notifications ?? current.notifications),
+      ...(organizerAction?.mutation?.notifications ?? appointmentMutation?.notifications ?? responseState.notifications),
       ...(availabilityNotification ? [availabilityNotification] : []),
     ];
     const appointmentOutbox = appointmentMutation?.newNotifications.map((notification) => ({
@@ -738,10 +800,10 @@ export class EventCoordinator {
       updatedAt: now,
     })) ?? [];
     const groupBroadcast = appointmentMutation?.reply ?? (organizerAction?.mutation ? organizerAction.reply : null);
-    const groupThread = groupBroadcast && current.groupThread ? {
-      ...current.groupThread,
-      revision: current.groupThread.revision + 1,
-      messages: [...current.groupThread.messages, {
+    const groupThread = groupBroadcast && responseState.groupThread ? {
+      ...responseState.groupThread,
+      revision: responseState.groupThread.revision + 1,
+      messages: [...responseState.groupThread.messages, {
         messageId: `message_${randomUUID()}`,
         senderId: null,
         role: "system" as const,
@@ -749,14 +811,14 @@ export class EventCoordinator {
         kind: appointmentMutation?.broadcastKind ?? "change_card" as const,
         createdAt: now,
       }],
-      visibleAppointmentVersion: appointmentMutation?.version ?? current.groupThread.visibleAppointmentVersion,
+      visibleAppointmentVersion: appointmentMutation?.version ?? responseState.groupThread.visibleAppointmentVersion,
       updatedAt: now,
-    } : current.groupThread;
+    } : responseState.groupThread;
     await this.dependencies.store.saveEventCoordinationState({
-      ...current,
-      lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? current.lifecycle,
-      revision: current.revision + 1,
-      threads: current.threads.map((candidate) => candidate.threadId === thread.threadId
+      ...responseState,
+      lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? responseState.lifecycle,
+      revision: responseState.revision + 1,
+      threads: responseState.threads.map((candidate) => candidate.threadId === responseThread.threadId
         ? updatedThread
         : appointmentMutation ? {
             ...candidate,
@@ -772,18 +834,18 @@ export class EventCoordinator {
             updatedAt: now,
           } : candidate),
       groupThread,
-      arrangements: organizerAction?.mutation?.arrangements ?? appointmentMutation?.arrangements ?? current.arrangements,
+      arrangements: organizerAction?.mutation?.arrangements ?? appointmentMutation?.arrangements ?? responseState.arrangements,
       appointmentSuggestions: appointmentConflict?.suggestion
-        ? [...current.appointmentSuggestions, appointmentConflict.suggestion]
+        ? [...responseState.appointmentSuggestions, appointmentConflict.suggestion]
         : acceptedSuggestionId && appointmentChange
-          ? current.appointmentSuggestions.map((suggestion) => suggestion.suggestionId === acceptedSuggestionId
+          ? responseState.appointmentSuggestions.map((suggestion) => suggestion.suggestionId === acceptedSuggestionId
             ? { ...suggestion, status: "accepted" as const }
             : suggestion)
-          : current.appointmentSuggestions,
-      memberships: organizerAction?.mutation?.memberships ?? appointmentMutation?.memberships ?? current.memberships,
-      invitations: organizerAction?.mutation?.invitations ?? current.invitations,
+          : responseState.appointmentSuggestions,
+      memberships: organizerAction?.mutation?.memberships ?? appointmentMutation?.memberships ?? responseState.memberships,
+      invitations: organizerAction?.mutation?.invitations ?? responseState.invitations,
       notifications,
-      outbox: [...(organizerAction?.mutation?.outbox ?? current.outbox), ...appointmentOutbox, ...organizerOutbox, ...(availabilityNotification ? [{
+      outbox: [...(organizerAction?.mutation?.outbox ?? responseState.outbox), ...appointmentOutbox, ...organizerOutbox, ...(availabilityNotification ? [{
         jobId: `outbox_${randomUUID()}`,
         kind: "notification" as const,
         recipientId: current.initiatorId,
@@ -797,15 +859,9 @@ export class EventCoordinator {
         createdAt: now,
         updatedAt: now,
       }] : [])],
-      auditEvents: [...current.auditEvents, this.auditEvent(current, "coordination_message_added", input.actorId, null, {
-        threadId: thread.threadId,
-        messageId: input.clientMessageId,
-        availabilityShared: sharedAvailability,
-        appointmentVersion: appointmentMutation?.version ?? null,
-        organizerAction: output.intent?.type === "organizer_action" ? output.intent.action : null,
-      }, appointmentMutation?.lifecycle ?? current.lifecycle)],
+      auditEvents: responseState.auditEvents,
       updatedAt: now,
-    }, current.revision);
+    }, responseState.revision);
     return structuredClone(updatedThread);
   }
 
@@ -842,71 +898,134 @@ export class EventCoordinator {
       kind: "text" as const,
       createdAt: now,
     };
+    const acceptedGroup: EventGroupCoordinationThread = {
+      ...group,
+      revision: group.revision + 1,
+      messages: [...group.messages, participantMessage],
+      updatedAt: now,
+    };
+    // Keep the human message even when the hosted coordinator is slow or
+    // unavailable; its response is enrichment, not part of message delivery.
+    const acceptedState = await this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      revision: current.revision + 1,
+      groupThread: acceptedGroup,
+      auditEvents: [...current.auditEvents, this.auditEvent(current, "group_coordination_message_added", input.actorId, null, {
+        threadId: group.threadId,
+        messageId: input.clientMessageId,
+      }, current.lifecycle)],
+      updatedAt: now,
+    }, current.revision);
     const groupContext: EventCoordinationThread = {
       ...privateThread,
-      messages: [...group.messages, participantMessage],
+      messages: acceptedGroup.messages,
       confirmedRequirements: this.emptyRequirements(),
       pendingRequirements: null,
     };
-    const output = this.dependencies.coordinate
-      ? await this.dependencies.coordinate({ state: current, thread: groupContext, message: input.body, scope: "group" })
-      : { reply: "Thank you. I have noted this for the group.", requirementPatch: undefined };
+    let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
+    try {
+      output = this.dependencies.coordinate
+        ? await this.dependencies.coordinate({ state: acceptedState, thread: groupContext, message: input.body, scope: "group" })
+        : { reply: "Thank you. I have noted this for the group.", requirementPatch: undefined };
+    } catch (error) {
+      logger.warn("event_coordination.agent_failed", {
+        runId: input.runId,
+        scope: "group",
+        error: safeErrorMessage(error),
+      });
+      const failureAt = new Date().toISOString();
+      const failedGroup: EventGroupCoordinationThread = {
+        ...acceptedGroup,
+        messages: [...acceptedGroup.messages, {
+          messageId: `message_${randomUUID()}`,
+          senderId: null,
+          role: "assistant",
+          body: "I couldn't process that message right now. Your message was delivered to the group; please try asking Senior Quest again.",
+          kind: "text",
+          createdAt: failureAt,
+        }],
+        updatedAt: failureAt,
+      };
+      try {
+        await this.dependencies.store.saveEventCoordinationState({
+          ...acceptedState,
+          revision: acceptedState.revision + 1,
+          groupThread: failedGroup,
+          updatedAt: failureAt,
+        }, acceptedState.revision);
+        return structuredClone(failedGroup);
+      } catch {
+        return structuredClone(acceptedGroup);
+      }
+    }
+    const responseState = await this.requireState(input.runId);
+    const responseGroup = responseState.groupThread;
+    const responsePrivateThread = responseState.threads.find((thread) => thread.userId === input.actorId);
+    if (!responseGroup || !responsePrivateThread
+      || !responseGroup.messages.some((message) => message.messageId === input.clientMessageId)) {
+      return structuredClone(acceptedGroup);
+    }
     const questionReply = output.intent?.type === "question"
-      ? await this.answerCoordinationQuestion(current, output.intent.topic)
+      ? await this.answerCoordinationQuestion(responseState, output.intent.topic)
       : null;
     const organizerAction = output.intent?.type === "organizer_action"
-      ? this.prepareOrganizerAction(current, input.actorId, output.intent, now)
+      ? this.prepareOrganizerAction(responseState, input.actorId, output.intent, now)
       : null;
     let appointmentChange: Awaited<ReturnType<EventCoordinator["prepareAppointmentChange"]>> | null = null;
     let appointmentConflict: { suggestion: EventAppointmentSuggestion | null; reply: string } | null = null;
     let acceptedSuggestionId: string | null = null;
     if (output.intent?.type === "change_appointment") {
       try {
-        const resolved = this.resolveAppointmentIntentPatch(current, output.intent, now);
+        const resolved = this.resolveAppointmentIntentPatch(responseState, output.intent, now);
         acceptedSuggestionId = resolved.suggestionId;
-        appointmentChange = await this.prepareAppointmentChange(current, input.actorId, resolved.patch, input.clientMessageId, now);
+        appointmentChange = await this.prepareAppointmentChange(responseState, input.actorId, resolved.patch, input.clientMessageId, now);
       } catch (error) {
         if (!(error instanceof AppointmentIncompatibleError)) throw error;
-        appointmentConflict = this.prepareAppointmentConflict(current, output.intent.patch, input.clientMessageId, error, now);
+        appointmentConflict = this.prepareAppointmentConflict(responseState, output.intent.patch, input.clientMessageId, error, now);
       }
     }
     const responseActorProfile = output.intent?.type === "confirm_appointment" || output.intent?.type === "reject_appointment"
       ? await this.dependencies.resolveMember?.(input.actorId)
       : null;
     const responseActorName = responseActorProfile?.displayName ?? "A participant";
-    const appointmentConfirmation = output.intent?.type === "confirm_appointment"
-      ? this.prepareAppointmentConfirmation(current, input.actorId, responseActorName, group.visibleAppointmentVersion, now)
-      : null;
-    const appointmentRejection = output.intent?.type === "reject_appointment"
-      ? this.prepareAppointmentRejection(current, input.actorId, responseActorName, group.visibleAppointmentVersion, now)
-      : null;
+    let appointmentConfirmation: ReturnType<EventCoordinator["prepareAppointmentConfirmation"]> | null = null;
+    let appointmentRejection: ReturnType<EventCoordinator["prepareAppointmentRejection"]> | null = null;
+    let appointmentResponseError: string | null = null;
+    try {
+      appointmentConfirmation = output.intent?.type === "confirm_appointment"
+        ? this.prepareAppointmentConfirmation(responseState, input.actorId, responseActorName, responseGroup.visibleAppointmentVersion, now)
+        : null;
+      appointmentRejection = output.intent?.type === "reject_appointment"
+        ? this.prepareAppointmentRejection(responseState, input.actorId, responseActorName, responseGroup.visibleAppointmentVersion, now)
+        : null;
+    } catch (error) {
+      appointmentResponseError = safeErrorMessage(error);
+    }
     const appointmentMutation = appointmentChange ?? appointmentConfirmation ?? appointmentRejection;
     const shouldReply = output.intent?.type !== "social";
     const messages: EventCoordinationMessage[] = [
-      ...group.messages,
-      participantMessage,
+      ...responseGroup.messages,
       ...(shouldReply ? [{
         messageId: `message_${randomUUID()}`,
         senderId: null,
         role: "assistant" as const,
-        body: appointmentMutation?.reply ?? appointmentConflict?.reply ?? organizerAction?.reply ?? questionReply ?? output.reply,
+        body: appointmentMutation?.reply ?? appointmentConflict?.reply ?? appointmentResponseError ?? organizerAction?.reply ?? questionReply ?? output.reply,
         kind: appointmentMutation?.broadcastKind ?? (organizerAction?.mutation ? "change_card" as const : "text" as const),
         createdAt: now,
       }] : []),
     ];
     const updatedGroup: EventGroupCoordinationThread = {
-      ...group,
-      revision: group.revision + 1,
+      ...responseGroup,
       messages,
-      visibleAppointmentVersion: appointmentMutation?.version ?? group.visibleAppointmentVersion,
+      visibleAppointmentVersion: appointmentMutation?.version ?? responseGroup.visibleAppointmentVersion,
       updatedAt: now,
     };
     const hasRequirementPatch = Boolean(output.requirementPatch && Object.keys(output.requirementPatch).length > 0);
     const updatedPrivateThread: EventCoordinationThread = hasRequirementPatch ? {
-      ...privateThread,
-      revision: privateThread.revision + 1,
-      pendingRequirements: { ...(privateThread.pendingRequirements ?? {}), ...output.requirementPatch },
-      messages: [...privateThread.messages, {
+      ...responsePrivateThread,
+      revision: responsePrivateThread.revision + 1,
+      pendingRequirements: { ...(responsePrivateThread.pendingRequirements ?? {}), ...output.requirementPatch },
+      messages: [...responsePrivateThread.messages, {
         messageId: `message_${randomUUID()}`,
         senderId: null,
         role: "system",
@@ -915,7 +1034,7 @@ export class EventCoordinator {
         createdAt: now,
       }],
       updatedAt: now,
-    } : privateThread;
+    } : responsePrivateThread;
     const appointmentOutbox = appointmentMutation?.newNotifications.map((notification) => ({
       jobId: `outbox_${randomUUID()}`,
       kind: "notification" as const,
@@ -939,12 +1058,12 @@ export class EventCoordinator {
       updatedAt: now,
     })) ?? [];
     await this.dependencies.store.saveEventCoordinationState({
-      ...current,
-      lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? current.lifecycle,
-      revision: current.revision + 1,
+      ...responseState,
+      lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? responseState.lifecycle,
+      revision: responseState.revision + 1,
       groupThread: updatedGroup,
-      threads: current.threads.map((thread) => {
-        const base = thread.threadId === privateThread.threadId ? updatedPrivateThread : thread;
+      threads: responseState.threads.map((thread) => {
+        const base = thread.threadId === responsePrivateThread.threadId ? updatedPrivateThread : thread;
         if (!appointmentMutation) return base;
         return {
           ...base,
@@ -960,27 +1079,21 @@ export class EventCoordinator {
           updatedAt: now,
         };
       }),
-      arrangements: organizerAction?.mutation?.arrangements ?? appointmentMutation?.arrangements ?? current.arrangements,
+      arrangements: organizerAction?.mutation?.arrangements ?? appointmentMutation?.arrangements ?? responseState.arrangements,
       appointmentSuggestions: appointmentConflict?.suggestion
-        ? [...current.appointmentSuggestions, appointmentConflict.suggestion]
+        ? [...responseState.appointmentSuggestions, appointmentConflict.suggestion]
         : acceptedSuggestionId && appointmentChange
-          ? current.appointmentSuggestions.map((suggestion) => suggestion.suggestionId === acceptedSuggestionId
+          ? responseState.appointmentSuggestions.map((suggestion) => suggestion.suggestionId === acceptedSuggestionId
             ? { ...suggestion, status: "accepted" as const }
             : suggestion)
-          : current.appointmentSuggestions,
-      memberships: organizerAction?.mutation?.memberships ?? appointmentMutation?.memberships ?? current.memberships,
-      invitations: organizerAction?.mutation?.invitations ?? current.invitations,
-      notifications: organizerAction?.mutation?.notifications ?? appointmentMutation?.notifications ?? current.notifications,
-      outbox: [...(organizerAction?.mutation?.outbox ?? current.outbox), ...appointmentOutbox, ...organizerOutbox],
-      auditEvents: [...current.auditEvents, this.auditEvent(current, "group_coordination_message_added", input.actorId, null, {
-        threadId: group.threadId,
-        messageId: input.clientMessageId,
-        appointmentVersion: appointmentMutation?.version ?? null,
-        agentReplied: shouldReply,
-        organizerAction: output.intent?.type === "organizer_action" ? output.intent.action : null,
-      }, organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? current.lifecycle)],
+          : responseState.appointmentSuggestions,
+      memberships: organizerAction?.mutation?.memberships ?? appointmentMutation?.memberships ?? responseState.memberships,
+      invitations: organizerAction?.mutation?.invitations ?? responseState.invitations,
+      notifications: organizerAction?.mutation?.notifications ?? appointmentMutation?.notifications ?? responseState.notifications,
+      outbox: [...(organizerAction?.mutation?.outbox ?? responseState.outbox), ...appointmentOutbox, ...organizerOutbox],
+      auditEvents: responseState.auditEvents,
       updatedAt: now,
-    }, current.revision);
+    }, responseState.revision);
     return structuredClone(updatedGroup);
   }
 

@@ -64,20 +64,17 @@ export function normalizeCoordinationProviderOutput(value: unknown): {
   intent: CoordinationIntent;
 } {
   const output = coordinationProviderOutputSchema.parse(value);
-  const requirementPatch = compactRequirements(output.requirementPatch);
   const intent = output.intent;
-  assertConsistentIntent(intent);
-  if (intent.type !== "update_requirement" && Object.keys(requirementPatch).length > 0) {
-    throw new Error("The coordination agent returned requirement fields for a non-requirement intent");
-  }
+  const requirementPatch = intent.type === "update_requirement"
+    ? compactRequirements(output.requirementPatch)
+    : {};
   let normalized: CoordinationIntent;
   switch (intent.type) {
     case "social":
       normalized = { type: "social" };
       break;
     case "question":
-      if (!intent.topic) throw new Error("The coordination agent omitted the question topic");
-      normalized = { type: "question", topic: intent.topic };
+      normalized = { type: "question", topic: intent.topic ?? "other" };
       break;
     case "update_requirement":
       normalized = {
@@ -87,12 +84,16 @@ export function normalizeCoordinationProviderOutput(value: unknown): {
       };
       break;
     case "change_appointment":
-      if (!intent.appointmentPatch) throw new Error("The coordination agent omitted the appointment change");
-      normalized = {
-        type: "change_appointment",
-        patch: compactAppointmentPatch(intent.appointmentPatch),
-        ...(intent.referencesSuggestionId ? { referencesSuggestionId: intent.referencesSuggestionId } : {}),
-      };
+      normalized = intent.appointmentPatch || intent.referencesSuggestionId
+        ? {
+            type: "change_appointment",
+            patch: intent.appointmentPatch ? compactAppointmentPatch(intent.appointmentPatch) : {},
+            ...(intent.referencesSuggestionId ? { referencesSuggestionId: intent.referencesSuggestionId } : {}),
+          }
+        : {
+            type: "unsupported",
+            reason: "The requested appointment change did not include a usable change",
+          };
       break;
     case "confirm_appointment":
       normalized = { type: "confirm_appointment", appointmentVersion: intent.appointmentVersion };
@@ -105,12 +106,15 @@ export function normalizeCoordinationProviderOutput(value: unknown): {
       };
       break;
     case "organizer_action":
-      if (!intent.action) throw new Error("The coordination agent omitted the organizer action");
-      normalized = { type: "organizer_action", action: intent.action };
+      normalized = intent.action
+        ? { type: "organizer_action", action: intent.action }
+        : { type: "unsupported", reason: "The requested organizer action was unclear" };
       break;
     case "unsupported":
-      if (!intent.reason) throw new Error("The coordination agent omitted the unsupported-request reason");
-      normalized = { type: "unsupported", reason: intent.reason };
+      normalized = {
+        type: "unsupported",
+        reason: intent.reason ?? "That request is not supported by activity coordination",
+      };
       break;
   }
   return {
@@ -118,23 +122,6 @@ export function normalizeCoordinationProviderOutput(value: unknown): {
     requirementPatch,
     intent: coordinationIntentSchema.parse(normalized),
   };
-}
-
-function assertConsistentIntent(intent: CoordinationProviderOutput["intent"]) {
-  const allowed: Record<CoordinationProviderOutput["intent"]["type"], Array<keyof CoordinationProviderOutput["intent"]>> = {
-    social: [],
-    question: ["topic"],
-    update_requirement: ["ambiguity"],
-    change_appointment: ["appointmentPatch", "referencesSuggestionId"],
-    confirm_appointment: ["appointmentVersion"],
-    reject_appointment: ["appointmentVersion", "reason"],
-    organizer_action: ["action"],
-    unsupported: ["reason"],
-  };
-  const permitted = new Set<keyof CoordinationProviderOutput["intent"]>(["type", ...allowed[intent.type]]);
-  const conflicting = Object.entries(intent).filter(([key, value]) =>
-    key !== "type" && value !== null && !permitted.has(key as keyof CoordinationProviderOutput["intent"]));
-  if (conflicting.length) throw new Error("The coordination agent returned inconsistent fields for its selected intent");
 }
 
 function compactRequirements(
@@ -152,15 +139,9 @@ function compactRequirements(
 
 function compactAppointmentPatch(patch: z.infer<typeof providerAppointmentPatchSchema>) {
   const { venueAddress, venueAddressOperation, ...fields } = patch;
-  if (venueAddressOperation === "set" && venueAddress === null) {
-    throw new Error("The coordination agent omitted the public venue address to set");
-  }
-  if (venueAddressOperation !== "set" && venueAddress !== null) {
-    throw new Error("The coordination agent returned a venue address without a set operation");
-  }
   return {
     ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)),
-    ...(venueAddressOperation === "set" ? { venueAddress } : {}),
+    ...(venueAddressOperation === "set" && venueAddress !== null ? { venueAddress } : {}),
     ...(venueAddressOperation === "clear" ? { venueAddress: null } : {}),
   };
 }

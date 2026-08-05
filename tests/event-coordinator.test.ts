@@ -1133,7 +1133,7 @@ describe("EventCoordinator", () => {
     }));
   });
 
-  it("does not persist a message or mutate coordination when the hosted provider fails", async () => {
+  it("keeps a private message when the hosted provider fails", async () => {
     const store = new InMemoryKampungStore();
     const coordinator = new EventCoordinator({
       store,
@@ -1150,15 +1150,176 @@ describe("EventCoordinator", () => {
     });
     const thread = await coordinator.getCoordinationThread(state.runId, "maria");
 
-    await expect(coordinator.addCoordinationMessage({
+    const updated = await coordinator.addCoordinationMessage({
       runId: state.runId,
       actorId: "maria",
       body: "Move it to 3 PM",
       clientMessageId: "provider-failure-message",
       expectedRevision: thread.revision,
-    })).rejects.toThrow("provider unavailable");
+    });
 
-    expect(await store.findEventCoordinationState(state.runId)).toEqual(state);
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      messageId: "provider-failure-message",
+      body: "Move it to 3 PM",
+      role: "participant",
+    }));
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      role: "assistant",
+      body: "I couldn't process that message right now. Your message was saved; please try asking Senior Quest again.",
+    }));
+    expect((await store.findEventCoordinationState(state.runId))?.threads
+      .find((candidate) => candidate.userId === "maria")?.messages)
+      .toContainEqual(expect.objectContaining({ messageId: "provider-failure-message" }));
+  });
+
+  it("keeps a group message when the hosted provider fails", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => {
+        throw new Error("gemini provider unavailable: request failed");
+      },
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "group-provider-failure-roster",
+    });
+    for (const guestId of ["anne", "david"]) {
+      const invitation = state.invitations.find((candidate) => candidate.guestId === guestId)!;
+      state = await coordinator.respondToInvitation({
+        runId: state.runId,
+        invitationId: invitation.invitationId,
+        actorId: guestId,
+        response: "accept",
+        expectedRevision: state.revision,
+        idempotencyKey: `group-provider-failure-${guestId}`,
+      });
+    }
+    const group = await coordinator.getGroupCoordinationThread(state.runId, "maria");
+
+    const updated = await coordinator.addGroupCoordinationMessage({
+      runId: state.runId,
+      actorId: "maria",
+      body: "Should we meet at NTU Hall 15?",
+      clientMessageId: "group-provider-failure-message",
+      expectedRevision: group.revision,
+    });
+
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      messageId: "group-provider-failure-message",
+      body: "Should we meet at NTU Hall 15?",
+      role: "participant",
+    }));
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      role: "assistant",
+      body: "I couldn't process that message right now. Your message was delivered to the group; please try asking Senior Quest again.",
+    }));
+    expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
+      .toContainEqual(expect.objectContaining({ messageId: "group-provider-failure-message" }));
+  });
+
+  it("makes a group message durable before the hosted provider finishes", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: () => new Promise(() => undefined),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "pending-provider-roster" });
+    for (const guestId of ["anne", "david"]) {
+      const invitation = state.invitations.find((candidate) => candidate.guestId === guestId)!;
+      state = await coordinator.respondToInvitation({ runId: state.runId, invitationId: invitation.invitationId, actorId: guestId, response: "accept", expectedRevision: state.revision, idempotencyKey: `pending-provider-${guestId}` });
+    }
+    const group = await coordinator.getGroupCoordinationThread(state.runId, "maria");
+
+    void coordinator.addGroupCoordinationMessage({
+      runId: state.runId,
+      actorId: "maria",
+      body: "Should we meet at NTU Hall 15?",
+      clientMessageId: "pending-provider-message",
+      expectedRevision: group.revision,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
+      .toContainEqual(expect.objectContaining({ messageId: "pending-provider-message" }));
+  });
+
+  it("keeps the agent reply when quest state changes while the provider is running", async () => {
+    const store = new InMemoryKampungStore();
+    let finishCoordination!: (output: { reply: string; requirementPatch: Record<string, never> }) => void;
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: () => new Promise((resolve) => {
+        finishCoordination = resolve;
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "concurrent-agent-roster" });
+    for (const guestId of ["anne", "david"]) {
+      const invitation = state.invitations.find((candidate) => candidate.guestId === guestId)!;
+      state = await coordinator.respondToInvitation({ runId: state.runId, invitationId: invitation.invitationId, actorId: guestId, response: "accept", expectedRevision: state.revision, idempotencyKey: `concurrent-agent-${guestId}` });
+    }
+    const group = await coordinator.getGroupCoordinationThread(state.runId, "maria");
+
+    const sending = coordinator.addGroupCoordinationMessage({
+      runId: state.runId,
+      actorId: "maria",
+      body: "Should we meet at NTU Hall 15?",
+      clientMessageId: "concurrent-agent-message",
+      expectedRevision: group.revision,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const accepted = (await store.findEventCoordinationState(state.runId))!;
+    await store.saveEventCoordinationState({
+      ...accepted,
+      revision: accepted.revision + 1,
+      updatedAt: new Date().toISOString(),
+    }, accepted.revision);
+    finishCoordination({ reply: "NTU Hall 15 could work for the group.", requirementPatch: {} });
+
+    const updated = await sending;
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      role: "assistant",
+      body: "NTU Hall 15 could work for the group.",
+    }));
+    expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
+      .toContainEqual(expect.objectContaining({ body: "NTU Hall 15 could work for the group." }));
+  });
+
+  it("answers a premature agent confirmation instead of dropping the reply", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({
+        reply: "Great, let's confirm NTU Hall 15 as the meeting point.",
+        requirementPatch: {},
+        intent: { type: "confirm_appointment", appointmentVersion: null },
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "premature-confirm-roster" });
+    for (const guestId of ["anne", "david"]) {
+      const invitation = state.invitations.find((candidate) => candidate.guestId === guestId)!;
+      state = await coordinator.respondToInvitation({ runId: state.runId, invitationId: invitation.invitationId, actorId: guestId, response: "accept", expectedRevision: state.revision, idempotencyKey: `premature-confirm-${guestId}` });
+    }
+    const group = await coordinator.getGroupCoordinationThread(state.runId, "maria");
+
+    const updated = await coordinator.addGroupCoordinationMessage({
+      runId: state.runId,
+      actorId: "maria",
+      body: "Yeah, Hall 15 NTU is sensible for me.",
+      clientMessageId: "premature-confirm-message",
+      expectedRevision: group.revision,
+    });
+
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      role: "assistant",
+      body: "There is no working appointment awaiting confirmation",
+    }));
   });
 
   it("applies the same appointment actions from the shared group chat", async () => {

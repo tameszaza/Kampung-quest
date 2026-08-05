@@ -145,12 +145,31 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       });
       scrollToLatest();
     } catch (reason) {
-      setDraft(body);
-      setError(reason instanceof Error ? reason.message : "Message could not be sent");
-      if (scope === "group") {
-        setGroupThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
-      } else {
-        setThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+      const messageError = reason instanceof Error ? reason.message : "Message could not be sent";
+      try {
+        const reconciled = scope === "group"
+          ? await getEventGroupCoordinationThread(runId)
+          : await getEventCoordinationThread(runId);
+        const delivered = reconciled.messages.some((message) => message.messageId === clientMessageId);
+        if (scope === "group") {
+          setGroupThread(reconciled as EventGroupCoordinationThread);
+        } else {
+          setThread(reconciled as EventCoordinationThread);
+        }
+        if (delivered) {
+          setError("");
+        } else {
+          setDraft(body);
+          setError(messageError);
+        }
+      } catch {
+        setDraft(body);
+        setError(messageError);
+        if (scope === "group") {
+          setGroupThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+        } else {
+          setThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
+        }
       }
     } finally {
       setSending(false);

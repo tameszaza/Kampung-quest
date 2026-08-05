@@ -72,8 +72,8 @@ describe("coordination agent output", () => {
     });
   });
 
-  it("rejects intent fields that conflict with the selected action", () => {
-    expect(() => normalizeCoordinationProviderOutput(providerOutput({
+  it("ignores unused intent fields instead of discarding a valid selected action", () => {
+    expect(normalizeCoordinationProviderOutput(providerOutput({
       type: "social",
       appointmentPatch: {
         start: null,
@@ -84,14 +84,38 @@ describe("coordination agent output", () => {
         venueAddress: null,
         venueAddressOperation: "unchanged",
       },
-    }))).toThrow("inconsistent fields");
+    })).intent).toEqual({ type: "social" });
   });
 
-  it("rejects requirement changes attached to a non-requirement intent", () => {
+  it("keeps a venue change when Gemini also fills harmless question and reason fields", () => {
+    expect(normalizeCoordinationProviderOutput(providerOutput({
+      type: "change_appointment",
+      topic: "other",
+      reason: "The member suggested this venue",
+      appointmentPatch: {
+        start: null,
+        end: null,
+        localTime: null,
+        durationMinutes: null,
+        venueName: "NTU Hall 15",
+        venueAddress: null,
+        venueAddressOperation: "unchanged",
+      },
+    })).intent).toEqual({
+      type: "change_appointment",
+      patch: { venueName: "NTU Hall 15" },
+    });
+  });
+
+  it("ignores requirement fields attached to a non-requirement intent", () => {
     const output = providerOutput({ type: "social" });
     output.requirementPatch.accessibility = ["Needs step-free access"];
 
-    expect(() => normalizeCoordinationProviderOutput(output)).toThrow("requirement fields");
+    expect(normalizeCoordinationProviderOutput(output)).toEqual({
+      reply: "I will check that change.",
+      requirementPatch: {},
+      intent: { type: "social" },
+    });
   });
 
   it("preserves an explicit instruction to clear the public venue address", () => {
@@ -107,6 +131,45 @@ describe("coordination agent output", () => {
         venueAddressOperation: "clear",
       },
     })).intent).toEqual({ type: "change_appointment", patch: { venueAddress: null } });
+  });
+
+  it("keeps a venue-name change when Gemini selects address set without supplying an address", () => {
+    expect(normalizeCoordinationProviderOutput(providerOutput({
+      type: "change_appointment",
+      appointmentPatch: {
+        start: null,
+        end: null,
+        localTime: null,
+        durationMinutes: null,
+        venueName: "NTU Hall 15",
+        venueAddress: null,
+        venueAddressOperation: "set",
+      },
+    })).intent).toEqual({
+      type: "change_appointment",
+      patch: { venueName: "NTU Hall 15" },
+    });
+  });
+
+  it.each([
+    [
+      { type: "question" as const, topic: null },
+      { type: "question", topic: "other" },
+    ],
+    [
+      { type: "organizer_action" as const, action: null },
+      { type: "unsupported", reason: "The requested organizer action was unclear" },
+    ],
+    [
+      { type: "change_appointment" as const, appointmentPatch: null },
+      { type: "unsupported", reason: "The requested appointment change did not include a usable change" },
+    ],
+    [
+      { type: "unsupported" as const, reason: null },
+      { type: "unsupported", reason: "That request is not supported by activity coordination" },
+    ],
+  ])("uses a safe fallback when selected intent data is incomplete: %s", (providerIntent, expectedIntent) => {
+    expect(normalizeCoordinationProviderOutput(providerOutput(providerIntent)).intent).toEqual(expectedIntent);
   });
 
   it.each([
