@@ -58,7 +58,7 @@ export interface AgentRuntime {
     quest: { title: string; description: string; durationMinutes: number };
     messages: Array<{ role: "participant" | "assistant" | "system"; body: string }>;
     currentRequirements: CoordinationRequirements;
-    currentAppointment?: Pick<EventArrangement, "version" | "start" | "end" | "venueName" | "status"> | null;
+    currentAppointment?: Pick<EventArrangement, "version" | "start" | "end" | "venueName" | "venueAddress" | "status"> | null;
     latestSuggestion?: Pick<EventAppointmentSuggestion, "suggestionId" | "alternative" | "expiresAt"> | null;
     timeZone?: string;
     scope?: "private" | "group";

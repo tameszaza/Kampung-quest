@@ -19,15 +19,15 @@ export function errorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
   }
   const message = error instanceof Error ? error.message : "Unexpected server error";
-  const providerUnavailable = message.includes("provider unavailable");
+  const providerUnavailable = message.includes("provider unavailable")
+    || message.startsWith("Gemini request quota")
+    || message.startsWith("Gemini's daily request quota");
   const publicMessage = providerUnavailable
     ? "Senior Quest is temporarily unavailable. Your request was not applied—please try again."
     : message;
   const status = message.includes("Authentication required")
     ? 401
-    : message.includes("request quota") && message.includes("exhausted")
-      ? 429
-      : message.includes("not found")
+    : message.includes("not found")
         ? 404
         : message.startsWith("Only the ")
           || message.includes("not allowed")

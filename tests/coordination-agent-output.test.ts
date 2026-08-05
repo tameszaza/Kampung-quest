@@ -23,6 +23,7 @@ describe("coordination agent output", () => {
         durationMinutes: 60,
         venueName: "NTU Hall 15",
         venueAddress: null,
+        venueAddressOperation: "unchanged",
       },
     }))).toEqual({
       reply: "I will check that change.",
@@ -44,6 +45,7 @@ describe("coordination agent output", () => {
         durationMinutes: null,
         venueName: "NTU Hall 15",
         venueAddress: null,
+        venueAddressOperation: "unchanged",
       },
     }));
     const runtime = new HostedAgentRuntime({
@@ -80,8 +82,31 @@ describe("coordination agent output", () => {
         durationMinutes: null,
         venueName: null,
         venueAddress: null,
+        venueAddressOperation: "unchanged",
       },
     }))).toThrow("inconsistent fields");
+  });
+
+  it("rejects requirement changes attached to a non-requirement intent", () => {
+    const output = providerOutput({ type: "social" });
+    output.requirementPatch.accessibility = ["Needs step-free access"];
+
+    expect(() => normalizeCoordinationProviderOutput(output)).toThrow("requirement fields");
+  });
+
+  it("preserves an explicit instruction to clear the public venue address", () => {
+    expect(normalizeCoordinationProviderOutput(providerOutput({
+      type: "change_appointment",
+      appointmentPatch: {
+        start: null,
+        end: null,
+        localTime: null,
+        durationMinutes: null,
+        venueName: null,
+        venueAddress: null,
+        venueAddressOperation: "clear",
+      },
+    })).intent).toEqual({ type: "change_appointment", patch: { venueAddress: null } });
   });
 
   it.each([
@@ -157,6 +182,7 @@ function providerOutput(intent: Partial<{
     durationMinutes: number | null;
     venueName: string | null;
     venueAddress: string | null;
+    venueAddressOperation: "unchanged" | "set" | "clear";
   } | null;
   ambiguity: string[] | null;
   referencesSuggestionId: string | null;

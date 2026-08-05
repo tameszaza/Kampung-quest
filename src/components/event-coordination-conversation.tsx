@@ -17,6 +17,7 @@ import {
   sendEventGroupCoordinationMessage,
   suggestEventArrangement,
 } from "@/features/events/client";
+import { coordinationMessagePresentation } from "@/features/events/coordination-message-presentation";
 import type {
   EventCoordinationThread,
   EventGroupCoordinationThread,
@@ -261,18 +262,23 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
 
         <div className="message-history coordination-message-history" aria-live="polite" aria-busy={busy === "message"}>
           <ChatDayLabel />
-          {activeMessages.map((message) => <ChatMessageBubble
-            key={message.messageId}
-            body={message.body}
-            mine={scope === "group" ? message.senderId === thread.userId : message.role === "participant"}
-            heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : scope === "group" && message.senderId !== thread.userId
-              ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName
-              : undefined}
-            time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-            receipt={message.role === "participant" && (scope === "private" || message.senderId === thread.userId)
-              ? message.receipt ?? "delivered"
-              : undefined}
-          />)}
+          {activeMessages.map((message) => {
+            const presentation = coordinationMessagePresentation(message.kind);
+            return <ChatMessageBubble
+              key={message.messageId}
+              body={message.body}
+              mine={scope === "group" ? message.senderId === thread.userId : message.role === "participant"}
+              heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : scope === "group" && message.senderId !== thread.userId
+                ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName
+                : undefined}
+              time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              receipt={message.role === "participant" && (scope === "private" || message.senderId === thread.userId)
+                ? message.receipt ?? "delivered"
+                : undefined}
+              variant={presentation.variant}
+              label={presentation.label}
+            />;
+          })}
           {scope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
             <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
             <h3>Start with what matters most</h3>

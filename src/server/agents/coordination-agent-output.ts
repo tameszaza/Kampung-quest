@@ -19,7 +19,8 @@ const providerAppointmentPatchSchema = z.object({
   localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
   durationMinutes: z.number().int().min(15).max(120).nullable(),
   venueName: z.string().min(1).nullable(),
-  venueAddress: z.string().nullable(),
+  venueAddress: z.string().min(1).nullable(),
+  venueAddressOperation: z.enum(["unchanged", "set", "clear"]),
 });
 
 export const coordinationProviderOutputSchema = z.object({
@@ -66,6 +67,9 @@ export function normalizeCoordinationProviderOutput(value: unknown): {
   const requirementPatch = compactRequirements(output.requirementPatch);
   const intent = output.intent;
   assertConsistentIntent(intent);
+  if (intent.type !== "update_requirement" && Object.keys(requirementPatch).length > 0) {
+    throw new Error("The coordination agent returned requirement fields for a non-requirement intent");
+  }
   let normalized: CoordinationIntent;
   switch (intent.type) {
     case "social":
@@ -147,5 +151,16 @@ function compactRequirements(
 }
 
 function compactAppointmentPatch(patch: z.infer<typeof providerAppointmentPatchSchema>) {
-  return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== null));
+  const { venueAddress, venueAddressOperation, ...fields } = patch;
+  if (venueAddressOperation === "set" && venueAddress === null) {
+    throw new Error("The coordination agent omitted the public venue address to set");
+  }
+  if (venueAddressOperation !== "set" && venueAddress !== null) {
+    throw new Error("The coordination agent returned a venue address without a set operation");
+  }
+  return {
+    ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)),
+    ...(venueAddressOperation === "set" ? { venueAddress } : {}),
+    ...(venueAddressOperation === "clear" ? { venueAddress: null } : {}),
+  };
 }

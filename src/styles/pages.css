@@ -2092,6 +2092,25 @@
   background: #dff5e8;
 }
 
+.message-bubble-row.activity-card .message-bubble {
+  width: min(88%, 560px);
+  border-color: #9fd8bd;
+  border-left: 4px solid var(--green-600);
+  border-radius: 10px;
+  background: #f4fbf7;
+  box-shadow: 0 5px 16px rgba(5, 61, 45, 0.08);
+}
+
+.message-bubble-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--green-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .message-bubble strong {
   color: var(--green-700);
   font-size: 12px;
