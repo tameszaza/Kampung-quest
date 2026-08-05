@@ -1044,7 +1044,12 @@ describe("EventCoordinator", () => {
         requirementPatch: {},
         intent: {
           type: "change_appointment",
-          patch: { localTime: "13:00" },
+          patch: {
+            localTime: "13:00",
+            durationMinutes: 60,
+            venueName: "NTU Hall 15",
+            venueAddress: "50 Nanyang Avenue",
+          },
         },
       }),
       validateArrangement: async () => ({ valid: true, errors: [] }),
@@ -1080,7 +1085,9 @@ describe("EventCoordinator", () => {
     const updated = await store.findEventCoordinationState(state.runId);
     const arrangement = updated!.arrangements.at(-1)!;
     expect(arrangement.start).toBe("2026-08-10T05:00:00.000Z");
-    expect(arrangement.end).toBe("2026-08-10T06:30:00.000Z");
+    expect(arrangement.end).toBe("2026-08-10T06:00:00.000Z");
+    expect(arrangement.venueName).toBe("NTU Hall 15");
+    expect(arrangement.venueAddress).toBe("50 Nanyang Avenue");
     expect(arrangement.status).toBe("awaiting_participant_confirmation");
     expect(arrangement.confirmations).toEqual(expect.arrayContaining([
       expect.objectContaining({ userId: "maria", status: "pending" }),
@@ -1093,6 +1100,34 @@ describe("EventCoordinator", () => {
       kind: "change_card",
       role: "system",
     }));
+  });
+
+  it("does not persist a message or mutate coordination when the hosted provider fails", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => {
+        throw new Error("gemini provider unavailable: request failed");
+      },
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    const state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "provider-failure-roster",
+    });
+    const thread = await coordinator.getCoordinationThread(state.runId, "maria");
+
+    await expect(coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "maria",
+      body: "Move it to 3 PM",
+      clientMessageId: "provider-failure-message",
+      expectedRevision: thread.revision,
+    })).rejects.toThrow("provider unavailable");
+
+    expect(await store.findEventCoordinationState(state.runId)).toEqual(state);
   });
 
   it("applies the same appointment actions from the shared group chat", async () => {

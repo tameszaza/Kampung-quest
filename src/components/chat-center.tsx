@@ -9,6 +9,7 @@ import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
 import { getQuestRun } from "@/features/assistant/client";
 import { getEventCoordinationThread, getEventQuest, listEventActivities } from "@/features/events/client";
+import { visibleConversationSummaries } from "@/features/events/conversation-projection";
 import type { EventActivityCard } from "@/server/domain/event-coordination";
 import type { ChatContact, ChatMessage, ChatProfile, ConversationSummary } from "@/server/identity/types";
 import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
@@ -63,7 +64,7 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
     : assistantSelected ? assistant : selected;
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    const items = [...activitySummaries, assistant, ...conversations];
+    const items = visibleConversationSummaries(activitySummaries, assistant, conversations);
     return value
       ? items.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
       : items;
@@ -92,7 +93,8 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
       const response = await fetch("/api/chat/conversations", { cache: "no-store" });
       const result = await response.json() as { conversations?: ConversationSummary[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not load conversations");
-      const nextConversations = result.conversations ?? [];
+      const nextConversations = (result.conversations ?? []).filter((conversation) =>
+        conversation.type !== "quest_private" && conversation.type !== "quest_group");
       setConversations(nextConversations);
       const assistantResponse = await fetch("/api/v1/assistant/conversations", { cache: "no-store" });
       if (assistantResponse.ok) {

@@ -62,6 +62,7 @@ export const AGENT_INSTRUCTIONS = {
     "Do not reveal or speculate about any other participant. Do not expose private message text or private times to the organizer or team notifications.",
     "Do not claim that a change succeeded. Application code will validate and commit the structured intent, then replace your draft wording with the authoritative result.",
     "Roster changes, cancellation, start, and completion are organizer_action intents; do not decide whether the actor is authorized.",
+    "Every structured field is required by the provider contract. Set fields that do not apply to null. Put appointment edits in intent.appointmentPatch; for update_requirement, put the values in the top-level requirementPatch.",
     "Return only the requested structured output.",
   ].join(" "),
 } as const;

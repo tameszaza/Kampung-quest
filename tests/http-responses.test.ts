@@ -23,4 +23,15 @@ describe("HTTP errors", () => {
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toEqual({ error: message });
   });
+
+  it("hides hosted-provider internals behind a retryable coordination error", async () => {
+    const response = errorResponse(new Error(
+      "gemini provider unavailable: Schema field at properties/requirementPatch uses optional()",
+    ));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Senior Quest is temporarily unavailable. Your request was not applied—please try again.",
+    });
+  });
 });

@@ -19,6 +19,10 @@ export function errorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
   }
   const message = error instanceof Error ? error.message : "Unexpected server error";
+  const providerUnavailable = message.includes("provider unavailable");
+  const publicMessage = providerUnavailable
+    ? "Senior Quest is temporarily unavailable. Your request was not applied—please try again."
+    : message;
   const status = message.includes("Authentication required")
     ? 401
     : message.includes("request quota") && message.includes("exhausted")
@@ -32,12 +36,12 @@ export function errorResponse(error: unknown): NextResponse {
           ? 403
         : message.includes("already exists")
           ? 409
-          : message.includes("provider unavailable")
+          : providerUnavailable
             ? 503
             : message.includes("conflict") || message.includes("not valid")
               ? 409
               : 422;
-  return NextResponse.json({ error: message }, { status });
+  return NextResponse.json({ error: publicMessage }, { status });
 }
 
 export function boundedLimit(value: string | null, fallback = configuredCandidateLimit()): number {
