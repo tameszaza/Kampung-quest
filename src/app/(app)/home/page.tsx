@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useState } from "react";
 import { Icon } from "@/components/icons";
 import { QuestCard } from "@/components/quest-card";
 import { DesktopQuestCard } from "@/components/desktop-quest-card";
@@ -11,15 +12,16 @@ import { SafeImage } from "@/components/safe-image";
 import { canSeeDemoContent } from "@/lib/demo-access";
 
 export default function HomePage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user } = useUser();
   const showDemo = canSeeDemoContent(user);
   const firstName = user.fullName.split(/\s+/)[0] || user.fullName;
   return (
     <div className="page-container home-page">
       <header className="home-header">
-        <Link className="icon-button mobile-only" href="/profile" aria-label="Open menu">
+        <button className="icon-button mobile-only" type="button" aria-label="Open menu" aria-expanded={mobileMenuOpen} aria-controls="home-mobile-menu" onClick={() => setMobileMenuOpen(true)}>
           <Icon name="menu" />
-        </Link>
+        </button>
         <div className="home-greeting">
           <p>Good morning,</p>
           <h1>{firstName}! <span aria-hidden="true">👋</span></h1>
@@ -29,6 +31,19 @@ export default function HomePage() {
           <SafeImage src={user.photoUrl ?? "/assets/profile-maria.jpg"} alt={user.fullName} fill sizes="58px" />
         </Link>
       </header>
+
+      {mobileMenuOpen ? <div className="home-mobile-menu-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMobileMenuOpen(false); }}>
+        <nav className="home-mobile-menu" id="home-mobile-menu" role="dialog" aria-modal="true" aria-labelledby="home-mobile-menu-title">
+          <div className="sheet-handle" aria-hidden="true" />
+          <div className="home-mobile-menu-heading"><div><small>Senior Quest</small><h2 id="home-mobile-menu-title">More</h2></div><button className="icon-button" type="button" aria-label="Close menu" onClick={() => setMobileMenuOpen(false)}><Icon name="close" /></button></div>
+          <div className="home-mobile-menu-links">
+            <Link href="/my-quests" onClick={() => setMobileMenuOpen(false)}><span><Icon name="check" /></span><span><strong>My Activities</strong><small>View joined and upcoming quests</small></span><Icon name="chevron" /></Link>
+            <Link href="/rewards" onClick={() => setMobileMenuOpen(false)}><span><Icon name="gift" /></span><span><strong>Rewards</strong><small>See your points and partner deals</small></span><Icon name="chevron" /></Link>
+            <Link href="/profile" onClick={() => setMobileMenuOpen(false)}><span><Icon name="profile" /></span><span><strong>My Profile</strong><small>Review your personal information</small></span><Icon name="chevron" /></Link>
+            <Link href="/settings" onClick={() => setMobileMenuOpen(false)}><span><Icon name="settings" /></span><span><strong>Settings</strong><small>Accessibility, privacy, and security</small></span><Icon name="chevron" /></Link>
+          </div>
+        </nav>
+      </div> : null}
 
       <div className="home-desktop-dashboard">
         <main className="home-desktop-main">
@@ -80,6 +95,7 @@ export default function HomePage() {
             <Link href="/quests"><span className="home-quick-icon"><Icon name="quests" size={20} /></span><span><strong>Browse All Activities</strong><small>Find something you&apos;ll enjoy</small></span><Icon name="chevron" size={18} /></Link>
             <Link href="/messages?assistant=1"><span className="home-quick-icon"><Icon name="plus" size={20} /></span><span><strong>Create a Quest</strong><small>Plan a meaningful activity</small></span><Icon name="chevron" size={18} /></Link>
             <Link href="/messages"><span className="home-quick-icon"><Icon name="invite" size={20} /></span><span><strong>Invite a Friend</strong><small>Share Senior Quest together</small></span><Icon name="chevron" size={18} /></Link>
+            <Link href="/rewards"><span className="home-quick-icon"><Icon name="gift" size={20} /></span><span><strong>View Rewards</strong><small>See your points and partner deals</small></span><Icon name="chevron" size={18} /></Link>
             <Link href="/settings"><span className="home-quick-icon"><Icon name="help" size={20} /></span><span><strong>Help &amp; Support</strong><small>We&apos;re here whenever you need us</small></span><Icon name="chevron" size={18} /></Link>
           </section>
         </aside>
@@ -97,6 +113,12 @@ export default function HomePage() {
             <span aria-hidden="true">♥</span>
             <div><strong>What would feel good today?</strong><small>Talk with Senior Quest and I&apos;ll find a safe activity with neighbours.</small></div>
             <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
+          </Link>
+
+          <Link className="home-rewards-callout" href="/rewards">
+            <span aria-hidden="true"><Icon name="gift" size={26} /></span>
+            <div><strong>Community rewards</strong><small>Complete activities, earn points, and preview partner deals.</small></div>
+            <b>View rewards <Icon name="chevron" size={18} /></b>
           </Link>
 
           {showDemo ? <Link className="invite-banner" href="/quests?tab=Invited">

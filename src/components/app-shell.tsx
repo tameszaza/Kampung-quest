@@ -21,6 +21,7 @@ const desktopItems: Array<{ href: string; label: string; icon: IconName; match: 
   { href: "/home", label: "Home", icon: "home", match: ["/home"] },
   { href: "/quests", label: "Activities", icon: "quests", match: ["/quests", "/invites"] },
   { href: "/my-quests", label: "My Activities", icon: "check", match: ["/my-quests"] },
+  { href: "/rewards", label: "Rewards", icon: "gift", match: ["/rewards"] },
   { href: "/messages", label: "Messages", icon: "message", match: ["/messages"] },
   { href: "/profile", label: "My Profile", icon: "profile", match: ["/profile"] },
   { href: "/settings", label: "Settings", icon: "settings", match: ["/settings"] },

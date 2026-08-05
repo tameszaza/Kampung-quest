@@ -72,7 +72,7 @@ export function LatestEngineQuest() {
   return <EngineQuestCard run={state.value} compact />;
 }
 
-export function EngineQuestDetail({ runId, showActivityActions = true }: { runId: string; showActivityActions?: boolean }) {
+export function EngineQuestDetail({ runId, showActivityActions = true, backHref = "/quests" }: { runId: string; showActivityActions?: boolean; backHref?: string }) {
   const { user } = useUser();
   const [state, setState] = useState<LoadState<QuestRun | null>>({ status: "loading", value: null });
   useEffect(() => {
@@ -108,7 +108,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
 
   return (
     <div className={`detail-page engine-detail-page quest-detail-ref${showActivityActions ? "" : " without-action"}`}>
-      <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href="/quests" aria-label="Back to quests"><Icon name="back" /><span>Back to Quests</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
+      <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to quests"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
       <section className="quest-detail-hero">
         <div className="quest-detail-hero-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />{run.status === "human_review" && <span className="image-badge">Needs review</span>}<span className="quest-image-label"><Icon name="home" size={15} /> {activityLabel(proposal.quest.questType)}</span></div>
         <div className="quest-detail-hero-copy">

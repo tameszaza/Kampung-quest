@@ -7,7 +7,7 @@ import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import type { Quest } from "@/types/quest";
 
-export function QuestDetail({ quest, showActivityActions = true }: { quest: Quest; showActivityActions?: boolean }) {
+export function QuestDetail({ quest, showActivityActions = true, backHref = "/quests" }: { quest: Quest; showActivityActions?: boolean; backHref?: string }) {
   const { showToast } = useAppState();
 
   async function share() {
@@ -29,6 +29,7 @@ export function QuestDetail({ quest, showActivityActions = true }: { quest: Ques
         <PageHeader
           title="Quest Details"
           back
+          backHref={backHref}
           right={
             <button className="icon-button" type="button" onClick={share} aria-label="Share quest">
               <Icon name="share" size={22} />

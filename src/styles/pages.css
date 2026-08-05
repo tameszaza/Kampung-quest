@@ -152,6 +152,87 @@
   overflow: hidden;
 }
 
+.home-mobile-menu-backdrop {
+  position: fixed;
+  z-index: 130;
+  inset: 0;
+  padding-top: 48px;
+  background: rgba(4, 30, 23, .44);
+  display: flex;
+  align-items: flex-end;
+}
+
+.home-mobile-menu {
+  width: 100%;
+  max-height: calc(100dvh - 48px);
+  padding: 12px 18px calc(28px + env(safe-area-inset-bottom));
+  border-radius: 26px 26px 0 0;
+  background: var(--surface);
+  overflow-y: auto;
+  box-shadow: 0 -18px 48px rgba(4, 30, 23, .2);
+}
+
+.home-mobile-menu-heading {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.home-mobile-menu-heading small {
+  color: var(--green-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.home-mobile-menu-heading h2 {
+  margin: 1px 0 0;
+  font-size: 25px;
+}
+
+.home-mobile-menu-links {
+  border-top: 1px solid var(--line);
+  display: grid;
+}
+
+.home-mobile-menu-links > a {
+  min-width: 0;
+  min-height: 74px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-mobile-menu-links > a > span:first-child {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  place-items: center;
+}
+
+.home-mobile-menu-links > a > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+}
+
+.home-mobile-menu-links small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.home-mobile-menu-links > a > svg {
+  color: var(--muted);
+}
+
 .home-avatar img {
   object-fit: cover;
 }
@@ -5970,7 +6051,7 @@
 
 .quest-participants .event-roster > div {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
 }
@@ -5978,6 +6059,14 @@
 .quest-participants .event-roster .participant-status {
   grid-column: 2;
   justify-self: start;
+}
+
+.quest-participants .participant-management {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  min-height: 38px;
+  padding: 0 12px;
 }
 
 .quest-participants .event-roster p {
@@ -6075,10 +6164,6 @@
 }
 
 @media (max-width: 767px) {
-  body:has(.quest-detail-ref) .bottom-nav {
-    display: none;
-  }
-
   .quest-detail-ref {
     width: 100%;
     margin: 0;
@@ -6220,5 +6305,11 @@
   .quest-detail-ref .detail-action .secondary-button {
     min-height: 48px;
     flex: 1;
+  }
+}
+
+@media (min-width: 768px) {
+  .home-mobile-menu-backdrop {
+    display: none;
   }
 }

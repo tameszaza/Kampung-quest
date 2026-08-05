@@ -23,8 +23,9 @@ import {
 import type { EventCoordinationState, EventQuestView, EventRosterMember } from "@/server/domain/event-coordination";
 import type { ChatContact } from "@/server/identity/types";
 import { activityLabel, activityStatusLabel, participantCountLabel } from "@/lib/activity-label";
+import { latestInvitationForUser, latestMembershipForUser } from "@/lib/event-participant-history";
 
-export function EventQuestDetail({ runId, showActivityActions = true }: { runId: string; showActivityActions?: boolean }) {
+export function EventQuestDetail({ runId, showActivityActions = true, backHref = "/quests" }: { runId: string; showActivityActions?: boolean; backHref?: string }) {
   const [state, setState] = useState<EventQuestView | null | undefined>(undefined);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -42,14 +43,15 @@ export function EventQuestDetail({ runId, showActivityActions = true }: { runId:
   }, [runId]);
 
   if (state === undefined && !error) return <div className="connected-state" role="status"><span className="connected-spinner" />Loading activity…</div>;
-  if (state === null) return <EngineQuestDetail runId={runId} showActivityActions={showActivityActions} />;
+  if (state === null) return <EngineQuestDetail runId={runId} showActivityActions={showActivityActions} backHref={backHref} />;
   if (!state) return <div className="connected-state error" role="alert"><Icon name="shield" />{error}</div>;
-  return <EventQuestWorkspace state={state} imageUrl={imageUrl} onChange={setState} />;
+  return <EventQuestWorkspace state={state} imageUrl={imageUrl} backHref={backHref} onChange={setState} />;
 }
 
-function EventQuestWorkspace({ state, imageUrl, onChange }: {
+function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
   state: EventQuestView;
   imageUrl: string | null;
+  backHref: string;
   onChange: (state: EventQuestView) => void;
 }) {
   const { user } = useUser();
@@ -58,8 +60,11 @@ function EventQuestWorkspace({ state, imageUrl, onChange }: {
   const [query, setQuery] = useState("");
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const organizer = state.initiatorId === user.id;
-  const ownInvitation = state.invitations.find((invitation) => invitation.guestId === user.id);
-  const ownMembership = state.memberships.find((membership) => membership.userId === user.id);
+  const ownInvitation = latestInvitationForUser(state.invitations, user.id);
+  const ownMembership = latestMembershipForUser(state.memberships, user.id);
+  const hasActiveMembership = ownMembership
+    ? !["withdrawn", "replaced", "cancelled", "completed"].includes(ownMembership.status)
+    : false;
   const latestArrangement = state.arrangements.at(-1);
   const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const proposed = state.proposal.quest.proposedTimeWindow;
@@ -100,7 +105,7 @@ function EventQuestWorkspace({ state, imageUrl, onChange }: {
     : proposed ? formatWindow(proposed.start, proposed.end) : "No availability window proposed";
 
   return <div className="detail-page engine-detail-page event-workspace quest-detail-ref">
-    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href="/quests" aria-label="Back to activities"><Icon name="back" /><span>Back to Quests</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
+    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to activities"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
     <section className="quest-detail-hero">
       <div className="quest-detail-hero-image">
         <Image src={imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />
@@ -125,15 +130,21 @@ function EventQuestWorkspace({ state, imageUrl, onChange }: {
           <span className="section-kicker">Everyone has a role</span>
           <h2>{participantCountLabel(participants.length)}</h2>
           <div className="event-roster">{participants.map((member) => {
-            const invitation = state.invitations.find((item) => item.guestId === member.userId);
-            const membership = state.memberships.find((item) => item.userId === member.userId);
-            const status = membership?.status ?? invitation?.status ?? (member.source === "recommended" ? "suggested" : "pending");
+            const invitation = latestInvitationForUser(state.invitations, member.userId);
+            const membership = latestMembershipForUser(state.memberships, member.userId);
+            const status = participantDisplayStatus({
+              organizer: member.userId === state.initiatorId,
+              invitationStatus: invitation?.status,
+              membershipStatus: membership?.status,
+              fallback: member.source === "recommended" ? "suggested" : "pending",
+            });
             const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
             const displayName = member.userId === user.id ? "You" : profile?.displayName ?? friendlyMember(member.userId);
             return <div key={member.userId}>
               <ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} />
               <p><strong>{displayName}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
-              <span className={`participant-status participant-status-${status}`}>{status.replaceAll("_", " ")}</span>
+              {organizer && state.lifecycle !== "forming" && invitation && ["pending", "accepted"].includes(invitation.status) ? <button type="button" className="quiet-button participant-management" disabled={Boolean(busy)} aria-label={`Replace ${displayName}`} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button> : null}
+              <span className={`participant-status participant-status-${status.key}`}>{status.label}</span>
             </div>;
           })}</div>
         </section>
@@ -151,21 +162,19 @@ function EventQuestWorkspace({ state, imageUrl, onChange }: {
 
         {ownInvitation?.status === "pending" ? <section className="event-panel invitation-decision-panel"><span className="section-kicker">Invitation</span><h2>Would you like to join coordination?</h2><p>Accepting does not confirm this provisional time. Everyone will confirm the final arrangement later.</p><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("decline", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "decline", expectedRevision: state.revision }))}>Decline</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("accept", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "accept", expectedRevision: state.revision }))}>Accept & coordinate</button></div></section> : null}
 
-        {organizer && state.lifecycle !== "forming" && state.invitations.some((invitation) => ["pending", "accepted"].includes(invitation.status)) ? <section className="event-panel"><span className="section-kicker">Invitation status</span><h2>Current guest responses</h2><div className="event-roster">{state.invitations.filter((invitation) => ["pending", "accepted"].includes(invitation.status)).map((invitation) => <div key={invitation.invitationId}><span className="member-initial">{friendlyMember(invitation.guestId).slice(0, 1)}</span><p><strong>{friendlyMember(invitation.guestId)}</strong><small>{invitation.status}</small></p><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button></div>)}</div><p className="assistant-note">Replacing preserves the invitation history and returns the quest to group selection. Choose and validate the new guest before sending another invitation.</p></section> : null}
+        {hasActiveMembership ? <Link className="primary-button quest-group-chat-link" href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Open quest group chat</Link> : null}
 
-        {ownMembership ? <Link className="primary-button quest-group-chat-link" href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Open quest group chat</Link> : null}
-
-        {organizer && ownMembership && ["awaiting_responses", "coordinating", "scheduled"].includes(state.lifecycle) && (!latestArrangement || ["finalized", "rejected", "superseded"].includes(latestArrangement.status)) ? <section className="event-panel"><span className="section-kicker">Step 2 · Propose an arrangement</span><h2>Time and public venue</h2><p>Let the coordinator find the earliest overlap from everyone’s confirmed availability, or enter an alternative for validation. Participants will confirm after you approve it.</p><button className="secondary-button suggest-arrangement-button" type="button" disabled={Boolean(busy)} onClick={() => void act("suggest-arrangement", () => suggestEventArrangement(state.runId, state.revision))}>{busy === "suggest-arrangement" ? "Comparing availability…" : "Suggest best compatible arrangement"}</button><form className="arrangement-form" onSubmit={propose}><label><span>Start</span><input name="start" type="datetime-local" required defaultValue={localDateTime(proposed?.start)} /></label><label><span>End</span><input name="end" type="datetime-local" required defaultValue={localDateTime(proposed?.end)} /></label><label><span>Public venue</span><input name="venueName" required placeholder="For example, Sunny Community Kitchen" /></label><label><span>Public directions (optional)</span><input name="venueAddress" placeholder="Do not enter a participant's home address" /></label><button className="primary-button" disabled={Boolean(busy)}>{busy === "arrangement" ? "Checking…" : "Check & propose arrangement"}</button></form></section> : null}
+        {organizer && hasActiveMembership && ["awaiting_responses", "coordinating", "scheduled"].includes(state.lifecycle) && (!latestArrangement || ["finalized", "rejected", "superseded"].includes(latestArrangement.status)) ? <section className="event-panel"><span className="section-kicker">Step 2 · Propose an arrangement</span><h2>Time and public venue</h2><p>Let the coordinator find the earliest overlap from everyone’s confirmed availability, or enter an alternative for validation. Participants will confirm after you approve it.</p><button className="secondary-button suggest-arrangement-button" type="button" disabled={Boolean(busy)} onClick={() => void act("suggest-arrangement", () => suggestEventArrangement(state.runId, state.revision))}>{busy === "suggest-arrangement" ? "Comparing availability…" : "Suggest best compatible arrangement"}</button><form className="arrangement-form" onSubmit={propose}><label><span>Start</span><input name="start" type="datetime-local" required defaultValue={localDateTime(proposed?.start)} /></label><label><span>End</span><input name="end" type="datetime-local" required defaultValue={localDateTime(proposed?.end)} /></label><label><span>Public venue</span><input name="venueName" required placeholder="For example, Sunny Community Kitchen" /></label><label><span>Public directions (optional)</span><input name="venueAddress" placeholder="Do not enter a participant's home address" /></label><button className="primary-button" disabled={Boolean(busy)}>{busy === "arrangement" ? "Checking…" : "Check & propose arrangement"}</button></form></section> : null}
 
         {organizer && latestArrangement?.status === "proposed" ? <section className="event-panel arrangement-review"><span className="section-kicker">Organizer approval</span><h2>Review the proposed arrangement</h2><ArrangementSummary state={state} /><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("reject-arrangement", () => decideEventArrangement({ runId: state.runId, arrangementId: latestArrangement.arrangementId, action: "reject", expectedRevision: state.revision }))}>Adjust it</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("approve-arrangement", () => decideEventArrangement({ runId: state.runId, arrangementId: latestArrangement.arrangementId, action: "approve", expectedRevision: state.revision }))}>Approve & ask everyone</button></div></section> : null}
 
-        {!organizer && ownMembership && latestArrangement?.status === "awaiting_participant_confirmation" && latestArrangement.confirmations.find((item) => item.userId === user.id)?.status === "pending" ? <section className="event-panel arrangement-review"><span className="section-kicker">Your confirmation</span><h2>Does this final arrangement work for you?</h2><ArrangementSummary state={state} /><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("reject-arrangement", () => decideEventArrangement({ runId: state.runId, arrangementId: latestArrangement.arrangementId, action: "reject", expectedRevision: state.revision }))}>I can’t make this</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("confirm-arrangement", () => decideEventArrangement({ runId: state.runId, arrangementId: latestArrangement.arrangementId, action: "confirm", expectedRevision: state.revision }))}>Confirm this arrangement</button></div></section> : null}
+        {!organizer && hasActiveMembership && latestArrangement?.status === "awaiting_participant_confirmation" && latestArrangement.confirmations.find((item) => item.userId === user.id)?.status === "pending" ? <section className="event-panel arrangement-review"><span className="section-kicker">Your confirmation</span><h2>Does this final arrangement work for you?</h2><ArrangementSummary state={state} /><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("reject-arrangement", () => decideEventArrangement({ runId: state.runId, arrangementId: latestArrangement.arrangementId, action: "reject", expectedRevision: state.revision }))}>I can’t make this</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("confirm-arrangement", () => decideEventArrangement({ runId: state.runId, arrangementId: latestArrangement.arrangementId, action: "confirm", expectedRevision: state.revision }))}>Confirm this arrangement</button></div></section> : null}
 
         {state.lifecycle === "scheduled" && finalized ? <section className="event-panel scheduled-panel"><span className="result-kicker"><Icon name="check" size={18} /> Everyone confirmed</span><h2>Your activity is scheduled</h2><ArrangementSummary state={state} /></section> : null}
 
         {organizer && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Quest controls</h2><p>{state.lifecycle === "forming" ? "Cancel this quest if you no longer want to coordinate it." : "Return to group selection to replace someone, or cancel the quest for everyone."}</p><div className="split-actions">{state.lifecycle === "scheduled" ? <button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("start", () => transitionEventQuest({ runId: state.runId, action: "start", expectedRevision: state.revision }))}>Start activity</button> : null}{state.lifecycle === "in_progress" ? <button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("complete", () => transitionEventQuest({ runId: state.runId, action: "complete", expectedRevision: state.revision }))}>Mark completed</button> : null}{!["forming", "in_progress"].includes(state.lifecycle) ? <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("reopen", () => transitionEventQuest({ runId: state.runId, action: "reopen", expectedRevision: state.revision }))}>Edit the group</button> : null}<button className="quiet-button danger" disabled={Boolean(busy)} onClick={() => void act("cancel", () => transitionEventQuest({ runId: state.runId, action: "cancel", expectedRevision: state.revision }))}>Cancel quest</button></div></section> : null}
 
-        {!organizer && ownInvitation?.status === "accepted" && ownMembership && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Can’t continue?</h2><p>Withdraw from this activity so the organizer can update the group and arrangement.</p><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("withdraw", () => transitionEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, action: "withdraw", expectedRevision: state.revision }))}>Withdraw from quest</button></section> : null}
+        {!organizer && ownInvitation?.status === "accepted" && hasActiveMembership && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Can’t continue?</h2><p>Withdraw from this activity so the organizer can update the group and arrangement.</p><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("withdraw", () => transitionEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, action: "withdraw", expectedRevision: state.revision }))}>Withdraw from quest</button></section> : null}
       </article>
   </div>;
 }
@@ -189,6 +198,27 @@ function formatWindow(start: string, end: string) {
 
 function friendlyMember(value: string) {
   return value.replace(/^demo_/, "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function participantDisplayStatus(input: {
+  organizer: boolean;
+  invitationStatus?: string;
+  membershipStatus?: string;
+  fallback: string;
+}): { key: string; label: string } {
+  if (input.organizer) return { key: "joining", label: "Coordinating" };
+  if (input.invitationStatus === "pending") return { key: "invited", label: "Invitation pending" };
+  if (input.invitationStatus === "accepted") return { key: "joining", label: "Accepted" };
+  if (input.invitationStatus === "declined") return { key: "declined", label: "Declined" };
+  if (["withdrawn", "replaced", "cancelled"].includes(input.invitationStatus ?? "")) {
+    return { key: "replaced", label: (input.invitationStatus ?? "Updated").replaceAll("_", " ") };
+  }
+  if (input.membershipStatus === "awaiting_confirmation") return { key: "invited", label: "Needs confirmation" };
+  if (["confirmed", "completed"].includes(input.membershipStatus ?? "")) {
+    return { key: "joining", label: input.membershipStatus === "completed" ? "Completed" : "Confirmed" };
+  }
+  if (input.membershipStatus === "coordinating") return { key: "joining", label: "Coordinating" };
+  return { key: input.fallback, label: input.fallback.replaceAll("_", " ") };
 }
 
 function participantRoster(state: EventCoordinationState) {
