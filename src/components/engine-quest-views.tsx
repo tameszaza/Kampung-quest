@@ -123,18 +123,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true }: { runId
           </div>
         </div>
       </section>
-      <nav className="quest-detail-tabs" aria-label="Quest details">
-        <a className="active" href="#about"><Icon name="check" size={18} /><span>About</span></a>
-        <a href="#expect"><Icon name="calendar" size={18} /><span>Good to know</span></a>
-        <a href="#participants"><Icon name="people" size={18} /><span>People</span></a>
-        <a href="#location"><Icon name="pin" size={18} /><span>Location</span></a>
-      </nav>
       <article className="detail-content quest-detail-content">
-          <section className="quest-about-grid" id="about">
-            <div><h2>About this activity</h2><p>{proposal.quest.description}</p><div className="quest-callout"><Icon name="shield" size={20} /><span>Friendly, beginner-ready activity. Everyone can take part at their own pace.</span></div></div>
-            <div id="expect"><h2>Good to know</h2><ul className="quest-check-list">{(proposal.quest.needsAddressed.length ? proposal.quest.needsAddressed : ["Relaxed shared activity", "Easy conversation"]).slice(0, 3).map((item) => <li key={item}><Icon name="check" size={17} />{item}</li>)}</ul></div>
-            <div id="location"><h2>Bring if useful</h2><ul className="quest-need-list"><li><Icon name="check" size={17} />Comfortable clothes</li><li><Icon name="check" size={17} />Water</li></ul></div>
-          </section>
           <section className="engine-participants quest-participants" id="participants"><h2>Everyone has a role</h2><p className="participant-count">{participantCountLabel(participantCount)}</p>{participants.map((participant) => {
             const profile = run.participantProfiles?.find((candidate) => candidate.candidateId === participant.candidateId);
             const name = profile?.displayName ?? participantLabel(participant.candidateId, user.id);

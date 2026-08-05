@@ -118,19 +118,8 @@ function EventQuestWorkspace({ state, imageUrl, onChange }: {
         </div>
       </div>
     </section>
-    <nav className="quest-detail-tabs" aria-label="Quest details">
-      <a className="active" href="#about"><Icon name="check" size={18} /><span>About</span></a>
-      <a href="#expect"><Icon name="calendar" size={18} /><span>Good to know</span></a>
-      <a href="#participants"><Icon name="people" size={18} /><span>People</span></a>
-      <a href="#location"><Icon name="pin" size={18} /><span>Location</span></a>
-    </nav>
     <article className="detail-content quest-detail-content">
         {error ? <div className="form-alert" role="alert">{error}</div> : null}
-        <section className="quest-about-grid" id="about">
-          <div><h2>About this activity</h2><p>{state.proposal.quest.description}</p><div className="quest-callout"><Icon name="shield" size={20} /><span>Friendly, beginner-ready activity. Everyone can take part at their own pace.</span></div></div>
-          <div id="expect"><h2>Good to know</h2><ul className="quest-check-list">{(state.proposal.quest.needsAddressed.length ? state.proposal.quest.needsAddressed : ["Relaxed shared activity", "Easy conversation"]).slice(0, 3).map((item) => <li key={item}><Icon name="check" size={17} />{item}</li>)}</ul></div>
-          <div id="location"><h2>Bring if useful</h2><ul className="quest-need-list"><li><Icon name="check" size={17} />Comfortable clothes</li><li><Icon name="check" size={17} />Water</li></ul></div>
-        </section>
 
         <section className="event-panel participant-summary quest-participants" id="participants">
           <span className="section-kicker">Everyone has a role</span>
@@ -164,7 +153,7 @@ function EventQuestWorkspace({ state, imageUrl, onChange }: {
 
         {organizer && state.lifecycle !== "forming" && state.invitations.some((invitation) => ["pending", "accepted"].includes(invitation.status)) ? <section className="event-panel"><span className="section-kicker">Invitation status</span><h2>Current guest responses</h2><div className="event-roster">{state.invitations.filter((invitation) => ["pending", "accepted"].includes(invitation.status)).map((invitation) => <div key={invitation.invitationId}><span className="member-initial">{friendlyMember(invitation.guestId).slice(0, 1)}</span><p><strong>{friendlyMember(invitation.guestId)}</strong><small>{invitation.status}</small></p><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button></div>)}</div><p className="assistant-note">Replacing preserves the invitation history and returns the quest to group selection. Choose and validate the new guest before sending another invitation.</p></section> : null}
 
-        {ownMembership ? <section className="event-panel coordination-entry"><span className="section-kicker">Private coordination</span><h2>Tell the coordinator what you need</h2><p>Share availability, accessibility, travel, dietary, environmental, or venue requirements privately. Other participants cannot see this conversation.</p><Link className="primary-button" href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Open coordination chat</Link></section> : null}
+        {ownMembership ? <Link className="primary-button quest-group-chat-link" href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Open quest group chat</Link> : null}
 
         {organizer && ownMembership && ["awaiting_responses", "coordinating", "scheduled"].includes(state.lifecycle) && (!latestArrangement || ["finalized", "rejected", "superseded"].includes(latestArrangement.status)) ? <section className="event-panel"><span className="section-kicker">Step 2 · Propose an arrangement</span><h2>Time and public venue</h2><p>Let the coordinator find the earliest overlap from everyone’s confirmed availability, or enter an alternative for validation. Participants will confirm after you approve it.</p><button className="secondary-button suggest-arrangement-button" type="button" disabled={Boolean(busy)} onClick={() => void act("suggest-arrangement", () => suggestEventArrangement(state.runId, state.revision))}>{busy === "suggest-arrangement" ? "Comparing availability…" : "Suggest best compatible arrangement"}</button><form className="arrangement-form" onSubmit={propose}><label><span>Start</span><input name="start" type="datetime-local" required defaultValue={localDateTime(proposed?.start)} /></label><label><span>End</span><input name="end" type="datetime-local" required defaultValue={localDateTime(proposed?.end)} /></label><label><span>Public venue</span><input name="venueName" required placeholder="For example, Sunny Community Kitchen" /></label><label><span>Public directions (optional)</span><input name="venueAddress" placeholder="Do not enter a participant's home address" /></label><button className="primary-button" disabled={Boolean(busy)}>{busy === "arrangement" ? "Checking…" : "Check & propose arrangement"}</button></form></section> : null}
 

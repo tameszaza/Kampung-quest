@@ -2182,7 +2182,7 @@
   outline: 3px solid rgba(16, 157, 112, 0.14);
 }
 
-.message-composer > button {
+.message-composer .message-composer-send {
   width: 50px;
   height: 50px;
   border: 0;
@@ -2193,9 +2193,10 @@
   place-items: center;
   font-size: 20px;
   cursor: pointer;
+  appearance: none;
 }
 
-.message-composer > button:disabled {
+.message-composer .message-composer-send:disabled {
   background: #b9c5c1;
   cursor: not-allowed;
 }
@@ -5923,112 +5924,16 @@
   color: var(--green-700);
 }
 
-.quest-detail-tabs {
-  min-height: 58px;
-  padding: 0 24px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.quest-detail-tabs a {
-  position: relative;
-  min-width: 0;
-  color: var(--ink-soft);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.quest-detail-tabs a.active {
-  color: var(--green-800);
-}
-
-.quest-detail-tabs a.active::after {
-  position: absolute;
-  right: 12px;
-  bottom: -1px;
-  left: 12px;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: var(--green-600);
-  content: "";
-}
-
 .quest-detail-content {
   padding: 24px 40px 112px;
 }
 
-.quest-about-grid {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr .85fr;
-  gap: 30px;
-  padding: 0 0 28px;
-  border-bottom: 1px solid var(--line);
-}
-
-.quest-about-grid > div + div {
-  padding-left: 28px;
-  border-left: 1px solid var(--line);
-}
-
-.quest-about-grid h2,
 .quest-participants h2,
 .engine-assurance h2 {
   margin: 0 0 12px;
   color: var(--green-900);
   font-size: 17px;
   letter-spacing: -.02em;
-}
-
-.quest-about-grid p {
-  margin: 0;
-  color: var(--ink-soft);
-  line-height: 1.55;
-}
-
-.quest-callout {
-  max-width: 360px;
-  margin-top: 18px;
-  padding: 13px 14px;
-  border-radius: 12px;
-  background: var(--green-50);
-  color: var(--green-900);
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.quest-callout svg,
-.quest-check-list svg,
-.quest-need-list svg {
-  flex: 0 0 auto;
-  color: var(--green-700);
-}
-
-.quest-check-list,
-.quest-need-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 12px;
-  color: var(--ink-soft);
-  font-size: 13px;
-}
-
-.quest-check-list li,
-.quest-need-list li {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
 }
 
 .quest-participants {
@@ -6117,6 +6022,18 @@
 
 .quest-detail-ref .event-panel h2 {
   font-size: 17px;
+}
+
+.quest-detail-ref .quest-participants {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.quest-detail-ref .quest-group-chat-link {
+  display: flex;
+  width: min(100%, 360px);
+  margin: 28px 0 4px;
 }
 
 .quest-detail-ref .event-roster > div,
@@ -6253,42 +6170,13 @@
     font-size: 13px;
   }
 
-  .quest-detail-tabs {
-    min-height: 66px;
-    padding: 0 10px;
-    overflow-x: auto;
-    grid-template-columns: repeat(4, minmax(88px, 1fr));
-    gap: 0;
-    scrollbar-width: none;
-  }
-
-  .quest-detail-tabs::-webkit-scrollbar { display: none; }
-
-  .quest-detail-tabs a {
-    flex-direction: column;
-    gap: 4px;
-    font-size: 11px;
-  }
-
-  .quest-detail-tabs a.active::after {
-    right: 9px;
-    left: 9px;
-  }
-
   .quest-detail-content {
     padding: 22px 18px 40px;
   }
 
-  .quest-about-grid {
-    grid-template-columns: 1fr;
-    gap: 24px;
-    padding-bottom: 22px;
-  }
-
-  .quest-about-grid > div + div {
-    padding: 24px 0 0;
-    border-top: 1px solid var(--line);
-    border-left: 0;
+  .quest-detail-ref .quest-group-chat-link {
+    width: 100%;
+    margin-top: 22px;
   }
 
   .quest-participants .event-roster,
@@ -6298,6 +6186,10 @@
 
   .quest-detail-ref .event-panel {
     padding-top: 20px;
+  }
+
+  .quest-detail-ref .quest-participants {
+    padding-top: 0;
   }
 
   .quest-detail-ref .detail-action {

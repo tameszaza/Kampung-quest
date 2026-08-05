@@ -58,7 +58,7 @@ export function ChatComposer({ onSubmit, placeholder, disabled = false, multilin
         <label className="sr-only" htmlFor={id}>Your answer</label>
         <textarea id={id} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} rows={1} maxLength={maxLength} disabled={disabled} autoFocus={autoFocus} />
   </> : <label><span className="sr-only">Type a message</span><input name={name} value={inputValue} onChange={onInputChange} onKeyDown={onInputKeyDown} autoComplete="off" maxLength={maxLength} disabled={disabled} placeholder={placeholder} /></label>}
-      {children ?? <button type="submit" aria-label="Send message" disabled={disabled}><span aria-hidden="true">➤</span></button>}
+      {children ?? <button className="message-composer-send" type="submit" aria-label="Send message" disabled={disabled}><span aria-hidden="true">➤</span></button>}
     </form>
   );
 }
