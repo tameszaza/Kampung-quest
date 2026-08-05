@@ -76,6 +76,12 @@ export const rewardOffers: RewardOffer[] = [
     locations: "Participating garden centres",
     partnerDescription: "Green Garden Centre helps neighbours keep growing with practical supplies for balconies, windowsills, and community gardens.",
     redemptionSteps: ["Complete or attend any Senior Quest activity.", "Choose this gardening credit from your available rewards.", "Show the reward code at a participating centre.", "Use the credit on eligible gardening supplies."],
+    outletImage: "/assets/garden_centre_interior.jpg",
+    menuImages: [
+      "/assets/gardening_tools_flatlay.jpg",
+      "/assets/planting_herb_seedling.jpg",
+      "/assets/potted_herbs_selection.jpg",
+    ],
   },
   {
     offerId: "community-cinema-ticket",
