@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useEffect, useState, type FormEvent } from "react";
 import { EngineQuestDetail } from "@/components/engine-quest-views";
 import { Icon } from "@/components/icons";
+import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useUser } from "@/components/user-context";
 import { getQuestRun } from "@/features/assistant/client";
@@ -105,7 +106,7 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
     : proposed ? formatWindow(proposed.start, proposed.end) : "No availability window proposed";
 
   return <div className="detail-page engine-detail-page event-workspace quest-detail-ref">
-    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to activities"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
+    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to activities"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><div className="page-header-side page-header-right"><button className="icon-button detail-save-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button><MobileMoreButton /></div></header></div>
     <section className="quest-detail-hero">
       <div className="quest-detail-hero-image">
         <Image src={imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />
@@ -139,7 +140,7 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
               fallback: member.source === "recommended" ? "suggested" : "pending",
             });
             const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
-            const displayName = member.userId === user.id ? "You" : profile?.displayName ?? friendlyMember(member.userId);
+            const displayName = profile?.displayName ?? (member.userId === user.id ? "You" : "Community member");
             return <div key={member.userId}>
               <ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} />
               <p><strong>{displayName}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
@@ -153,10 +154,14 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
           <span className="section-kicker">Step 1 · Review your group</span>
           <h2>{state.roster.length} of {targetGroupSize} people selected</h2>
           <p>Change the guest list before any invitations are sent. Every change is checked against availability, consent, group limits, and safety rules.</p>
-          <div className="event-roster">{state.roster.map((member) => <div key={member.userId}><span className="member-initial">{friendlyMember(member.userId).slice(0, 1)}</span><p><strong>{member.userId === user.id ? "You" : friendlyMember(member.userId)}</strong><small>{member.source === "recommended" ? "Recommended match" : member.source === "manual" ? "Selected by you" : "Organizer"} · {member.explanation.join(" · ")}</small></p>{member.source !== "initiator" ? <button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}</div>)}</div>
+          <div className="event-roster">{state.roster.map((member) => {
+            const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
+            const displayName = profile?.displayName ?? (member.userId === user.id ? "You" : "Community member");
+            return <div key={member.userId}><ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} /><p><strong>{displayName}</strong><small>{member.source === "recommended" ? "Recommended match" : member.source === "manual" ? "Selected by you" : "Organizer"} · {member.explanation.join(" · ")}</small></p>{member.source !== "initiator" ? <button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}</div>;
+          })}</div>
           {!state.rosterValidation.valid ? <ul className="validation-errors">{state.rosterValidation.errors.map((item) => <li key={`${item.field}-${item.message}`}>{item.message}</li>)}</ul> : null}
           <form className="event-person-search" onSubmit={search}><label><span>Invite people you know</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an existing member" /></label><button className="secondary-button" disabled={busy === "search"}>{busy === "search" ? "Searching…" : "Search"}</button></form>
-          {contacts.length ? <div className="contact-picker event-contact-results">{contacts.map((contact) => <button type="button" key={contact.id} disabled={Boolean(busy)} onClick={() => void act(`add-${contact.id}`, () => updateEventRoster({ runId: state.runId, action: "add", userId: contact.id, expectedRevision: state.revision }))}><span className="member-initial">{contact.fullName.slice(0, 1)}</span><span><strong>{contact.fullName}</strong><small>{contact.username ? `@${contact.username}` : "Community member"}</small></span><b>+</b></button>)}</div> : null}
+          {contacts.length ? <div className="contact-picker event-contact-results">{contacts.map((contact) => <button type="button" key={contact.id} disabled={Boolean(busy)} onClick={() => void act(`add-${contact.id}`, () => updateEventRoster({ runId: state.runId, action: "add", userId: contact.id, expectedRevision: state.revision }))}><ProfileAvatar name={contact.fullName} photoUrl={contact.photoUrl} size={44} /><span><strong>{contact.fullName}</strong><small>{contact.username ? `@${contact.username}` : "Community member"}</small></span><b>+</b></button>)}</div> : null}
           <button className="primary-button event-confirm-roster" type="button" disabled={Boolean(busy) || !state.rosterValidation.valid} onClick={() => void act("confirm-roster", () => confirmEventRoster(state.runId, state.revision))}>{busy === "confirm-roster" ? "Preparing invitations…" : "Confirm group & send invitations"}</button>
         </section> : null}
 
@@ -194,10 +199,6 @@ function formatWindow(start: string, end: string) {
   const from = new Date(start);
   const until = new Date(end);
   return `${from.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
-
-function friendlyMember(value: string) {
-  return value.replace(/^demo_/, "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
 function participantDisplayStatus(input: {

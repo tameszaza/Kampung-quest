@@ -1745,6 +1745,13 @@
   letter-spacing: -0.04em;
 }
 
+.chat-list-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .message-search {
   min-height: 50px;
   margin: 8px 18px 14px;
@@ -6192,6 +6199,10 @@
   }
 
   .quest-detail-ref .detail-back-link span {
+    display: none;
+  }
+
+  .quest-detail-ref .detail-save-button {
     display: none;
   }
 

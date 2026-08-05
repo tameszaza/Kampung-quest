@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventActivityCard } from "@/server/domain/event-coordination";
-import { buildRewardSummary, POINTS_PER_COMPLETED_ACTIVITY } from "@/server/features/reward-service";
+import { buildRewardSummary, POINTS_PER_COMPLETED_ACTIVITY, rewardOffers } from "@/server/features/reward-service";
 
 function completedActivity(runId: string, title = "Community walk"): EventActivityCard {
   return {
@@ -37,5 +37,12 @@ describe("reward summary", () => {
     expect(summary.earnings).toEqual([]);
     expect(summary.offers.length).toBeGreaterThan(0);
     expect(summary.pointsUntilNextReward).toBe(250);
+  });
+
+  it("keeps every collaboration uniquely addressable for its detail page", () => {
+    const ids = rewardOffers.map((offer) => offer.offerId);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(rewardOffers.every((offer) => offer.title && offer.company && offer.redemptionSteps.length > 0)).toBe(true);
   });
 });

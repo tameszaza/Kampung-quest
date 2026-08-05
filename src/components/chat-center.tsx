@@ -6,6 +6,7 @@ import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { EventCoordinationConversation } from "@/components/event-coordination-conversation";
 import { Icon } from "@/components/icons";
+import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { useAppState } from "@/components/app-state";
 import { getQuestRun } from "@/features/assistant/client";
 import { getEventCoordinationThread, getEventQuest, listEventActivities } from "@/features/events/client";
@@ -249,7 +250,7 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
     <div className={`chat-center${selectedId ? " conversation-open" : ""}`}>
       <section className="conversation-panel" aria-label="Conversations">
         <header className="chat-list-header">
-          <div><p>Your conversations</p><h1>Messages</h1></div>
+          <div className="chat-list-title"><MobileMoreButton /><div><p>Your conversations</p><h1>Messages</h1></div></div>
           <button className="round-add" type="button" onClick={() => setCreating(true)} aria-label="Start a new conversation"><Icon name="plus" size={24} /></button>
         </header>
         <label className="message-search"><span className="sr-only">Search messages</span><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search messages" /></label>

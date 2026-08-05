@@ -3,6 +3,10 @@
   display: none;
 }
 
+.mobile-more-button {
+  flex: 0 0 auto;
+}
+
 .desktop-avatar {
   position: relative;
 }
@@ -102,6 +106,10 @@
 }
 
 @media (min-width: 768px) {
+  .mobile-more-button {
+    display: none;
+  }
+
   .bottom-nav {
     display: none;
   }

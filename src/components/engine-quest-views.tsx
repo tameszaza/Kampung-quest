@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { EngineQuestCard, questDate, questImage } from "@/components/engine-quest-card";
 import { ActivityActions } from "@/components/activity-actions";
 import { Icon } from "@/components/icons";
+import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { QuestCard } from "@/components/quest-card";
 import { getQuestRun, listUserQuests } from "@/features/assistant/client";
 import { quests } from "@/data/mock-data";
@@ -108,7 +109,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true, backHref 
 
   return (
     <div className={`detail-page engine-detail-page quest-detail-ref${showActivityActions ? "" : " without-action"}`}>
-      <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to quests"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><button className="icon-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button></header></div>
+      <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to quests"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><div className="page-header-side page-header-right"><button className="icon-button detail-save-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button><MobileMoreButton /></div></header></div>
       <section className="quest-detail-hero">
         <div className="quest-detail-hero-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />{run.status === "human_review" && <span className="image-badge">Needs review</span>}<span className="quest-image-label"><Icon name="home" size={15} /> {activityLabel(proposal.quest.questType)}</span></div>
         <div className="quest-detail-hero-copy">

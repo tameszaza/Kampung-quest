@@ -62,6 +62,7 @@ function RewardOfferCard({ offer, balance }: { offer: RewardOffer; balance: numb
     <span className="reward-category">{offer.category}</span>
     <h3>{offer.title}</h3>
     <p>{offer.description}</p>
-    <div className="reward-offer-footer"><span><Icon name="gift" size={18} /><strong>{offer.pointsCost}</strong> points</span><button type="button" className={affordable ? "primary-button" : "secondary-button"} disabled title="Reward redemption is coming soon">Coming soon</button></div>
+    <div className="reward-offer-footer"><span><Icon name="gift" size={18} /><strong>{offer.pointsCost}</strong> points</span><Link className="secondary-button reward-more-link" href={`/rewards/${offer.offerId}`}>More details <Icon name="chevron" size={16} /></Link></div>
+    <span className="sr-only">{affordable ? "You have enough points to preview this offer." : `You need ${offer.pointsCost - balance} more points to preview this offer.`}</span>
   </article>;
 }

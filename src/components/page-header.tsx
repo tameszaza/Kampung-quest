@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icons";
+import { MobileMoreButton } from "@/components/mobile-more-menu";
 
 export function PageHeader({
   title,
@@ -29,10 +30,10 @@ export function PageHeader({
           <button className="icon-button" type="button" onClick={() => router.back()} aria-label="Go back">
             <Icon name="back" />
           </button>
-        ) : null}
+        ) : <MobileMoreButton />}
       </div>
       <h1>{title}</h1>
-      <div className="page-header-side page-header-right">{right}</div>
+      <div className="page-header-side page-header-right">{right ?? (back ? <MobileMoreButton /> : null)}</div>
     </header>
   );
 }
