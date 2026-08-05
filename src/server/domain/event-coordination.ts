@@ -127,12 +127,46 @@ export interface CoordinationRequirements {
   other: string[];
 }
 
+export interface AppointmentPatch {
+  start?: string;
+  end?: string;
+  /** Local wall-clock time in HH:mm, resolved on the current appointment date. */
+  localTime?: string;
+  durationMinutes?: number;
+  venueName?: string;
+  venueAddress?: string | null;
+}
+
+export type CoordinationIntent =
+  | { type: "social" }
+  | { type: "question"; topic: "status" | "confirmations" | "compatibility" | "other" }
+  | { type: "update_requirement"; patch: Partial<CoordinationRequirements>; ambiguity?: string[] }
+  | { type: "change_appointment"; patch: AppointmentPatch; referencesSuggestionId?: string }
+  | { type: "confirm_appointment"; appointmentVersion: number | null }
+  | { type: "reject_appointment"; appointmentVersion: number | null; reason?: string }
+  | {
+      type: "organizer_action";
+      action: "change_roster" | "cancel" | "start" | "complete";
+      details?: Record<string, unknown>;
+    }
+  | { type: "unsupported"; reason: string };
+
 export interface EventCoordinationMessage {
   messageId: string;
+  senderId?: string | null;
   role: "participant" | "assistant" | "system";
   body: string;
   kind: "text" | "invitation_card" | "arrangement_card" | "change_card";
   createdAt: string;
+}
+
+export interface EventGroupCoordinationThread {
+  threadId: string;
+  runId: string;
+  revision: number;
+  messages: EventCoordinationMessage[];
+  readBy: Record<string, string>;
+  updatedAt: string;
 }
 
 export interface EventCoordinationThread {
@@ -174,6 +208,24 @@ export interface EventArrangement {
   updatedAt: string;
 }
 
+export interface EventAppointmentSuggestion {
+  suggestionId: string;
+  runId: string;
+  basedOnRevision: number;
+  sourceMessageId: string;
+  requestedPatch: AppointmentPatch;
+  alternative: {
+    start: string;
+    end: string;
+    venueName: string;
+    venueAddress: string | null;
+  };
+  publicReasonCategories: string[];
+  status: "offered" | "accepted" | "expired";
+  expiresAt: string;
+  createdAt: string;
+}
+
 export interface EventCoordinationState {
   runId: string;
   initiatorId: string;
@@ -188,11 +240,15 @@ export interface EventCoordinationState {
   invitations: EventInvitation[];
   memberships: EventMembership[];
   threads: EventCoordinationThread[];
+  groupThread: EventGroupCoordinationThread | null;
   arrangements: EventArrangement[];
+  appointmentSuggestions: EventAppointmentSuggestion[];
   notifications: EventNotification[];
   auditEvents: EventCoordinationAuditEvent[];
   outbox: EventOutboxJob[];
   processedCommands: string[];
+  /** IANA timezone used to resolve conversational dates and wall-clock times. */
+  timeZone: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -337,7 +393,14 @@ export interface EventActivityCard {
   description: string;
   lifecycle: EventQuestLifecycle;
   durationMinutes: number;
+  timeZone: string;
   provisionalAvailability: { start: string; end: string } | null;
+  workingArrangement: {
+    start: string;
+    end: string;
+    venueName: string;
+    version: number;
+  } | null;
   finalArrangement: {
     start: string;
     end: string;

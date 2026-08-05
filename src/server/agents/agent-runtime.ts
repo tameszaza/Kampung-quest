@@ -14,7 +14,7 @@ import type {
   QuestBriefDraft,
   ValidationErrorItem,
 } from "@/server/domain/schemas";
-import type { CoordinationRequirements } from "@/server/domain/event-coordination";
+import type { CoordinationIntent, CoordinationRequirements, EventAppointmentSuggestion, EventArrangement } from "@/server/domain/event-coordination";
 
 export type AgentAuditSink = (record: AgentRunAudit) => Promise<void>;
 
@@ -58,10 +58,15 @@ export interface AgentRuntime {
     quest: { title: string; description: string; durationMinutes: number };
     messages: Array<{ role: "participant" | "assistant" | "system"; body: string }>;
     currentRequirements: CoordinationRequirements;
+    currentAppointment?: Pick<EventArrangement, "version" | "start" | "end" | "venueName" | "status"> | null;
+    latestSuggestion?: Pick<EventAppointmentSuggestion, "suggestionId" | "alternative" | "expiresAt"> | null;
+    timeZone?: string;
+    scope?: "private" | "group";
     latestMessage: string;
     auditContext?: Record<string, string>;
   }): Promise<{
     reply: string;
     requirementPatch: Partial<CoordinationRequirements>;
+    intent: CoordinationIntent;
   }>;
 }

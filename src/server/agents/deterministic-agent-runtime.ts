@@ -105,6 +105,74 @@ export class DeterministicAgentRuntime implements AgentRuntime {
     const message = input.latestMessage.trim();
     const lower = message.toLowerCase();
     const requirementPatch: Awaited<ReturnType<AgentRuntime["coordinateEvent"]>>["requirementPatch"] = {};
+    if (input.scope === "group" && /^(hi|hello|hey|thanks|thank you|sounds fun|looking forward)[!. ]*$/i.test(message)) {
+      return { reply: "", requirementPatch, intent: { type: "social" } };
+    }
+    if (/^(yes[,! ]*|i |we )?(confirm|agree|approve)( this| it| the (plan|appointment))?[.! ]*$/i.test(message)
+      || /^(looks|sounds) good( to me)?[.! ]*$/i.test(message)) {
+      return {
+        reply: "I will check and record your confirmation for the current appointment.",
+        requirementPatch,
+        intent: { type: "confirm_appointment", appointmentVersion: input.currentAppointment?.version ?? null },
+      };
+    }
+    if (/\b(use|take|choose|go with|accept)\s+(that|the)\s+(option|suggestion|time|one)\b/i.test(message)
+      && input.latestSuggestion) {
+      return {
+        reply: "I will recheck and apply that suggested option.",
+        requirementPatch,
+        intent: {
+          type: "change_appointment",
+          patch: {},
+          referencesSuggestionId: input.latestSuggestion.suggestionId,
+        },
+      };
+    }
+    if (/\b(who|what|status|waiting|confirmed|next step)\b/.test(lower) && /\?|who|what|status|waiting/.test(lower)) {
+      return {
+        reply: "I will check the current activity state.",
+        requirementPatch,
+        intent: {
+          type: "question",
+          topic: /confirm|waiting|who/.test(lower) ? "confirmations" : "status",
+        },
+      };
+    }
+    if (/\b(cancel|call off)\b/.test(lower)) {
+      return { reply: "I will check whether you can cancel this activity.", requirementPatch, intent: { type: "organizer_action", action: "cancel" } };
+    }
+    if (/\b(start|begin)\b.*\b(activity|quest)\b/.test(lower)) {
+      return { reply: "I will check whether the activity can start.", requirementPatch, intent: { type: "organizer_action", action: "start" } };
+    }
+    if (/\b(complete|completed|finish|finished)\b.*\b(activity|quest)\b/.test(lower)) {
+      return { reply: "I will check whether the activity can be completed.", requirementPatch, intent: { type: "organizer_action", action: "complete" } };
+    }
+    if (/\b(add|remove|replace)\b.*\b(person|participant|member|guest|roster)\b/.test(lower)) {
+      return { reply: "I will check that roster request.", requirementPatch, intent: { type: "organizer_action", action: "change_roster" } };
+    }
+    const localTime = parseRequestedLocalTime(lower);
+    const duration = /(?:for|duration(?: of)?)\s+(\d+)\s*(minutes?|mins?|hours?|hrs?)/i.exec(message);
+    const venueMatch = /(?:move|change|set|meet)(?: it| the activity)?(?: to| at)\s+(.+?)(?:\s+at\s+\d|[.!?]|$)/i.exec(message);
+    const venueName = venueMatch?.[1] && !/^\d{1,2}(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)$/i.test(venueMatch[1].trim())
+      ? venueMatch[1].trim()
+      : null;
+    if (localTime || duration || venueName) {
+      const durationValue = duration
+        ? Number(duration[1]) * (/hour|hr/i.test(duration[2]) ? 60 : 1)
+        : undefined;
+      return {
+        reply: "I will check that requested change against the whole group's confirmed requirements.",
+        requirementPatch,
+        intent: {
+          type: "change_appointment",
+          patch: {
+            ...(localTime ? { localTime } : {}),
+            ...(durationValue ? { durationMinutes: durationValue } : {}),
+            ...(venueName ? { venueName } : {}),
+          },
+        },
+      };
+    }
     if (/cannot|can't|unavailable|conflict|not free/.test(lower)) requirementPatch.temporaryConflicts = [message];
     if (/wheelchair|stairs|step-free|accessible|walking aid/.test(lower)) requirementPatch.accessibility = [message];
     if (/halal|vegetarian|vegan|allerg|diet/.test(lower)) requirementPatch.dietary = [message];
@@ -114,6 +182,19 @@ export class DeterministicAgentRuntime implements AgentRuntime {
     return {
       reply: "I have prepared that as a private coordination requirement. Please confirm it before I use it to arrange the quest.",
       requirementPatch,
+      intent: { type: "update_requirement", patch: requirementPatch },
     };
   }
+}
+
+function parseRequestedLocalTime(message: string): string | null {
+  const match = /\b(?:at|to)\s+(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(message);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const meridiem = match[3].toLowerCase().startsWith("p") ? "pm" : "am";
+  if (hour < 1 || hour > 12) return null;
+  if (meridiem === "pm" && hour !== 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }

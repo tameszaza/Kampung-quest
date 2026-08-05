@@ -322,6 +322,44 @@ export class PostgresKampungStore implements KampungStore {
           JSON.stringify(thread.confirmedRequirements.availableWindows), thread.updatedAt],
       );
     }
+    if (state.groupThread) {
+      const thread = state.groupThread;
+      await client.query(
+        `INSERT INTO quest.event_group_coordination_threads
+          (thread_id, run_id, revision, updated_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (thread_id) DO UPDATE
+         SET revision = EXCLUDED.revision, updated_at = EXCLUDED.updated_at`,
+        [thread.threadId, state.runId, thread.revision, thread.updatedAt],
+      );
+      for (const message of thread.messages) {
+        await client.query(
+          `INSERT INTO quest.event_group_coordination_messages
+            (message_id, thread_id, sender_id, role, kind, body, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (message_id) DO NOTHING`,
+          [message.messageId, thread.threadId, message.senderId ?? null, message.role, message.kind, message.body, message.createdAt],
+        );
+      }
+      for (const [userId, readAt] of Object.entries(thread.readBy)) {
+        await client.query(
+          `INSERT INTO quest.event_group_coordination_reads (thread_id, user_id, read_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (thread_id, user_id) DO UPDATE SET read_at = EXCLUDED.read_at`,
+          [thread.threadId, userId, readAt],
+        );
+      }
+    }
+    for (const suggestion of state.appointmentSuggestions ?? []) {
+      await client.query(
+        `INSERT INTO quest.event_appointment_suggestions
+          (suggestion_id, run_id, based_on_revision, source_message_id, status, payload, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+         ON CONFLICT (suggestion_id) DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload`,
+        [suggestion.suggestionId, state.runId, suggestion.basedOnRevision, suggestion.sourceMessageId,
+          suggestion.status, JSON.stringify(suggestion), suggestion.expiresAt, suggestion.createdAt],
+      );
+    }
     for (const arrangement of state.arrangements) {
       await client.query(
         `INSERT INTO quest.event_arrangements

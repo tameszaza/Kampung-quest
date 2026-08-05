@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
@@ -205,8 +206,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
         <div className="conversation-list">
           {filtered.map((conversation) => (
             <button className={`conversation-row${selectedId === conversation.id ? " selected" : ""}`} type="button" key={conversation.id} onClick={() => openConversation(conversation.id)}>
-              {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={conversation.type === "group"} />}
-              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.type === "group" ? `${conversation.memberCount} members · ` : ""}{conversation.preview}</small></span>
+              {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={isGroupConversation(conversation)} />}
+              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{isGroupConversation(conversation) ? `${conversation.memberCount} members · ` : conversation.type === "quest_private" ? "Private · " : ""}{conversation.preview}</small></span>
               {conversation.unreadCount ? <b className="unread-badge" aria-label={`${conversation.unreadCount} unread messages`}>{conversation.unreadCount}</b> : null}
             </button>
           ))}
@@ -219,8 +220,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
             <div className="chat-header-stack">
               <header className="chat-header">
                 <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
-                {assistantSelected ? <AssistantAvatar size={48} /> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group={activeConversation.type === "group"} />}
-                <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "group" ? `${activeConversation.memberCount} members` : "Community member"}</p></span>
+                {assistantSelected ? <AssistantAvatar size={48} /> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group={isGroupConversation(activeConversation)} />}
+                <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "quest_private" ? "Private coordination with Senior Quest" : isGroupConversation(activeConversation) ? `${activeConversation.memberCount} members${activeConversation.type === "quest_group" ? " · Senior Quest coordinates here" : ""}` : "Community member"}</p></span>
                 <div className="chat-header-actions">
                   <button
                     className="chat-more-button"
@@ -235,8 +236,10 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
               </header>
               {menuOpen ? <div className="chat-options-menu" role="menu" aria-label={assistantSelected ? "Senior Quest options" : "Chat options"}>
                 {assistantSelected ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setAssistantResetToken((value) => value + 1); }}><Icon name="refresh" size={18} /> Start over</button> : <>
-                  {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : activeConversation.blocked ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); void completeChatAction("unblock"); }}><Icon name="blocked" size={18} /> Unblock user</button> : <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> Block user</button>}
-                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
+                  {isQuestConversation(activeConversation) ? <Link role="menuitem" href={`/quests/${encodeURIComponent(activeConversation.questId ?? "")}`} onClick={() => setMenuOpen(false)}><Icon name="chevron" size={18} /> Activity details</Link> : <>
+                    {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : activeConversation.blocked ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); void completeChatAction("unblock"); }}><Icon name="blocked" size={18} /> Unblock user</button> : <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> Block user</button>}
+                    <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
+                  </>}
                 </>}
               </div> : null}
               {!assistantSelected && confirmAction ? (
@@ -252,7 +255,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
               {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}
               {!messageLoading && messages.length === 0 ? <div className="empty-conversation"><span>👋</span><p>Say hello and start the conversation.</p></div> : null}
               {messages.map((message, index) => {
-                const showName = activeConversation.type === "group" && !message.mine && messages[index - 1]?.senderId !== message.senderId;
+                const showName = isGroupConversation(activeConversation) && !message.mine && messages[index - 1]?.senderId !== message.senderId;
                 return <ChatMessageBubble
                   key={message.id}
                   body={message.body}
@@ -359,6 +362,14 @@ function Avatar({ src, name, size, group = false }: { src: string | null; name: 
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
   return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <Image src={src!} alt="" fill sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
+}
+
+function isGroupConversation(conversation: ConversationSummary): boolean {
+  return conversation.type === "group" || conversation.type === "quest_group";
+}
+
+function isQuestConversation(conversation: ConversationSummary): boolean {
+  return conversation.type === "quest_private" || conversation.type === "quest_group";
 }
 
 function formatThreadTime(value: string) {

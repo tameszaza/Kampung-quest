@@ -117,6 +117,35 @@ describe("test user personas", () => {
     }
   });
 
+  it("turns appointment requests into actions and stays quiet for social group messages", async () => {
+    const runtime = new DeterministicAgentRuntime();
+    const base = {
+      quest: { title: "Fixture quest", description: "Fixture coordination", durationMinutes: 60 },
+      messages: [],
+      currentRequirements: {
+        availableWindows: [], accessibility: [], travel: [], dietary: [], environmental: [],
+        venuePreferences: [], temporaryConflicts: [], other: [],
+      },
+    };
+    const change = await runtime.coordinateEvent({
+      ...base,
+      scope: "group",
+      latestMessage: "Move it to NTU Hall 15 at 11 AM",
+    });
+    expect(change.intent).toEqual({
+      type: "change_appointment",
+      patch: { localTime: "11:00", venueName: "NTU Hall 15" },
+    });
+
+    const social = await runtime.coordinateEvent({
+      ...base,
+      scope: "group",
+      latestMessage: "Thanks!",
+    });
+    expect(social.intent).toEqual({ type: "social" });
+    expect(social.reply).toBe("");
+  });
+
   it("keeps the credential CSV synchronized with the persona catalog", () => {
     const csv = readFileSync("test-data/test-users.csv", "utf8");
     const [headers, ...rows] = parseCsv(csv);

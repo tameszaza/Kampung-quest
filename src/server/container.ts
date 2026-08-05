@@ -200,7 +200,7 @@ export const eventCoordinator = new EventCoordinator({
       venueAddress: null,
     };
   },
-  coordinate: async ({ state, thread, message }) => agentDependencies.agents.coordinateEvent({
+  coordinate: async ({ state, thread, message, scope }) => agentDependencies.agents.coordinateEvent({
     quest: {
       title: state.proposal.quest.title,
       description: state.proposal.quest.description,
@@ -208,6 +208,12 @@ export const eventCoordinator = new EventCoordinator({
     },
     messages: thread.messages.map(({ role, body }) => ({ role, body })),
     currentRequirements: thread.confirmedRequirements,
+    currentAppointment: [...state.arrangements].reverse().find((arrangement) =>
+      arrangement.status === "awaiting_participant_confirmation" || arrangement.status === "finalized") ?? null,
+    latestSuggestion: [...state.appointmentSuggestions].reverse().find((suggestion) =>
+      suggestion.status === "offered" && Date.parse(suggestion.expiresAt) > Date.now()) ?? null,
+    timeZone: state.timeZone,
+    scope,
     latestMessage: message,
     auditContext: { questRunId: state.runId, coordinationThreadId: thread.threadId },
   }),

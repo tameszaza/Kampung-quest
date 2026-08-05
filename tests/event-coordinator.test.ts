@@ -1017,6 +1017,252 @@ describe("EventCoordinator", () => {
     expect(state.memberships.every((membership) => membership.status === "confirmed")).toBe(true);
   });
 
+  it("applies a compatible participant appointment change immediately and asks everyone to confirm", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({
+        reply: "I moved the activity to 1:00 PM.",
+        requirementPatch: {},
+        intent: {
+          type: "change_appointment",
+          patch: { localTime: "13:00" },
+        },
+      }),
+      validateArrangement: async () => ({ valid: true, errors: [] }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "agentic-change-roster",
+    });
+    for (const guestId of ["anne", "david"]) {
+      const invitation = state.invitations.find((candidate) => candidate.guestId === guestId)!;
+      state = await coordinator.respondToInvitation({
+        runId: state.runId,
+        invitationId: invitation.invitationId,
+        actorId: guestId,
+        response: "accept",
+        expectedRevision: state.revision,
+        idempotencyKey: `agentic-change-${guestId}`,
+      });
+    }
+
+    const thread = await coordinator.getCoordinationThread(state.runId, "anne");
+    await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "Move it to 1 PM",
+      clientMessageId: "agentic-change-message",
+      expectedRevision: thread.revision,
+    });
+
+    const updated = await store.findEventCoordinationState(state.runId);
+    const arrangement = updated!.arrangements.at(-1)!;
+    expect(arrangement.start).toBe("2026-08-10T05:00:00.000Z");
+    expect(arrangement.end).toBe("2026-08-10T06:30:00.000Z");
+    expect(arrangement.status).toBe("awaiting_participant_confirmation");
+    expect(arrangement.confirmations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: "maria", status: "pending" }),
+      expect.objectContaining({ userId: "anne", status: "pending" }),
+      expect.objectContaining({ userId: "david", status: "pending" }),
+    ]));
+    expect(updated!.lifecycle).toBe("awaiting_confirmation");
+    expect(updated!.memberships.every((membership) => membership.status === "awaiting_confirmation")).toBe(true);
+    expect(updated!.groupThread?.messages).toContainEqual(expect.objectContaining({
+      kind: "change_card",
+      role: "system",
+    }));
+  });
+
+  it("applies the same appointment actions from the shared group chat", async () => {
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({
+        reply: "The group appointment is updated.",
+        requirementPatch: {},
+        intent: { type: "change_appointment", patch: { localTime: "14:00" } },
+      }),
+      validateArrangement: async () => ({ valid: true, errors: [] }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "group-chat-roster" });
+    for (const guestId of ["anne", "david"]) {
+      const invitation = state.invitations.find((candidate) => candidate.guestId === guestId)!;
+      state = await coordinator.respondToInvitation({ runId: state.runId, invitationId: invitation.invitationId, actorId: guestId, response: "accept", expectedRevision: state.revision, idempotencyKey: `group-chat-${guestId}` });
+    }
+
+    const group = await coordinator.getGroupCoordinationThread(state.runId, "david");
+    await coordinator.addGroupCoordinationMessage({
+      runId: state.runId,
+      actorId: "david",
+      body: "Could we move it to 2 PM?",
+      clientMessageId: "group-change-message",
+      expectedRevision: group.revision,
+    });
+
+    const updated = await store.findEventCoordinationState(state.runId);
+    expect(updated!.arrangements.at(-1)).toMatchObject({
+      start: "2026-08-10T06:00:00.000Z",
+      end: "2026-08-10T07:30:00.000Z",
+      status: "awaiting_participant_confirmation",
+    });
+    expect(updated!.groupThread?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ messageId: "group-change-message", senderId: "david", role: "participant" }),
+      expect.objectContaining({ kind: "change_card", role: "assistant" }),
+    ]));
+  });
+
+  it("finalizes only after natural-language confirmations from every active member", async () => {
+    const run = approvedRun();
+    run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+    run.proposal!.quest.groupSize = 2;
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async ({ message, state }) => message.toLowerCase().includes("confirm")
+        ? {
+            reply: "I will confirm the current version.",
+            requirementPatch: {},
+            intent: { type: "confirm_appointment", appointmentVersion: state.arrangements.at(-1)?.version ?? null },
+          }
+        : {
+            reply: "I will update the working appointment.",
+            requirementPatch: {},
+            intent: { type: "change_appointment", patch: { localTime: "14:00" } },
+          },
+      validateArrangement: async () => ({ valid: true, errors: [] }),
+    });
+    const forming = await coordinator.createFormation(run);
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "chat-confirm-roster" });
+    state = await coordinator.respondToInvitation({
+      runId: state.runId,
+      invitationId: state.invitations[0].invitationId,
+      actorId: "anne",
+      response: "accept",
+      expectedRevision: state.revision,
+      idempotencyKey: "chat-confirm-anne-accepts",
+    });
+    let group = await coordinator.getGroupCoordinationThread(state.runId, "anne");
+    group = await coordinator.addGroupCoordinationMessage({ runId: state.runId, actorId: "anne", body: "Move it to 2 PM", clientMessageId: "chat-confirm-change", expectedRevision: group.revision });
+    await coordinator.addGroupCoordinationMessage({ runId: state.runId, actorId: "anne", body: "I confirm", clientMessageId: "chat-confirm-anne", expectedRevision: group.revision });
+    expect((await store.findEventCoordinationState(state.runId))!.lifecycle).toBe("awaiting_confirmation");
+
+    const organizerThread = await coordinator.getCoordinationThread(state.runId, "maria");
+    await coordinator.addCoordinationMessage({ runId: state.runId, actorId: "maria", body: "I confirm", clientMessageId: "chat-confirm-maria", expectedRevision: organizerThread.revision });
+
+    const finalized = await store.findEventCoordinationState(state.runId);
+    expect(finalized!.lifecycle).toBe("scheduled");
+    expect(finalized!.arrangements.at(-1)).toMatchObject({
+      status: "finalized",
+      confirmations: expect.arrayContaining([
+        expect.objectContaining({ userId: "maria", status: "confirmed" }),
+        expect.objectContaining({ userId: "anne", status: "confirmed" }),
+      ]),
+    });
+    expect(finalized!.groupThread?.messages).toContainEqual(expect.objectContaining({
+      kind: "arrangement_card",
+      body: expect.stringContaining("final"),
+    }));
+  });
+
+  it("keeps an incompatible request unapplied and offers a privacy-safe compromise", async () => {
+    const run = approvedRun();
+    run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+    run.proposal!.quest.groupSize = 2;
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async ({ message }) => ({
+        reply: "I will check that option.",
+        requirementPatch: {},
+        intent: /use that/i.test(message)
+          ? { type: "change_appointment", patch: {}, referencesSuggestionId: "latest" }
+          : { type: "change_appointment", patch: { localTime: "14:00" } },
+      }),
+      validateArrangement: async ({ start }) => start === "2026-08-10T07:00:00.000Z"
+        ? { valid: true, errors: [] }
+        : { valid: false, errors: [{ field: "availability", message: "A private availability requirement conflicts." }] },
+      suggestArrangement: async () => ({
+        start: "2026-08-10T07:00:00.000Z",
+        end: "2026-08-10T08:30:00.000Z",
+        venueName: "Middle Ground Cafe",
+        venueAddress: null,
+      }),
+    });
+    const forming = await coordinator.createFormation(run);
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "compromise-roster" });
+    state = await coordinator.respondToInvitation({ runId: state.runId, invitationId: state.invitations[0].invitationId, actorId: "anne", response: "accept", expectedRevision: state.revision, idempotencyKey: "compromise-anne" });
+    const thread = await coordinator.getCoordinationThread(state.runId, "anne");
+
+    const result = await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "Move it to 2 PM",
+      clientMessageId: "compromise-request",
+      expectedRevision: thread.revision,
+    });
+
+    const updated = await store.findEventCoordinationState(state.runId);
+    expect(updated!.arrangements).toEqual([]);
+    expect(updated!.appointmentSuggestions).toContainEqual(expect.objectContaining({
+      status: "offered",
+      alternative: expect.objectContaining({ start: "2026-08-10T07:00:00.000Z", venueName: "Middle Ground Cafe" }),
+    }));
+    expect(result.messages.at(-1)).toMatchObject({
+      kind: "change_card",
+      body: expect.stringMatching(/does not work for the whole group.*3:00 pm.*Middle Ground Cafe/i),
+    });
+    expect(result.messages.at(-1)?.body).not.toContain("private availability");
+
+    await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "anne",
+      body: "Okay, use that option",
+      clientMessageId: "compromise-accepted",
+      expectedRevision: result.revision,
+    });
+    const accepted = await store.findEventCoordinationState(state.runId);
+    expect(accepted!.arrangements.at(-1)).toMatchObject({
+      start: "2026-08-10T07:00:00.000Z",
+      venueName: "Middle Ground Cafe",
+      status: "awaiting_participant_confirmation",
+    });
+    expect(accepted!.appointmentSuggestions.at(-1)?.status).toBe("accepted");
+  });
+
+  it("enforces organizer-only lifecycle actions from chat and executes authorized cancellation", async () => {
+    const run = approvedRun();
+    run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
+    run.proposal!.quest.groupSize = 2;
+    const store = new InMemoryKampungStore();
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: async () => ({
+        reply: "I will check that request.",
+        requirementPatch: {},
+        intent: { type: "organizer_action", action: "cancel" },
+      }),
+    });
+    const forming = await coordinator.createFormation(run);
+    let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "chat-cancel-roster" });
+    state = await coordinator.respondToInvitation({ runId: state.runId, invitationId: state.invitations[0].invitationId, actorId: "anne", response: "accept", expectedRevision: state.revision, idempotencyKey: "chat-cancel-anne" });
+    let group = await coordinator.getGroupCoordinationThread(state.runId, "anne");
+
+    group = await coordinator.addGroupCoordinationMessage({ runId: state.runId, actorId: "anne", body: "Cancel the activity", clientMessageId: "chat-cancel-denied", expectedRevision: group.revision });
+    expect(group.messages.at(-1)?.body).toMatch(/only the organizer/i);
+    expect((await store.findEventCoordinationState(state.runId))!.lifecycle).not.toBe("cancelled");
+
+    await coordinator.addGroupCoordinationMessage({ runId: state.runId, actorId: "maria", body: "Cancel the activity", clientMessageId: "chat-cancel-approved", expectedRevision: group.revision });
+    const cancelled = await store.findEventCoordinationState(state.runId);
+    expect(cancelled!.lifecycle).toBe("cancelled");
+    expect(cancelled!.memberships.every((membership) => membership.status === "cancelled")).toBe(true);
+    expect(cancelled!.invitations.every((invitation) => invitation.status === "cancelled")).toBe(true);
+  });
+
   it("preserves invitation history when a guest withdraws and returns an undersized quest to formation", async () => {
     const run = approvedRun();
     run.proposal!.proposedParticipants = run.proposal!.proposedParticipants.slice(0, 2);
@@ -1143,7 +1389,9 @@ describe("EventCoordinator", () => {
     await expect(coordinator.updateRoster({ runId: forming.runId, actorId: "anne", expectedRevision: forming.revision, action: "remove", userId: "david" })).rejects.toThrow("Only the quest organizer");
     const invited = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "permission-roster" });
     const pendingThread = await coordinator.getCoordinationThread(invited.runId, "anne");
+    await expect(coordinator.getGroupCoordinationThread(invited.runId, "anne")).rejects.toThrow("not available");
     await expect(coordinator.addCoordinationMessage({ runId: invited.runId, actorId: "anne", body: "Before accepting", clientMessageId: "pending-message", expectedRevision: pendingThread.revision })).rejects.toThrow("not allowed");
     await expect(coordinator.getCoordinationThread(invited.runId, "outsider")).rejects.toThrow("cannot view");
+    await expect(coordinator.getGroupCoordinationThread(invited.runId, "outsider")).rejects.toThrow("not available");
   });
 });

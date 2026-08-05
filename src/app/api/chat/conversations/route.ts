@@ -3,11 +3,18 @@ import { identityStore } from "@/server/identity/container";
 import { createConversationSchema } from "@/server/identity/schemas";
 import { requireUser } from "@/server/identity/session";
 import { errorResponse } from "@/server/http/responses";
+import { eventCoordinator } from "@/server/container";
 
 export async function GET() {
   try {
     const user = await requireUser();
-    return NextResponse.json({ conversations: await identityStore.listConversations(user.id) });
+    const [ordinary, coordination] = await Promise.all([
+      identityStore.listConversations(user.id),
+      eventCoordinator.listCoordinationConversations(user.id),
+    ]);
+    return NextResponse.json({
+      conversations: [...ordinary, ...coordination].sort((left, right) => right.lastMessageAt.localeCompare(left.lastMessageAt)),
+    });
   } catch (error) {
     return errorResponse(error);
   }
@@ -25,4 +32,3 @@ export async function POST(request: Request) {
     return errorResponse(error);
   }
 }
-

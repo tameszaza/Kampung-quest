@@ -49,13 +49,15 @@ export default function MyQuestsPage() {
 }
 
 function JoinedEventCard({ activity, group }: { activity: EventActivityCard; group: Group }) {
-  const window = activity.finalArrangement ?? activity.provisionalAvailability;
+  const window = activity.finalArrangement ?? activity.workingArrangement ?? activity.provisionalAvailability;
+  const label = activity.finalArrangement ? "Confirmed schedule" : activity.workingArrangement ? "Working appointment" : "Availability being coordinated";
+  const venue = activity.finalArrangement?.venueName ?? activity.workingArrangement?.venueName;
   return <Link className="joined-card event-joined-card" href={`/quests/${activity.runId}?from=my-activities`}>
     <div className="joined-body">
       <span className="image-badge">{group.toUpperCase()}</span>
       <h2>{activity.title}</h2>
       <p>{activity.description}</p>
-      <div className="meta-row"><Icon name="calendar" size={19} /><span>{activity.finalArrangement ? "Confirmed schedule" : "Availability being coordinated"}<small>{window ? new Date(window.start).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "No time proposed yet"}{activity.finalArrangement ? ` · ${activity.finalArrangement.venueName}` : ""}</small></span></div>
+      <div className="meta-row"><Icon name="calendar" size={19} /><span>{label}<small>{window ? new Date(window.start).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: activity.timeZone }) : "No time proposed yet"}{venue ? ` · ${venue}` : ""}</small></span></div>
       <div className="joined-footer"><span>{actionCopy(group)}</span><Icon name="chevron" size={19} /></div>
     </div>
   </Link>;

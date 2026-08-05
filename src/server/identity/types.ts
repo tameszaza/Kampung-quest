@@ -34,7 +34,7 @@ export type StoredUser = UserProfile & {
 
 export type ConversationSummary = {
   id: string;
-  type: "direct" | "group";
+  type: "direct" | "group" | "quest_private" | "quest_group";
   title: string;
   imageUrl: string | null;
   preview: string;
@@ -44,6 +44,9 @@ export type ConversationSummary = {
   /** The other participant for a direct message; null for groups. */
   otherUserId?: string | null;
   blocked?: boolean;
+  questId?: string | null;
+  canLeave?: boolean;
+  canDelete?: boolean;
 };
 
 export type ChatMessage = {

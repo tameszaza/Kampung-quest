@@ -223,19 +223,20 @@ export function EventActivityCardView({ activity, action = "View activity", hidi
 }
 
 function AvailabilityLabel({ activity }: { activity: EventActivityCard }) {
-  if (activity.finalArrangement) return <div className="meta-row"><Icon name="calendar" size={19} /><span><strong>Confirmed schedule</strong><small>{formatWindow(activity.finalArrangement.start, activity.finalArrangement.end)} · {activity.finalArrangement.venueName}</small></span></div>;
+  if (activity.finalArrangement) return <div className="meta-row"><Icon name="calendar" size={19} /><span><strong>Confirmed schedule</strong><small>{formatWindow(activity.finalArrangement.start, activity.finalArrangement.end, activity.timeZone)} · {activity.finalArrangement.venueName}</small></span></div>;
+  if (activity.workingArrangement) return <div className="meta-row"><Icon name="calendar" size={19} /><span><strong>Working appointment</strong><small>{formatWindow(activity.workingArrangement.start, activity.workingArrangement.end, activity.timeZone)} · {activity.workingArrangement.venueName} · awaiting confirmation</small></span></div>;
   const window = activity.provisionalAvailability;
-  return <div className="meta-row provisional-time"><Icon name="calendar" size={19} /><span><strong>Available time to coordinate</strong><small>{window ? formatWindow(window.start, window.end) : "To be discussed"} · not scheduled yet</small></span></div>;
+  return <div className="meta-row provisional-time"><Icon name="calendar" size={19} /><span><strong>Available time to coordinate</strong><small>{window ? formatWindow(window.start, window.end, activity.timeZone) : "To be discussed"} · not scheduled yet</small></span></div>;
 }
 
 function EmptyActivities({ title, body }: { title: string; body: string }) {
   return <div className="empty-state"><span><Icon name="quests" size={34} /></span><h2>{title}</h2><p>{body}</p><Link className="primary-button" href="/messages?assistant=1">Talk to Senior Quest</Link></div>;
 }
 
-function formatWindow(start: string, end: string) {
+function formatWindow(start: string, end: string, timeZone?: string) {
   const from = new Date(start);
   const until = new Date(end);
-  return `${from.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `${from.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", timeZone })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}`;
 }
 
 function friendlyMember(value: string) {

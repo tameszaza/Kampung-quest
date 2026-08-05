@@ -10,6 +10,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const user = await requireUser();
     const { conversationId } = await context.params;
+    if (conversationId.startsWith("quest-private:") || conversationId.startsWith("quest-group:")) {
+      return NextResponse.json({ error: "Activity chats follow quest membership and cannot be left or deleted here" }, { status: 409 });
+    }
     let action: "delete" | "leave" = "leave";
     try {
       const body = await _request.json() as unknown;

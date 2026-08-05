@@ -1,5 +1,6 @@
 import type {
   EventCoordinationThread,
+  EventGroupCoordinationThread,
   EventQuestView,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
@@ -166,6 +167,27 @@ export async function confirmEventRequirements(runId: string, expectedRevision: 
     method: "POST",
     headers: { "content-type": "application/json", "Idempotency-Key": createClientRequestId() },
     body: JSON.stringify({ expectedRevision }),
+  }));
+}
+
+export async function getEventGroupCoordinationThread(runId: string): Promise<EventGroupCoordinationThread> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/coordination/group`, { cache: "no-store" }));
+}
+
+export async function sendEventGroupCoordinationMessage(input: {
+  runId: string;
+  body: string;
+  expectedRevision: number;
+  clientMessageId?: string;
+}): Promise<EventGroupCoordinationThread> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/coordination/group`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      body: input.body,
+      expectedRevision: input.expectedRevision,
+      clientMessageId: input.clientMessageId ?? createClientRequestId(),
+    }),
   }));
 }
 

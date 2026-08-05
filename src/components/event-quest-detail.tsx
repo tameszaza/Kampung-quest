@@ -57,6 +57,7 @@ function EventQuestWorkspace({ state, onChange }: {
   const ownMembership = state.memberships.find((membership) => membership.userId === user.id);
   const latestArrangement = state.arrangements.at(-1);
   const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
+  const workingArrangement = latestArrangement?.status === "awaiting_participant_confirmation" ? latestArrangement : null;
   const proposed = state.proposal.quest.proposedTimeWindow;
   const ownJoinRequest = state.joinRequests.find((request) => request.applicantId === user.id);
   const approvedCount = state.recruitmentProgress.currentApprovedCount;
@@ -92,8 +93,10 @@ function EventQuestWorkspace({ state, onChange }: {
   }
 
   const schedule = finalized
-    ? formatWindow(finalized.start, finalized.end)
-    : proposed ? formatWindow(proposed.start, proposed.end) : "No availability window proposed";
+    ? formatWindow(finalized.start, finalized.end, state.timeZone)
+    : workingArrangement
+      ? formatWindow(workingArrangement.start, workingArrangement.end, state.timeZone)
+      : proposed ? formatWindow(proposed.start, proposed.end, state.timeZone) : "No availability window proposed";
 
   return <div className="detail-page engine-detail-page event-workspace">
     <div className="detail-header-wrap"><header className="page-header"><Link className="icon-button" href="/quests" aria-label="Back to activities"><Icon name="back" /></Link><h1>Activity Details</h1><span /></header></div>
@@ -102,7 +105,7 @@ function EventQuestWorkspace({ state, onChange }: {
       <article className="detail-content">
         {error ? <div className="form-alert" role="alert">{error}</div> : null}
         <div className="detail-facts">
-          <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
+          <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : workingArrangement ? "Working appointment" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>{workingArrangement ? "Waiting for everyone to confirm" : "Not scheduled yet"}</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
           <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{approvedCount} approved · {state.recruitment.targetGroupSize} target</strong></span></div>
@@ -182,7 +185,7 @@ function EventQuestWorkspace({ state, onChange }: {
 
 function ArrangementSummary({ state }: { state: EventQuestView }) {
   const arrangement = state.arrangements.at(-1)!;
-  return <dl className="arrangement-summary"><div><dt>Date and time</dt><dd>{formatWindow(arrangement.start, arrangement.end)}</dd></div><div><dt>Venue</dt><dd>{arrangement.venueName}<small>{arrangement.venueStatus === "externally_confirmed" ? "Venue availability verified" : arrangement.venueStatus === "participant_confirmed" ? "Confirmed by all participants; check public opening hours" : "Opening hours not yet verified"}</small></dd></div>{arrangement.materialChanges.length ? <div><dt>Requires reconfirmation</dt><dd>{arrangement.materialChanges.map((change) => change.replaceAll("_", " ")).join(", ")}</dd></div> : null}</dl>;
+  return <dl className="arrangement-summary"><div><dt>Date and time</dt><dd>{formatWindow(arrangement.start, arrangement.end, state.timeZone)}</dd></div><div><dt>Venue</dt><dd>{arrangement.venueName}<small>{arrangement.venueStatus === "externally_confirmed" ? "Venue availability verified" : arrangement.venueStatus === "participant_confirmed" ? "Confirmed by all participants; check public opening hours" : "Opening hours not yet verified"}</small></dd></div>{arrangement.materialChanges.length ? <div><dt>Requires reconfirmation</dt><dd>{arrangement.materialChanges.map((change) => change.replaceAll("_", " ")).join(", ")}</dd></div> : null}</dl>;
 }
 
 function localDateTime(value?: string) {
@@ -191,10 +194,10 @@ function localDateTime(value?: string) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-function formatWindow(start: string, end: string) {
+function formatWindow(start: string, end: string, timeZone?: string) {
   const from = new Date(start);
   const until = new Date(end);
-  return `${from.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `${from.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", timeZone })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}`;
 }
 
 function friendlyStatus(value: string) {
