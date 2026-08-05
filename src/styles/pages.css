@@ -1078,6 +1078,165 @@
   }
 }
 
+/* My Activities follows the same image-led language as quest details. */
+.my-activities-ref {
+  max-width: 1288px;
+}
+
+.my-activities-ref .page-header {
+  min-height: 72px;
+  margin-bottom: 8px;
+}
+
+.my-activities-ref .page-header h1 {
+  text-align: left;
+  color: var(--green-900);
+  font-size: clamp(26px, 3vw, 34px);
+}
+
+.my-activities-ref .tabs {
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  margin-bottom: 20px;
+}
+
+.my-activities-ref .joined-list {
+  gap: 14px;
+}
+
+.my-activities-ref .joined-card {
+  min-height: 178px;
+  border-radius: 18px;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.my-activities-ref .joined-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.my-activities-ref .joined-image {
+  position: relative;
+  min-height: 178px;
+  background: #e8f1ed;
+  overflow: hidden;
+}
+
+.my-activities-ref .joined-image img {
+  object-fit: cover;
+}
+
+.my-activities-ref .joined-image .image-badge {
+  top: 12px;
+  left: 12px;
+  background: var(--green-700);
+  color: #fff;
+}
+
+.my-activities-ref .joined-body {
+  min-width: 0;
+  padding: 22px 24px;
+  align-content: center;
+  gap: 9px;
+}
+
+.my-activities-ref .joined-body h2 {
+  margin: 0;
+  color: var(--green-900);
+  font-size: 19px;
+}
+
+.my-activities-ref .joined-body p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.my-activities-ref .joined-body .meta-row {
+  max-width: 760px;
+}
+
+.my-activities-ref .joined-body .meta-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.my-activities-ref .joined-body .meta-row strong,
+.my-activities-ref .joined-body .meta-row small {
+  display: block;
+}
+
+.my-activities-ref .joined-footer {
+  margin-top: 3px;
+  color: var(--green-800);
+  font-weight: 750;
+}
+
+@media (max-width: 767px) {
+  .my-activities-ref {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .my-activities-ref .page-header {
+    min-height: 64px;
+    margin-bottom: 0;
+  }
+
+  .my-activities-ref .page-header h1 {
+    font-size: 27px;
+  }
+
+  .my-activities-ref .tabs {
+    margin: 0 -16px 18px;
+    padding: 0 8px;
+    overflow-x: auto;
+    grid-template-columns: repeat(5, minmax(138px, 1fr)) !important;
+    scrollbar-width: none;
+  }
+
+  .my-activities-ref .tabs::-webkit-scrollbar { display: none; }
+
+  .my-activities-ref .tabs button {
+    min-height: 50px;
+    font-size: 12px;
+  }
+
+  .my-activities-ref .joined-list {
+    gap: 16px;
+  }
+
+  .my-activities-ref .joined-card {
+    min-height: 0;
+    display: block;
+    border-radius: 16px;
+  }
+
+  .my-activities-ref .joined-image {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    aspect-ratio: 1.55;
+  }
+
+  .my-activities-ref .joined-body {
+    padding: 17px 16px 18px;
+  }
+
+  .my-activities-ref .joined-body h2 {
+    font-size: 18px;
+  }
+
+  .my-activities-ref .joined-body p {
+    font-size: 14px;
+  }
+}
+
 /* Authentication */
 .auth-page {
   min-height: 100dvh;
@@ -1588,6 +1747,95 @@
   font-size: 18px;
 }
 
+.chat-profile-trigger {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chat-profile-trigger:focus-visible {
+  outline: 3px solid var(--green-300);
+  outline-offset: 3px;
+}
+
+.chat-profile-sheet {
+  max-height: min(720px, calc(100dvh - 48px));
+}
+
+.chat-profile-hero {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 12px 0 20px;
+  text-align: center;
+}
+
+.chat-profile-hero h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.chat-profile-hero p,
+.emergency-profile-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.chat-profile-details {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.chat-profile-details > div {
+  display: grid;
+  grid-template-columns: minmax(105px, 0.45fr) minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-profile-details dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-profile-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.emergency-profile-card {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #f0dca8;
+  border-radius: var(--radius-sm);
+  background: #fff9e9;
+}
+
+.emergency-profile-card h3 {
+  margin: 0 0 13px;
+  font-size: 16px;
+}
+
+.profile-loading {
+  position: fixed;
+  z-index: 150;
+  right: 20px;
+  bottom: 20px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--green-900);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .conversation-copy {
   min-width: 0;
   display: grid;
@@ -1722,7 +1970,8 @@
   box-shadow: var(--shadow-md);
 }
 
-.chat-options-menu button {
+.chat-options-menu button,
+.chat-options-menu a {
   width: 100%;
   min-height: 46px;
   padding: 0 10px;
@@ -1740,7 +1989,9 @@
 }
 
 .chat-options-menu button:hover,
-.chat-options-menu button:focus-visible {
+.chat-options-menu button:focus-visible,
+.chat-options-menu a:hover,
+.chat-options-menu a:focus-visible {
   background: var(--green-50);
   color: var(--green-700);
 }
@@ -1931,7 +2182,7 @@
   outline: 3px solid rgba(16, 157, 112, 0.14);
 }
 
-.message-composer > button {
+.message-composer .message-composer-send {
   width: 50px;
   height: 50px;
   border: 0;
@@ -1942,9 +2193,10 @@
   place-items: center;
   font-size: 20px;
   cursor: pointer;
+  appearance: none;
 }
 
-.message-composer > button:disabled {
+.message-composer .message-composer-send:disabled {
   background: #b9c5c1;
   cursor: not-allowed;
 }
@@ -2006,6 +2258,10 @@
 
 .new-chat-sheet {
   padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+
+.new-chat-sheet > .primary-button {
+  margin-top: 24px;
 }
 
 .chat-type-switch {
@@ -2077,6 +2333,52 @@
   display: grid;
   gap: 17px;
   box-shadow: var(--shadow-sm);
+}
+
+.settings-profile-card,
+.emergency-contact-card {
+  gap: 15px;
+}
+
+.settings-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 2px;
+}
+
+.settings-card-heading h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.settings-card-heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-800);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-inline-actions .settings-save {
+  flex: 1;
 }
 
 .switch-setting {
@@ -2772,7 +3074,7 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 16px 14px 32px;
+  padding: 16px 14px 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -2780,7 +3082,10 @@
 
 .assistant-embedded-controls {
   width: calc(100% + 28px);
-  margin: auto -14px -32px;
+  /* Keep the composer in normal flow while still aligning it with the chat
+   * panel edges. A negative bottom margin lets result cards cover it when a
+   * no-match request is being edited. */
+  margin: auto -14px 0;
   display: flex;
   flex-direction: column;
 }
@@ -3245,6 +3550,117 @@
 
 @media (prefers-reduced-motion: reduce) {
   .thinking-dots i { animation: none; }
+}
+
+/* Activity coordination is a group conversation inside Messages. Keep the
+ * existing chat shell and composer; only the activity-specific context and
+ * actions are added to the same conversation stream. */
+.app-main:has(.chat-center .coordination-hub) {
+  min-height: calc(100dvh - var(--nav-height) - env(safe-area-inset-bottom));
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.chat-panel:has(.coordination-hub-embedded) {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.coordination-hub-embedded {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-soft);
+  box-shadow: none;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.coordination-hub-embedded.coordination-hub-no-header {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.coordination-hub-embedded .coordination-hub-header {
+  min-height: 76px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.coordination-hub-embedded .coordination-hub-layout {
+  height: auto;
+  min-height: 0;
+  display: block;
+}
+
+.coordination-hub-embedded .coordination-overview {
+  display: none;
+}
+
+.coordination-hub-embedded .coordination-conversation {
+  height: 100%;
+  border-top: 0;
+  background: var(--surface-soft);
+}
+
+.coordination-hub-embedded .coordination-conversation-header {
+  display: none;
+}
+
+.coordination-hub-embedded .coordination-message-history {
+  padding: 22px 24px 28px;
+  background: var(--surface-soft);
+  background-image: none;
+}
+
+.coordination-hub-embedded .coordination-conversation-actions {
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.coordination-hub-embedded .coordination-arrangement-action,
+.coordination-hub-embedded .coordination-save-card {
+  border-top: 1px solid var(--line);
+}
+
+.coordination-hub-embedded .coordination-arrangement-action {
+  padding: 12px 16px;
+}
+
+.coordination-hub-embedded .coordination-arrangement-action p {
+  max-width: 56ch;
+}
+
+@media (max-width: 767px) {
+  .coordination-hub-embedded .coordination-hub-header {
+    min-height: 64px;
+    padding: 8px 10px;
+  }
+
+  .coordination-hub-embedded .coordination-hub-layout {
+    height: auto;
+  }
+
+  .coordination-hub-embedded .coordination-message-history {
+    padding: 16px 14px 22px;
+  }
+
+  .coordination-hub-embedded .coordination-arrangement-action {
+    padding: 10px 12px;
+  }
+
+  .coordination-hub-embedded .coordination-arrangement-action p,
+  .coordination-hub-embedded .coordination-starting-prompts p {
+    display: none;
+  }
+
+  .coordination-hub-embedded .coordination-arrangement-buttons {
+    min-width: 0;
+  }
 }
 
 .assistant-result {
@@ -5362,5 +5778,442 @@
 @media (min-width: 900px) and (max-height: 760px) {
   .auth-layout.login-layout > .auth-card {
     margin-top: 34px;
+  }
+}
+
+/* Quest detail reference layout
+ *
+ * Both generated and coordinator-backed quests use this same presentation.
+ * The coordinator controls remain available below the activity information,
+ * but the visual hierarchy is intentionally flat: one page surface, clear
+ * dividers, and no card-inside-card framing.
+ */
+.quest-detail-ref {
+  width: min(1320px, calc(100% - 48px));
+  min-height: auto;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.quest-detail-ref .detail-header-wrap {
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.quest-detail-ref .page-header {
+  min-height: 64px;
+  margin: 0;
+}
+
+.quest-detail-ref .page-header h1 {
+  text-align: left;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.quest-detail-ref .detail-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.quest-detail-ref .detail-back-link svg {
+  flex: 0 0 auto;
+}
+
+.quest-detail-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(350px, .85fr);
+  gap: 26px;
+  padding: 22px 24px 20px;
+}
+
+.quest-detail-hero-image {
+  position: relative;
+  min-height: 0;
+  align-self: start;
+  aspect-ratio: 1.75;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #e8f1ed;
+}
+
+.quest-detail-hero-image > img {
+  object-fit: cover;
+}
+
+.quest-detail-hero-copy {
+  min-width: 0;
+  align-self: center;
+  padding: 8px 2px;
+}
+
+.quest-detail-hero-copy h1 {
+  max-width: 520px;
+  margin: 12px 0 12px;
+  color: var(--green-900);
+  font-size: clamp(30px, 3.1vw, 44px);
+  line-height: 1.04;
+  letter-spacing: -.045em;
+}
+
+.quest-detail-hero-copy > p {
+  max-width: 520px;
+  margin: 0 0 20px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.quest-image-label,
+.quest-status-pill {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.quest-image-label {
+  top: 12px;
+  left: 12px;
+  background: var(--green-700);
+  color: #fff;
+}
+
+.quest-detail-hero-copy .quest-status-pill {
+  position: static;
+  background: var(--green-100);
+  color: var(--green-800);
+}
+
+.quest-detail-hero-copy .quest-status-pill.quest-status-human_review,
+.quest-status-pill.quest-status-human_review {
+  background: #fff3cd;
+  color: #805900;
+}
+
+.quest-hero-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.quest-hero-facts .detail-fact {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.quest-hero-facts .detail-fact > svg {
+  width: 20px;
+  height: 20px;
+  color: var(--green-700);
+}
+
+.quest-detail-content {
+  padding: 24px 40px 112px;
+}
+
+.quest-participants h2,
+.engine-assurance h2 {
+  margin: 0 0 12px;
+  color: var(--green-900);
+  font-size: 17px;
+  letter-spacing: -.02em;
+}
+
+.quest-participants {
+  margin-top: 26px;
+  padding: 0 0 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.quest-participants .participant-count {
+  margin: -4px 0 14px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.quest-participants .event-roster,
+.quest-participants.engine-participants {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: grid;
+  gap: 12px;
+}
+
+.quest-participants .event-roster > div,
+.quest-participants .engine-participant {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.quest-participants .event-roster > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.quest-participants .event-roster .participant-status {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.quest-participants .event-roster p {
+  min-width: 0;
+  margin: 0;
+}
+
+.quest-participants .event-roster p strong,
+.quest-participants .event-roster p small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-participants .engine-participant {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quest-participants .engine-participant-name {
+  min-width: 0;
+  flex: 1;
+}
+
+.quest-participants .engine-participant-name strong,
+.quest-participants .engine-participant-name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-participants .participant-status {
+  flex: 0 0 auto;
+}
+
+.quest-detail-ref .event-panel {
+  margin-top: 24px;
+  padding: 24px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.quest-detail-ref .event-panel h2 {
+  font-size: 17px;
+}
+
+.quest-detail-ref .quest-participants {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.quest-detail-ref .quest-group-chat-link {
+  display: flex;
+  width: min(100%, 360px);
+  margin: 28px 0 4px;
+}
+
+.quest-detail-ref .event-roster > div,
+.quest-detail-ref .event-contact-results > button {
+  border-color: var(--line);
+}
+
+.quest-detail-ref .engine-assurance {
+  max-width: 760px;
+  margin-top: 26px;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.quest-detail-ref .engine-assurance > div {
+  min-height: 42px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.quest-detail-ref .engine-assurance > div span {
+  text-align: right;
+}
+
+.quest-detail-ref .engine-safety,
+.quest-detail-ref .assistant-note {
+  max-width: 780px;
+  margin: 20px 0 0;
+}
+
+@media (max-width: 767px) {
+  body:has(.quest-detail-ref) .bottom-nav {
+    display: none;
+  }
+
+  .quest-detail-ref {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .quest-detail-ref .detail-header-wrap {
+    padding: 0 12px;
+  }
+
+  .quest-detail-ref .page-header {
+    min-height: 62px;
+  }
+
+  .quest-detail-ref .page-header h1 {
+    text-align: center;
+    font-size: 16px;
+  }
+
+  .quest-detail-ref .detail-back-link {
+    width: 40px;
+    justify-content: center;
+  }
+
+  .quest-detail-ref .detail-back-link span {
+    display: none;
+  }
+
+  .quest-detail-hero {
+    display: block;
+    padding: 0;
+  }
+
+  .quest-detail-hero-image {
+    min-height: 0;
+    aspect-ratio: 2;
+    border-radius: 0;
+  }
+
+  .quest-detail-hero-copy {
+    padding: 17px 18px 18px;
+  }
+
+  .quest-detail-hero-copy .quest-status-pill {
+    display: none;
+  }
+
+  .quest-detail-hero-copy h1 {
+    margin-top: 0;
+    font-size: 26px;
+    line-height: 1.08;
+  }
+
+  .quest-detail-hero-copy > p {
+    margin-bottom: 12px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .quest-hero-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fbfdfc;
+  }
+
+  .quest-hero-facts .detail-fact:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .quest-hero-facts .detail-fact:nth-child(2) {
+    display: none;
+  }
+
+  .quest-hero-facts .detail-fact:nth-child(4) {
+    order: 2;
+  }
+
+  .quest-hero-facts .detail-fact:nth-child(3) {
+    order: 3;
+    grid-column: 1 / -1;
+  }
+
+  .quest-hero-facts .detail-fact > span:last-child {
+    gap: 2px;
+  }
+
+  .quest-hero-facts .detail-fact strong {
+    font-size: 13px;
+  }
+
+  .quest-detail-content {
+    padding: 22px 18px 40px;
+  }
+
+  .quest-detail-ref .quest-group-chat-link {
+    width: 100%;
+    margin-top: 22px;
+  }
+
+  .quest-participants .event-roster,
+  .quest-participants.engine-participants {
+    grid-template-columns: 1fr;
+  }
+
+  .quest-detail-ref .event-panel {
+    padding-top: 20px;
+  }
+
+  .quest-detail-ref .quest-participants {
+    padding-top: 0;
+  }
+
+  .quest-detail-ref .detail-action {
+    position: fixed;
+    z-index: 70;
+    right: 12px;
+    bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) + 10px);
+    left: 12px;
+    width: auto;
+    margin: 0;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 12px 28px rgba(5, 61, 45, .16);
+  }
+
+  .quest-detail-ref .detail-action .activity-actions {
+    gap: 8px;
+  }
+
+  .quest-detail-ref .detail-action .primary-button,
+  .quest-detail-ref .detail-action .secondary-button {
+    min-height: 48px;
+    flex: 1;
   }
 }

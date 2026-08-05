@@ -9,27 +9,28 @@ import {
   confirmEventRequirements,
   decideEventArrangement,
   getEventCoordinationThread,
-  getEventGroupCoordinationThread,
   getEventQuest,
   markEventNotificationsRead,
   respondToEventInvitation,
   sendEventCoordinationMessage,
-  sendEventGroupCoordinationMessage,
   suggestEventArrangement,
 } from "@/features/events/client";
 import type {
   EventCoordinationThread,
-  EventGroupCoordinationThread,
   EventParticipantProgress,
   EventQuestView,
 } from "@/server/domain/event-coordination";
 
 const REFRESH_INTERVAL_MS = 5_000;
 
-export function EventCoordinationConversation({ runId }: { runId: string }) {
+export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle }: {
+  runId: string;
+  embedded?: boolean;
+  showHeader?: boolean;
+  onBack?: () => void;
+  onTitle?: (title: string, memberCount: number) => void;
+}) {
   const [thread, setThread] = useState<EventCoordinationThread | null>(null);
-  const [groupThread, setGroupThread] = useState<EventGroupCoordinationThread | null>(null);
-  const [scope, setScope] = useState<"private" | "group">("private");
   const [quest, setQuest] = useState<EventQuestView | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
@@ -48,13 +49,9 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
         getEventQuest(runId),
       ]);
       if (!nextQuest) throw new Error("This activity could not be found");
-      const activeMemberCount = nextQuest.memberships.filter((membership) => isActiveMembershipStatus(membership.status)).length;
-      const nextGroupThread = activeMemberCount >= 2 && ["organizer", "participant"].includes(nextQuest.viewer.role)
-        ? await getEventGroupCoordinationThread(runId)
-        : null;
       setThread(nextThread);
-      setGroupThread(nextGroupThread);
       setQuest(nextQuest);
+      onTitle?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
       if (!quiet) scrollToLatest();
       if (nextQuest.viewer.role === "organizer" && nextQuest.notifications.some((item) => item.readAt === null)) {
@@ -65,7 +62,7 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [runId, scrollToLatest]);
+  }, [onTitle, runId, scrollToLatest]);
 
   useEffect(() => {
     let active = true;
@@ -91,17 +88,11 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
     event.preventDefault();
     const body = draft.trim();
     if (!thread || !quest?.viewer.canChat || !body || busy) return;
-    const activeThread = scope === "group" ? groupThread : thread;
-    if (!activeThread) return;
     setBusy("message");
     setError("");
     setDraft("");
     try {
-      if (scope === "group") {
-        setGroupThread(await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision }));
-      } else {
-        setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision }));
-      }
+      setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: thread.revision }));
       await refreshQuest();
       scrollToLatest();
     } catch (reason) {
@@ -112,7 +103,7 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
     }
   }
 
-  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -185,37 +176,33 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
   const backHref = pendingInvitation ? "/quests" : "/my-quests";
   const finalized = [...quest.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
   const latestArrangement = quest.arrangements.at(-1);
-  const workingArrangement = latestArrangement?.status === "awaiting_participant_confirmation" ? latestArrangement : null;
   const proposed = quest.proposal.quest.proposedTimeWindow;
   const schedule = finalized
-    ? formatWindow(finalized.start, finalized.end, quest.timeZone)
-    : workingArrangement
-      ? formatWindow(workingArrangement.start, workingArrangement.end, quest.timeZone)
-      : proposed ? formatWindow(proposed.start, proposed.end, quest.timeZone) : "Still to be discussed";
+    ? formatWindow(finalized.start, finalized.end)
+    : proposed ? formatWindow(proposed.start, proposed.end) : "Still to be discussed";
   const venue = finalized?.venueName ?? latestArrangement?.venueName ?? "Still to be coordinated";
   const joinedCount = quest.participantProgress.filter((participant) =>
     participant.invitationStatus === "organizer" || isActiveMembershipStatus(participant.membershipStatus)).length;
   const title = quest.proposal.quest.title;
-  const activeMessages = scope === "group" ? groupThread?.messages ?? [] : thread.messages;
 
   const overviewDetails = <>
     <dl className="coordination-facts">
-      <div><dt><Icon name="calendar" size={18} /> {finalized ? "Confirmed time" : workingArrangement ? "Working appointment" : "Available time"}</dt><dd>{schedule}</dd>{!finalized ? <small>{workingArrangement ? "Waiting for everyone to confirm" : "Not scheduled yet"}</small> : null}</div>
+      <div><dt><Icon name="calendar" size={18} /> {finalized ? "Confirmed time" : "Available time"}</dt><dd>{schedule}</dd>{!finalized ? <small>Not scheduled yet</small> : null}</div>
       <div><dt><Icon name="pin" size={18} /> Venue</dt><dd>{venue}</dd></div>
     </dl>
     <ProgressSummary participants={quest.participantProgress} joinedCount={joinedCount} />
     {quest.viewer.role === "organizer" ? <div className="coordination-organizer-note"><Icon name="bell" size={18} /><p><strong>You’re coordinating this activity.</strong><span>We’ll alert you when a guest shares or confirms availability.</span></p></div> : null}
   </>;
 
-  return <div className="coordination-hub">
-    <header className="coordination-hub-header">
-      <Link className="icon-button" href={backHref} aria-label="Back"><Icon name="back" /></Link>
+  return <div className={`coordination-hub${embedded ? " coordination-hub-embedded" : ""}${!showHeader ? " coordination-hub-no-header" : ""}`}>
+    {showHeader ? <header className="coordination-hub-header">
+      {embedded ? <button className="icon-button coordination-back" type="button" onClick={onBack} aria-label="Back to messages"><Icon name="back" /></button> : <Link className="icon-button" href={backHref} aria-label="Back"><Icon name="back" /></Link>}
       <div className="coordination-hub-title">
         <span className="coordination-mark" aria-hidden="true">♥</span>
         <span><strong>Senior Quest</strong><small>Activity coordinator</small></span>
       </div>
       <Link className="coordination-details-link" href={`/quests/${encodeURIComponent(runId)}`}>Activity details <Icon name="chevron" size={16} /></Link>
-    </header>
+    </header> : null}
 
     <div className="coordination-hub-layout">
       <aside className="coordination-overview" aria-label="Activity coordination overview">
@@ -230,16 +217,10 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
         <details className="coordination-mobile-details"><summary>Schedule, venue &amp; group</summary><div>{overviewDetails}</div></details>
       </aside>
 
-      <section className="coordination-conversation" aria-label={`${scope === "private" ? "Private coordination" : "Group chat"} for ${title}`}>
+      <section className="coordination-conversation" aria-label={`Private coordination for ${title}`}>
         <header className="coordination-conversation-header">
-          <div><span className="coordination-online" aria-hidden="true" /><h2>{scope === "private" ? "Private coordination" : "Group chat"}</h2></div>
-          <p>{scope === "private"
-            ? quest.viewer.role === "organizer" ? "Plan the activity with Senior Quest" : "Only you and Senior Quest can see your details"
-            : `${joinedCount} members · Senior Quest helps when coordination comes up`}</p>
-          {groupThread ? <div className="coordination-scope-tabs" role="tablist" aria-label="Coordination conversations">
-            <button type="button" role="tab" aria-selected={scope === "private"} onClick={() => setScope("private")}>Private coordination</button>
-            <button type="button" role="tab" aria-selected={scope === "group"} onClick={() => setScope("group")}>Group chat</button>
-          </div> : null}
+          <div><span className="coordination-online" aria-hidden="true" /><h2>Private coordination</h2></div>
+          <p>{quest.viewer.role === "organizer" ? "Plan the activity with Senior Quest" : "Only you and Senior Quest can see your details"}</p>
         </header>
 
         <div className="coordination-conversation-notices">
@@ -253,16 +234,15 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
 
         <div className="message-history coordination-message-history" aria-live="polite" aria-busy={busy === "message"}>
           <ChatDayLabel />
-          {activeMessages.map((message) => <ChatMessageBubble
+          {thread.messages.map((message) => <ChatMessageBubble
             key={message.messageId}
             body={message.body}
-            mine={scope === "group" ? message.senderId === thread.userId : message.role === "participant"}
-            heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : scope === "group" && message.senderId !== thread.userId
-              ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName
-              : undefined}
+            mine={message.role === "participant"}
+            heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : undefined}
             time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+            receipt={message.role === "participant" ? message.receipt ?? "delivered" : undefined}
           />)}
-          {scope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
+          {quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
             <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
             <h3>Start with what matters most</h3>
             <p>Senior Quest already knows this activity. Ask about timing, the venue, or what the group needs next.</p>
@@ -285,22 +265,21 @@ export function EventCoordinationConversation({ runId }: { runId: string }) {
             }))}
           />
 
-          {scope === "private" && quest.viewer.canChat && thread.pendingRequirements ? <section className="pending-requirements coordination-save-card">
+          {quest.viewer.canChat && thread.pendingRequirements ? <section className="pending-requirements coordination-save-card">
             <div><span><Icon name="check" size={18} /> Senior Quest understood</span><p>{requirementSummary(thread.pendingRequirements)}</p><small>Check this before it is used to coordinate the activity.</small></div>
             <button className="primary-button" disabled={busy === "requirements"} onClick={() => void confirmRequirements()}>{busy === "requirements" ? "Saving…" : saveLabel(thread.pendingRequirements)}</button>
           </section> : null}
 
           {quest.viewer.canChat ? <ChatComposer
-            multiline
             id="coordination-message"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={submitOnEnter}
+            inputValue={draft}
+            onInputChange={(event) => setDraft(event.target.value)}
+            onInputKeyDown={submitOnEnter}
             onSubmit={send}
             maxLength={2_000}
             disabled={Boolean(busy)}
-            placeholder={scope === "group" ? "Message the group or ask Senior Quest…" : quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
-          ><button type="submit" aria-label="Send message" disabled={Boolean(busy) || !draft.trim()}><Icon name="chevron" /></button></ChatComposer> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
+            placeholder={quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
+          /> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
         </div>
       </section>
     </div>
@@ -333,7 +312,7 @@ function ArrangementAction({ quest, currentUserId, busy, onSuggest, onDecide }: 
     && ["awaiting_responses", "coordinating", "scheduled"].includes(quest.lifecycle)
     && terminalArrangement;
   const ownConfirmation = arrangement?.confirmations.find((confirmation) => confirmation.userId === currentUserId);
-  const needsParticipantDecision = ["organizer", "participant"].includes(quest.viewer.role)
+  const needsParticipantDecision = quest.viewer.role === "participant"
     && arrangement?.status === "awaiting_participant_confirmation"
     && ownConfirmation?.status === "pending";
   if (!canStartArrangement && !(quest.viewer.role === "organizer" && arrangement?.status === "proposed") && !needsParticipantDecision) return null;
@@ -342,7 +321,7 @@ function ArrangementAction({ quest, currentUserId, busy, onSuggest, onDecide }: 
     <div>
       <span><Icon name="calendar" size={18} /> Current coordination step</span>
       {canStartArrangement ? <><h3>Turn confirmed availability into a plan</h3><p>Senior Quest can find a compatible time and prepare it for your approval.</p></> : null}
-      {arrangement && !canStartArrangement ? <><h3>{needsParticipantDecision ? "Does this arrangement work for you?" : "Review the proposed arrangement"}</h3><p>{formatWindow(arrangement.start, arrangement.end, quest.timeZone)} · {arrangement.venueName}</p></> : null}
+      {arrangement && !canStartArrangement ? <><h3>{needsParticipantDecision ? "Does this arrangement work for you?" : "Review the proposed arrangement"}</h3><p>{formatWindow(arrangement.start, arrangement.end)} · {arrangement.venueName}</p></> : null}
     </div>
     <div className="coordination-arrangement-buttons">
       {canStartArrangement ? <><Link className="secondary-button" href={`/quests/${encodeURIComponent(quest.runId)}`}>Enter a different plan</Link><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void onSuggest()}>{busy === "suggest-arrangement" ? "Comparing…" : "Suggest best plan"}</button></> : null}
@@ -405,10 +384,10 @@ function friendlyRequirement(value: string) {
   return value.replaceAll(/([A-Z])/g, " $1").replaceAll("_", " ").trim().replace(/^./, (letter) => letter.toUpperCase());
 }
 
-function formatWindow(start: string, end: string, timeZone?: string) {
+function formatWindow(start: string, end: string) {
   const from = new Date(start);
   const until = new Date(end);
-  return `${from.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", timeZone })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone })}`;
+  return `${from.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function friendlyLifecycle(value: string) {
@@ -421,6 +400,8 @@ function friendlyLifecycle(value: string) {
 
 function roleLabel(role: EventQuestView["viewer"]["role"]) {
   if (role === "organizer") return "You’re the organizer";
+  if (role === "selected") return "You’re selected for this activity";
+  if (role === "applicant") return "Your request is being reviewed";
   if (role === "pending_invitee") return "Invitation awaiting your response";
   return "You’re part of this activity";
 }

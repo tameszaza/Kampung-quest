@@ -1,16 +1,20 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
+import { EventCoordinationConversation } from "@/components/event-coordination-conversation";
 import { Icon } from "@/components/icons";
 import { useAppState } from "@/components/app-state";
-import type { ChatContact, ChatMessage, ConversationSummary } from "@/server/identity/types";
+import { getQuestRun } from "@/features/assistant/client";
+import { getEventCoordinationThread, getEventQuest, listEventActivities } from "@/features/events/client";
+import type { EventActivityCard } from "@/server/domain/event-coordination";
+import type { ChatContact, ChatMessage, ChatProfile, ConversationSummary } from "@/server/identity/types";
 import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
+const ACTIVITY_CONVERSATION_PREFIX = "activity:";
 
 const assistantConversation: ConversationSummary = {
   id: ASSISTANT_CONVERSATION_ID,
@@ -26,11 +30,13 @@ const assistantConversation: ConversationSummary = {
   memberCount: 1,
 };
 
-export function ChatCenter({ initialConversation }: { initialConversation?: "assistant" }) {
+export function ChatCenter({ initialConversation, initialQuest }: { initialConversation?: "assistant"; initialQuest?: string }) {
   const { showToast } = useAppState();
+  const initialActivityId = initialQuest ? `${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}` : null;
+  const [activitySummaries, setActivitySummaries] = useState<ConversationSummary[]>(() => initialQuest ? [activitySummary(initialQuest)] : []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [assistant, setAssistant] = useState<ConversationSummary>(assistantConversation);
-  const [selectedId, setSelectedId] = useState<string | null>(initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialActivityId ?? (initialConversation === "assistant" ? ASSISTANT_CONVERSATION_ID : null));
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -41,18 +47,45 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
   const [assistantResetToken, setAssistantResetToken] = useState(0);
   const [confirmAction, setConfirmAction] = useState<"leave" | "block" | "delete" | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [profile, setProfile] = useState<ChatProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const handleActivityTitle = useCallback((runId: string, title: string, memberCount: number) => {
+    setActivitySummaries((items) => items.map((item) => item.id === `${ACTIVITY_CONVERSATION_PREFIX}${runId}` ? { ...item, title, memberCount } : item));
+  }, []);
 
+  const activityRunId = selectedId?.startsWith(ACTIVITY_CONVERSATION_PREFIX) ? selectedId.slice(ACTIVITY_CONVERSATION_PREFIX.length) : null;
+  const activitySelected = Boolean(activityRunId);
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const assistantSelected = selectedId === ASSISTANT_CONVERSATION_ID;
-  const activeConversation = assistantSelected ? assistant : selected;
+  const activeConversation = activitySelected
+    ? activitySummaries.find((item) => item.id === selectedId) ?? (activityRunId ? activitySummary(activityRunId) : null)
+    : assistantSelected ? assistant : selected;
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    const items = [assistant, ...conversations];
+    const items = [...activitySummaries, assistant, ...conversations];
     return value
       ? items.filter((item) => `${item.title} ${item.preview}`.toLowerCase().includes(value))
       : items;
-  }, [assistant, conversations, query]);
+  }, [activitySummaries, assistant, conversations, query]);
+
+  const loadActivityConversations = useCallback(async () => {
+    try {
+      const activities = await listEventActivities();
+      const cards = uniqueActivityCards([
+        ...(initialQuest ? [activityCardPlaceholder(initialQuest)] : []),
+        ...activities.my.awaitingCoordination,
+        ...activities.my.awaitingConfirmation,
+        ...activities.my.upcoming,
+        ...activities.invitations.map((invitation) => invitation.activity),
+        ...activities.sentInvitations.map((invitation) => invitation.activity),
+      ]);
+      const next = await Promise.all(cards.map((card) => toActivitySummary(card, activities.notifications)));
+      setActivitySummaries((current) => mergeActivitySummaries(current, next, initialQuest));
+    } catch {
+      // The normal chat list remains usable if the activity feed is unavailable.
+    }
+  }, [initialQuest]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -95,24 +128,30 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
    * chat view to remote conversation state; state updates occur after fetches resolve. */
   useEffect(() => { void loadConversations(); }, [loadConversations]);
   useEffect(() => {
+    void loadActivityConversations();
+    const timer = window.setInterval(() => void loadActivityConversations(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadActivityConversations]);
+  useEffect(() => {
     const timer = window.setInterval(() => void loadConversations(), 4_000);
     return () => window.clearInterval(timer);
   }, [loadConversations]);
   useEffect(() => {
-    if (!selectedId || assistantSelected) return;
+    if (!selectedId || assistantSelected || activitySelected) return;
     void loadMessages(selectedId);
     const timer = window.setInterval(() => {
       void loadMessages(selectedId, true);
     }, 4_000);
     return () => window.clearInterval(timer);
-  }, [assistantSelected, loadConversations, loadMessages, selectedId]);
+  }, [activitySelected, assistantSelected, loadConversations, loadMessages, selectedId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function openConversation(id: string) {
     setSelectedId(id);
-    if (id === ASSISTANT_CONVERSATION_ID) setMessages([]);
+    if (id === ASSISTANT_CONVERSATION_ID || id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) setMessages([]);
     setMenuOpen(false);
     setConfirmAction(null);
+    setActivitySummaries((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   }
 
@@ -140,6 +179,22 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
     } catch (reason) {
       input.value = body;
       setError(reason instanceof Error ? reason.message : "Message was not sent");
+    }
+  }
+
+  async function openChatProfile(userId: string | null | undefined, conversationId: string) {
+    if (!userId) return;
+    setProfileLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/chat/profiles/${encodeURIComponent(userId)}?conversationId=${encodeURIComponent(conversationId)}`, { cache: "no-store" });
+      const result = await response.json() as { profile?: ChatProfile; error?: string };
+      if (!response.ok || !result.profile) throw new Error(result.error ?? "Could not load this profile");
+      setProfile(result.profile);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load this profile");
+    } finally {
+      setProfileLoading(false);
     }
   }
 
@@ -206,8 +261,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
         <div className="conversation-list">
           {filtered.map((conversation) => (
             <button className={`conversation-row${selectedId === conversation.id ? " selected" : ""}`} type="button" key={conversation.id} onClick={() => openConversation(conversation.id)}>
-              {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={isGroupConversation(conversation)} />}
-              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{isGroupConversation(conversation) ? `${conversation.memberCount} members · ` : conversation.type === "quest_private" ? "Private · " : ""}{conversation.preview}</small></span>
+              {conversation.id === ASSISTANT_CONVERSATION_ID ? <AssistantAvatar size={58} /> : <Avatar src={conversation.imageUrl} name={conversation.title} size={58} group={conversation.type === "group"} />}
+              <span className="conversation-copy"><span><strong>{conversation.title}</strong><time>{formatThreadTime(conversation.lastMessageAt)}</time></span><small>{conversation.id.startsWith(ACTIVITY_CONVERSATION_PREFIX) ? "Activity planning · " : conversation.type === "group" ? `${memberLabel(conversation.memberCount)} · ` : ""}{conversation.preview}</small></span>
               {conversation.unreadCount ? <b className="unread-badge" aria-label={`${conversation.unreadCount} unread messages`}>{conversation.unreadCount}</b> : null}
             </button>
           ))}
@@ -215,13 +270,43 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
       </section>
 
       <section className="chat-panel" aria-label={activeConversation ? `Conversation with ${activeConversation.title}` : "Selected conversation"}>
-        {activeConversation ? (
+        {activitySelected && activityRunId && activeConversation ? <>
+          <div className="chat-header-stack">
+            <header className="chat-header">
+              <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
+              <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />
+              <span><h2>{activeConversation.title}</h2><p>{memberLabel(activeConversation.memberCount)} · Activity planning</p></span>
+              <div className="chat-header-actions">
+                <button
+                  className="chat-more-button"
+                  type="button"
+                  onClick={() => { setMenuOpen((open) => !open); setConfirmAction(null); }}
+                  aria-label="More activity options"
+                  aria-expanded={menuOpen}
+                >
+                  <span aria-hidden="true">⋮</span>
+                </button>
+              </div>
+            </header>
+            {menuOpen ? <div className="chat-options-menu" role="menu" aria-label="Activity options">
+              <a href={`/quests/${encodeURIComponent(activityRunId)}`} role="menuitem"><Icon name="quests" size={18} /> Activity details</a>
+              <a href="/my-quests" role="menuitem"><Icon name="calendar" size={18} /> My Activities</a>
+            </div> : null}
+          </div>
+          <EventCoordinationConversation
+            runId={activityRunId}
+            embedded
+            showHeader={false}
+            onBack={() => setSelectedId(null)}
+            onTitle={(title, memberCount) => handleActivityTitle(activityRunId, title, memberCount)}
+          />
+        </> : activeConversation ? (
           <>
             <div className="chat-header-stack">
               <header className="chat-header">
                 <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
-                {assistantSelected ? <AssistantAvatar size={48} /> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group={isGroupConversation(activeConversation)} />}
-                <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "quest_private" ? "Private coordination with Senior Quest" : isGroupConversation(activeConversation) ? `${activeConversation.memberCount} members${activeConversation.type === "quest_group" ? " · Senior Quest coordinates here" : ""}` : "Community member"}</p></span>
+                {assistantSelected ? <AssistantAvatar size={48} /> : activeConversation.type === "direct" ? <button className="chat-profile-trigger" type="button" onClick={() => void openChatProfile(activeConversation.otherUserId, activeConversation.id)} aria-label={`Open ${activeConversation.title}'s profile`}><Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} /></button> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />}
+                <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "group" ? `${activeConversation.memberCount} members` : "Community member"}</p></span>
                 <div className="chat-header-actions">
                   <button
                     className="chat-more-button"
@@ -236,10 +321,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
               </header>
               {menuOpen ? <div className="chat-options-menu" role="menu" aria-label={assistantSelected ? "Senior Quest options" : "Chat options"}>
                 {assistantSelected ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setAssistantResetToken((value) => value + 1); }}><Icon name="refresh" size={18} /> Start over</button> : <>
-                  {isQuestConversation(activeConversation) ? <Link role="menuitem" href={`/quests/${encodeURIComponent(activeConversation.questId ?? "")}`} onClick={() => setMenuOpen(false)}><Icon name="chevron" size={18} /> Activity details</Link> : <>
-                    {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : activeConversation.blocked ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); void completeChatAction("unblock"); }}><Icon name="blocked" size={18} /> Unblock user</button> : <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> Block user</button>}
-                    <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
-                  </>}
+                  {activeConversation.type === "group" ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("leave"); }}><Icon name="close" size={18} /> Leave group</button> : activeConversation.blocked ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); void completeChatAction("unblock"); }}><Icon name="blocked" size={18} /> Unblock user</button> : <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("block"); }}><Icon name="blocked" size={18} /> Block user</button>}
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setConfirmAction("delete"); }}><Icon name="trash" size={18} /> Delete chat</button>
                 </>}
               </div> : null}
               {!assistantSelected && confirmAction ? (
@@ -255,7 +338,7 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
               {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}
               {!messageLoading && messages.length === 0 ? <div className="empty-conversation"><span>👋</span><p>Say hello and start the conversation.</p></div> : null}
               {messages.map((message, index) => {
-                const showName = isGroupConversation(activeConversation) && !message.mine && messages[index - 1]?.senderId !== message.senderId;
+                const showName = activeConversation.type === "group" && !message.mine && messages[index - 1]?.senderId !== message.senderId;
                 return <ChatMessageBubble
                   key={message.id}
                   body={message.body}
@@ -279,6 +362,8 @@ export function ChatCenter({ initialConversation }: { initialConversation?: "ass
           <div className="chat-placeholder"><span aria-hidden="true">💚</span><h2>Your messages, all in one place</h2><p>Choose a conversation to read and reply.</p></div>
         )}
       </section>
+      {profileLoading ? <div className="profile-loading" role="status">Loading profile…</div> : null}
+      {profile ? <ChatProfileDialog profile={profile} onClose={() => setProfile(null)} /> : null}
       {creating ? <NewConversationSheet onClose={() => setCreating(false)} onCreated={(conversation) => { setConversations((items) => [conversation, ...items.filter((item) => item.id !== conversation.id)]); setCreating(false); openConversation(conversation.id); }} /> : null}
     </div>
   );
@@ -358,18 +443,28 @@ function AssistantAvatar({ size }: { size: number }) {
   return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true">♥</span>;
 }
 
+function ChatProfileDialog({ profile, onClose }: { profile: ChatProfile; onClose: () => void }) {
+  return <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="create-sheet chat-profile-sheet" role="dialog" aria-modal="true" aria-labelledby="chat-profile-title">
+      <button className="icon-button sheet-close" type="button" onClick={onClose} aria-label="Close profile"><Icon name="close" /></button>
+      <div className="chat-profile-hero"><Avatar src={profile.photoUrl} name={profile.fullName} size={86} /><h2 id="chat-profile-title">{profile.fullName}</h2>{profile.username ? <p>@{profile.username}</p> : null}</div>
+      <dl className="chat-profile-details">
+        <div><dt>Full name</dt><dd>{profile.fullName}</dd></div>
+        <div><dt>Email</dt><dd>{profile.email || "Not shared"}</dd></div>
+        <div><dt>Phone</dt><dd>{profile.phone || "Not shared"}</dd></div>
+      </dl>
+      <section className="emergency-profile-card">
+        <h3>Emergency contact</h3>
+        {profile.emergencyContact ? <dl className="chat-profile-details"><div><dt>Name</dt><dd>{profile.emergencyContact.name}</dd></div><div><dt>Relationship</dt><dd>{profile.emergencyContact.relationship}</dd></div><div><dt>Phone</dt><dd>{profile.emergencyContact.phone}</dd></div>{profile.emergencyContact.email ? <div><dt>Email</dt><dd>{profile.emergencyContact.email}</dd></div> : null}</dl> : <p>No emergency contact added.</p>}
+      </section>
+    </section>
+  </div>;
+}
+
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
   return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <Image src={src!} alt="" fill sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
-}
-
-function isGroupConversation(conversation: ConversationSummary): boolean {
-  return conversation.type === "group" || conversation.type === "quest_group";
-}
-
-function isQuestConversation(conversation: ConversationSummary): boolean {
-  return conversation.type === "quest_private" || conversation.type === "quest_group";
 }
 
 function formatThreadTime(value: string) {
@@ -383,4 +478,68 @@ function formatThreadTime(value: string) {
 
 function formatMessageTime(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function memberLabel(count: number) {
+  return `${count} member${count === 1 ? "" : "s"}`;
+}
+
+function activitySummary(runId: string): ConversationSummary {
+  return {
+    id: `${ACTIVITY_CONVERSATION_PREFIX}${runId}`,
+    type: "group",
+    title: "Activity coordination",
+    imageUrl: null,
+    preview: "Plan this activity with Senior Quest",
+    lastMessageAt: "now",
+    unreadCount: 0,
+    memberCount: 0,
+  };
+}
+
+function uniqueActivityCards(cards: EventActivityCard[]) {
+  return [...new Map(cards.map((card) => [card.runId, card])).values()];
+}
+
+function activityCardPlaceholder(runId: string): EventActivityCard {
+  return {
+    runId,
+    title: "Activity coordination",
+    description: "Plan this activity with Senior Quest.",
+    lifecycle: "forming",
+    durationMinutes: 0,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Singapore",
+    provisionalAvailability: null,
+    workingArrangement: null,
+    finalArrangement: null,
+    recruitment: null,
+  };
+}
+
+async function toActivitySummary(card: EventActivityCard, notifications: Array<{ runId: string; readAt: string | null }>): Promise<ConversationSummary> {
+  const [run, view, thread] = await Promise.all([
+    getQuestRun(card.runId).catch(() => null),
+    getEventQuest(card.runId).catch(() => null),
+    getEventCoordinationThread(card.runId).catch(() => null),
+  ]);
+  const latestMessage = thread?.messages.at(-1);
+  return {
+    id: `${ACTIVITY_CONVERSATION_PREFIX}${card.runId}`,
+    type: "group",
+    title: card.title,
+    imageUrl: run?.imageUrl ?? null,
+    preview: latestMessage?.body ?? "Activity planning · Open to coordinate",
+    lastMessageAt: thread?.updatedAt ?? view?.updatedAt ?? card.finalArrangement?.start ?? card.provisionalAvailability?.start ?? "now",
+    unreadCount: notifications.filter((notification) => notification.runId === card.runId && notification.readAt === null).length,
+    memberCount: view?.participantProgress.length ?? 0,
+  };
+}
+
+function mergeActivitySummaries(current: ConversationSummary[], next: ConversationSummary[], initialQuest?: string) {
+  const merged = new Map(current.map((item) => [item.id, item]));
+  for (const item of next) merged.set(item.id, item);
+  if (initialQuest && !merged.has(`${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}`)) {
+    merged.set(`${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}`, activitySummary(initialQuest));
+  }
+  return [...merged.values()].sort((left, right) => right.lastMessageAt.localeCompare(left.lastMessageAt));
 }

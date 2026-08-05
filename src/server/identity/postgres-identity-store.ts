@@ -5,7 +5,9 @@ import { normalizePhone, seededCommunityMembers } from "@/server/identity/identi
 import type {
   ChatContact,
   ChatMessage,
+  ChatProfile,
   ConversationSummary,
+  EmergencyContact,
   StoredUser,
   UserPreferences,
   UserProfile,
@@ -25,6 +27,10 @@ type UserRow = {
   preferred_language: string;
   area: string | null;
   photo_url: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_relationship: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_email: string | null;
   account_type: "member" | "community";
   onboarding_complete: boolean;
   interests: string[] | null;
@@ -42,7 +48,10 @@ type UserRow = {
 
 const userSelect = `
   SELECT u.user_id, u.full_name, u.username, u.email, u.phone, u.password_hash, u.date_of_birth,
-         u.gender, u.preferred_language, u.area, u.photo_url, u.account_type, u.onboarding_complete,
+         u.gender, u.preferred_language, u.area, u.photo_url,
+         u.emergency_contact_name, u.emergency_contact_relationship,
+         u.emergency_contact_phone, u.emergency_contact_email,
+         u.account_type, u.onboarding_complete,
          p.interests, p.group_size, p.activity_level, p.accessibility_needs,
          p.text_size, p.high_contrast, p.message_notifications, p.quest_notifications,
          p.profile_visibility, p.message_privacy, p.show_online_status
@@ -64,14 +73,21 @@ export class PostgresIdentityStore implements IdentityStore {
       const id = randomUUID();
       const username = normalizeUsername(input.username ?? input.fullName);
       await client.query(
-        `INSERT INTO identity.users
+         `INSERT INTO identity.users
            (user_id, full_name, email, phone, password_hash, date_of_birth, gender,
-            preferred_language, area, photo_url, account_type, username, onboarding_complete)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'member', $11, $12)`,
+            preferred_language, area, photo_url, emergency_contact_name,
+            emergency_contact_relationship, emergency_contact_phone, emergency_contact_email,
+            account_type, username, onboarding_complete)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'member', $15, $16)`,
         [
           id, input.fullName, input.email?.toLowerCase() ?? null, normalizePhone(input.phone),
           input.passwordHash, input.dateOfBirth || null, input.gender || null,
-          input.preferredLanguage, input.area || null, input.photoUrl, username,
+          input.preferredLanguage, input.area || null, input.photoUrl,
+          input.emergencyContact?.name.trim() ?? null,
+          input.emergencyContact?.relationship.trim() ?? null,
+          input.emergencyContact ? normalizePhone(input.emergencyContact.phone) : null,
+          input.emergencyContact?.email?.trim().toLowerCase() || null,
+          username,
           input.onboardingComplete ?? true,
         ],
       );
@@ -96,6 +112,7 @@ export class PostgresIdentityStore implements IdentityStore {
         onboardingComplete: input.onboardingComplete ?? true,
         email: input.email?.toLowerCase() ?? null,
         phone: normalizePhone(input.phone),
+        emergencyContact: input.emergencyContact ?? null,
         accountType: "member",
       });
     } catch (error) {
@@ -179,6 +196,38 @@ export class PostgresIdentityStore implements IdentityStore {
     }
   }
 
+  async updateProfile(userId: string, input: { fullName: string; phone: string | null; emergencyContact: EmergencyContact | null }): Promise<UserProfile> {
+    try {
+      const result = await this.pool.query<UserRow>(
+        `UPDATE identity.users SET
+           full_name = $2, phone = $3,
+           emergency_contact_name = $4,
+           emergency_contact_relationship = $5,
+           emergency_contact_phone = $6,
+           emergency_contact_email = $7,
+           updated_at = now()
+         WHERE user_id = $1
+         RETURNING user_id`,
+        [
+          userId,
+          input.fullName.trim(),
+          normalizePhone(input.phone),
+          input.emergencyContact?.name.trim() ?? null,
+          input.emergencyContact?.relationship.trim() ?? null,
+          input.emergencyContact ? normalizePhone(input.emergencyContact.phone) : null,
+          input.emergencyContact?.email?.trim().toLowerCase() || null,
+        ],
+      );
+      if (!result.rowCount) throw new Error("User not found");
+      const user = await this.findUserById(userId);
+      if (!user) throw new Error("User not found");
+      return publicUser(user);
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new Error("That phone number is already in use");
+      throw error;
+    }
+  }
+
   async updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile> {
     const result = await this.pool.query<UserRow>(
       `WITH updated AS (
@@ -203,6 +252,50 @@ export class PostgresIdentityStore implements IdentityStore {
   async findUserById(userId: string): Promise<StoredUser | null> {
     const result = await this.pool.query<UserRow>(`${userSelect} WHERE u.user_id = $1`, [userId]);
     return result.rows[0] ? this.mapUser(result.rows[0]) : null;
+  }
+
+  async getChatProfile(viewerId: string, targetId: string, conversationId: string): Promise<ChatProfile> {
+    const result = await this.pool.query<{
+      user_id: string;
+      full_name: string;
+      username: string | null;
+      email: string | null;
+      phone: string | null;
+      photo_url: string | null;
+      emergency_contact_name: string | null;
+      emergency_contact_relationship: string | null;
+      emergency_contact_phone: string | null;
+      emergency_contact_email: string | null;
+    }>(
+      `SELECT target.user_id, target.full_name, target.username, target.email, target.phone, target.photo_url,
+              target.emergency_contact_name, target.emergency_contact_relationship,
+              target.emergency_contact_phone, target.emergency_contact_email
+       FROM identity.users target
+       JOIN chat.conversation_members viewer_member
+         ON viewer_member.conversation_id = $3 AND viewer_member.user_id = $1
+       JOIN chat.conversation_members target_member
+         ON target_member.conversation_id = viewer_member.conversation_id AND target_member.user_id = target.user_id
+       WHERE target.user_id = $2`,
+      [viewerId, targetId, conversationId],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Profile is not part of this conversation");
+    return {
+      id: row.user_id,
+      fullName: row.full_name,
+      username: row.username,
+      email: row.email,
+      phone: row.phone,
+      photoUrl: row.photo_url,
+      emergencyContact: row.emergency_contact_name && row.emergency_contact_phone
+        ? {
+            name: row.emergency_contact_name,
+            relationship: row.emergency_contact_relationship ?? "Emergency contact",
+            phone: row.emergency_contact_phone,
+            email: row.emergency_contact_email,
+          }
+        : null,
+    };
   }
 
   async filterContactableUserIds(userIds: string[]): Promise<string[]> {
@@ -773,6 +866,14 @@ export class PostgresIdentityStore implements IdentityStore {
       preferredLanguage: row.preferred_language,
       area: row.area,
       photoUrl: row.photo_url,
+      emergencyContact: row.emergency_contact_name && row.emergency_contact_phone
+        ? {
+            name: row.emergency_contact_name,
+            relationship: row.emergency_contact_relationship ?? "Emergency contact",
+            phone: row.emergency_contact_phone,
+            email: row.emergency_contact_email,
+          }
+        : null,
       accountType: row.account_type,
       onboardingComplete: row.onboarding_complete,
       preferences: {

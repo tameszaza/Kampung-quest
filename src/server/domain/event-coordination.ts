@@ -182,6 +182,8 @@ export interface EventCoordinationMessage {
   body: string;
   kind: "text" | "invitation_card" | "arrangement_card" | "change_card";
   createdAt: string;
+  /** Receipt state for participant messages when the transport can provide it. */
+  receipt?: "delivered" | "read";
 }
 
 export interface EventGroupCoordinationThread {

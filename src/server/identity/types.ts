@@ -12,6 +12,13 @@ export type UserPreferences = {
   showOnlineStatus: boolean;
 };
 
+export type EmergencyContact = {
+  name: string;
+  relationship: string;
+  phone: string;
+  email: string | null;
+};
+
 export type UserProfile = {
   id: string;
   fullName: string;
@@ -23,6 +30,7 @@ export type UserProfile = {
   preferredLanguage: string;
   area: string | null;
   photoUrl: string | null;
+  emergencyContact: EmergencyContact | null;
   onboardingComplete: boolean;
   preferences: UserPreferences;
 };
@@ -69,6 +77,16 @@ export type ChatContact = {
   photoUrl: string | null;
 };
 
+export type ChatProfile = {
+  id: string;
+  fullName: string;
+  username: string | null;
+  email: string | null;
+  phone: string | null;
+  photoUrl: string | null;
+  emergencyContact: EmergencyContact | null;
+};
+
 export const defaultPreferences: UserPreferences = {
   interests: [],
   groupSize: "small",
@@ -95,6 +113,7 @@ export function publicUser(user: StoredUser): UserProfile {
     preferredLanguage: user.preferredLanguage,
     area: user.area,
     photoUrl: user.photoUrl,
+    emergencyContact: user.emergencyContact,
     onboardingComplete: user.onboardingComplete,
     preferences: structuredClone(user.preferences),
   };

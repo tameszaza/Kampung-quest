@@ -43,20 +43,19 @@
   font-weight: 650;
 }
 
-.nav-activity-badge {
+.nav-badge {
   position: absolute;
-  top: 5px;
-  left: calc(50% + 7px);
+  top: 4px;
+  right: calc(50% - 24px);
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border: 2px solid white;
   border-radius: 99px;
-  background: #b64236;
+  background: var(--danger);
   color: white;
   display: grid;
   place-items: center;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
 }
@@ -168,15 +167,18 @@
     justify-content: center;
   }
 
-  .desktop-nav .nav-activity-badge {
-    top: 2px;
-    right: 1px;
-    left: auto;
-  }
-
   .desktop-nav nav a span,
   .desktop-create-label {
     display: none;
+  }
+
+  .desktop-nav nav a .nav-badge {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    min-width: 20px;
+    height: 20px;
+    display: grid;
   }
 
   .desktop-nav nav a:hover,
@@ -264,11 +266,6 @@
     gap: 8px;
     font-size: 15px;
     font-weight: 700;
-  }
-
-  .desktop-nav .nav-activity-badge {
-    top: 8px;
-    right: 9px;
   }
 
   .desktop-nav nav a span,

@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
 import { listEventActivities } from "@/features/events/client";
+import { getQuestRun } from "@/features/assistant/client";
 import type { EventActivityCard, UserEventActivities } from "@/server/domain/event-coordination";
 
 const groups = ["Awaiting coordination", "Awaiting confirmation", "Upcoming", "Completed", "Cancelled"] as const;
@@ -14,10 +16,13 @@ type Group = (typeof groups)[number];
 export default function MyQuestsPage() {
   const [tab, setTab] = useState<Group>("Awaiting coordination");
   const [activities, setActivities] = useState<UserEventActivities | null>(null);
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
-      setActivities(await listEventActivities());
+      const next = await listEventActivities();
+      setActivities(next);
+      await loadThumbnails(next, setImageUrls);
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "My Activities could not be loaded");
@@ -25,8 +30,9 @@ export default function MyQuestsPage() {
   }, []);
   useEffect(() => {
     let active = true;
-    void listEventActivities().then((next) => {
+    void listEventActivities().then(async (next) => {
       if (active) setActivities(next);
+      if (active) await loadThumbnails(next, setImageUrls);
     }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "My Activities could not be loaded");
     });
@@ -35,32 +41,44 @@ export default function MyQuestsPage() {
 
   const visible = activities ? groupActivities(activities, tab) : [];
   return (
-    <div className="page-container narrow-page">
+    <div className="page-container narrow-page my-activities-ref">
       <PageHeader title="My Activities" />
       <Tabs tabs={[...groups]} active={tab} onChange={(value) => setTab(value as Group)} />
       {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button type="button" className="text-button" onClick={() => void load()}>Try again</button></div> : null}
       {!activities && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading your activities…</div> : null}
       {activities && visible.length === 0 ? <div className="empty-state"><span><Icon name="check" size={34} /></span><h2>Nothing here yet</h2><p>{emptyCopy(tab)}</p></div> : null}
       <section className="joined-list" aria-label={tab}>
-        {visible.map((activity) => <JoinedEventCard activity={activity} group={tab} key={activity.runId} />)}
+        {visible.map((activity) => <JoinedEventCard activity={activity} group={tab} imageUrl={imageUrls[activity.runId]} key={activity.runId} />)}
       </section>
     </div>
   );
 }
 
-function JoinedEventCard({ activity, group }: { activity: EventActivityCard; group: Group }) {
-  const window = activity.finalArrangement ?? activity.workingArrangement ?? activity.provisionalAvailability;
-  const label = activity.finalArrangement ? "Confirmed schedule" : activity.workingArrangement ? "Working appointment" : "Availability being coordinated";
-  const venue = activity.finalArrangement?.venueName ?? activity.workingArrangement?.venueName;
+function JoinedEventCard({ activity, group, imageUrl }: { activity: EventActivityCard; group: Group; imageUrl?: string }) {
+  const window = activity.finalArrangement ?? activity.provisionalAvailability;
   return <Link className="joined-card event-joined-card" href={`/quests/${activity.runId}?from=my-activities`}>
+    <div className="joined-image">{imageUrl ? <Image src={imageUrl} alt="" fill sizes="(max-width: 767px) 100vw, 280px" /> : <Image src="/assets/quest-placeholder.svg" alt="" fill sizes="(max-width: 767px) 100vw, 280px" />}<span className="image-badge">{group}</span></div>
     <div className="joined-body">
-      <span className="image-badge">{group.toUpperCase()}</span>
       <h2>{activity.title}</h2>
       <p>{activity.description}</p>
-      <div className="meta-row"><Icon name="calendar" size={19} /><span>{label}<small>{window ? new Date(window.start).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: activity.timeZone }) : "No time proposed yet"}{venue ? ` · ${venue}` : ""}</small></span></div>
+      <div className="meta-row"><Icon name="calendar" size={19} /><span><strong>{activity.finalArrangement ? "Confirmed schedule" : "Availability being coordinated"}</strong><small>{window ? new Date(window.start).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "No time proposed yet"}{activity.finalArrangement ? ` · ${activity.finalArrangement.venueName}` : ""}</small></span></div>
       <div className="joined-footer"><span>{actionCopy(group)}</span><Icon name="chevron" size={19} /></div>
     </div>
   </Link>;
+}
+
+async function loadThumbnails(next: UserEventActivities, update: (value: Record<string, string>) => void) {
+  const all = Object.values(next.my).flat();
+  const uniqueIds = [...new Set(all.map((activity) => activity.runId))];
+  const entries = await Promise.all(uniqueIds.map(async (runId) => {
+    try {
+      const run = await getQuestRun(runId);
+      return run?.imageUrl ? [runId, run.imageUrl] as const : null;
+    } catch {
+      return null;
+    }
+  }));
+  update(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => Boolean(entry))));
 }
 
 function groupActivities(activities: UserEventActivities, group: Group) {

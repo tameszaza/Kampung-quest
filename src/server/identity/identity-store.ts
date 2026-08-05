@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type {
   ChatContact,
   ChatMessage,
+  ChatProfile,
   ConversationSummary,
+  EmergencyContact,
   StoredUser,
   UserPreferences,
   UserProfile,
@@ -10,9 +12,10 @@ import type {
 import { defaultPreferences, publicUser } from "@/server/identity/types";
 import { normalizeUsername } from "@/server/identity/username";
 
-export type NewUser = Omit<StoredUser, "id" | "accountType" | "username" | "onboardingComplete"> & {
+export type NewUser = Omit<StoredUser, "id" | "accountType" | "username" | "onboardingComplete" | "emergencyContact"> & {
   username?: string | null;
   onboardingComplete?: boolean;
+  emergencyContact?: EmergencyContact | null;
 };
 
 export type AuthIdentityInput = {
@@ -35,13 +38,21 @@ export type CompleteProfileInput = {
   preferences: Pick<UserPreferences, "interests" | "groupSize" | "activityLevel">;
 };
 
+export type UpdateProfileInput = {
+  fullName: string;
+  phone: string | null;
+  emergencyContact: EmergencyContact | null;
+};
+
 export interface IdentityStore {
   createUser(input: NewUser): Promise<UserProfile>;
   ensureAuthUser(input: AuthIdentityInput): Promise<UserProfile>;
   completeProfile(userId: string, input: CompleteProfileInput): Promise<UserProfile>;
+  updateProfile(userId: string, input: UpdateProfileInput): Promise<UserProfile>;
   updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile>;
   isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean>;
   findUserById(userId: string): Promise<StoredUser | null>;
+  getChatProfile(viewerId: string, targetId: string, conversationId: string): Promise<ChatProfile>;
   /** Keep only login-enabled, onboarded recipients that can receive an invitation. */
   filterContactableUserIds(userIds: string[]): Promise<string[]>;
   updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile>;
@@ -98,6 +109,7 @@ function communityUser(id: string, fullName: string, photoUrl: string): StoredUs
     preferredLanguage: "English",
     area: "Nearby",
     photoUrl,
+    emergencyContact: null,
     onboardingComplete: true,
     accountType: "community",
     preferences: structuredClone(defaultPreferences),
@@ -131,6 +143,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       id: randomUUID(),
       email,
       phone,
+      emergencyContact: input.emergencyContact ?? null,
       username,
       onboardingComplete: input.onboardingComplete ?? true,
       accountType: "member",
@@ -167,6 +180,7 @@ export class InMemoryIdentityStore implements IdentityStore {
       preferredLanguage: "English",
       area: null,
       photoUrl: input.photoUrl,
+      emergencyContact: null,
       onboardingComplete: false,
       accountType: "member",
       preferences: structuredClone(defaultPreferences),
@@ -195,6 +209,24 @@ export class InMemoryIdentityStore implements IdentityStore {
     return publicUser(next);
   }
 
+  async updateProfile(userId: string, input: UpdateProfileInput): Promise<UserProfile> {
+    const user = this.requireUser(userId);
+    const next: StoredUser = {
+      ...user,
+      fullName: input.fullName.trim(),
+      phone: normalizePhone(input.phone),
+      emergencyContact: input.emergencyContact ? {
+        ...input.emergencyContact,
+        name: input.emergencyContact.name.trim(),
+        relationship: input.emergencyContact.relationship.trim(),
+        phone: normalizePhone(input.emergencyContact.phone) ?? "",
+        email: input.emergencyContact.email?.trim().toLowerCase() || null,
+      } : null,
+    };
+    this.users.set(userId, next);
+    return publicUser(next);
+  }
+
   async updatePhoto(userId: string, photoUrl: string | null): Promise<UserProfile> {
     const user = this.requireUser(userId);
     const next = { ...user, photoUrl };
@@ -209,6 +241,21 @@ export class InMemoryIdentityStore implements IdentityStore {
 
   async findUserById(userId: string): Promise<StoredUser | null> {
     return this.users.get(userId) ?? null;
+  }
+
+  async getChatProfile(viewerId: string, targetId: string, conversationId: string): Promise<ChatProfile> {
+    const conversation = this.requireConversationMember(viewerId, conversationId);
+    if (!conversation.memberIds.includes(targetId)) throw new Error("Profile is not part of this conversation");
+    const target = this.requireUser(targetId);
+    return {
+      id: target.id,
+      fullName: target.fullName,
+      username: target.username,
+      email: target.email,
+      phone: target.phone,
+      photoUrl: target.photoUrl,
+      emergencyContact: target.emergencyContact,
+    };
   }
 
   async filterContactableUserIds(userIds: string[]): Promise<string[]> {
