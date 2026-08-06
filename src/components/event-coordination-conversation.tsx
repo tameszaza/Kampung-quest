@@ -26,7 +26,8 @@ import type {
 } from "@/server/domain/event-coordination";
 import { createClientRequestId } from "@/lib/client-request-id";
 
-const REFRESH_INTERVAL_MS = 1_500;
+const REFRESH_INTERVAL_MS = 10_000;
+const REFRESH_COOLDOWN_MS = 1_000;
 
 export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle, scope: controlledScope, onScopeChange, onGroupAvailabilityChange }: {
   runId: string;
@@ -50,8 +51,19 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
+  const initialLoadInFlightRef = useRef(false);
+  const refreshInFlightRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const lastLoadedAtRef = useRef(0);
   const acknowledgedNotificationsRef = useRef("");
+  const onTitleRef = useRef(onTitle);
+  const onScopeChangeRef = useRef(onScopeChange);
+  const onGroupAvailabilityChangeRef = useRef(onGroupAvailabilityChange);
   const activeScope = controlledScope ?? scope;
+
+  onTitleRef.current = onTitle;
+  onScopeChangeRef.current = onScopeChange;
+  onGroupAvailabilityChangeRef.current = onGroupAvailabilityChange;
 
   const scrollToLatest = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -65,18 +77,19 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       ]);
       if (!nextQuest) throw new Error("This activity could not be found");
       const activeMemberCount = nextQuest.memberships.filter((membership) => isActiveMembershipStatus(membership.status)).length;
-      const nextGroupThread = activeMemberCount >= 2 && ["organizer", "participant"].includes(nextQuest.viewer.role)
+      const groupAvailable = activeMemberCount >= 2 && ["organizer", "participant"].includes(nextQuest.viewer.role);
+      const nextGroupThread = groupAvailable && activeScope === "group"
         ? await getEventGroupCoordinationThread(runId)
         : null;
       setThread(nextThread);
-      setGroupThread(nextGroupThread);
-      onGroupAvailabilityChange?.(Boolean(nextGroupThread));
-      if (!nextGroupThread) {
+      if (nextGroupThread || !groupAvailable) setGroupThread(nextGroupThread);
+      onGroupAvailabilityChangeRef.current?.(groupAvailable);
+      if (!groupAvailable) {
         setScope("private");
-        onScopeChange?.("private");
+        onScopeChangeRef.current?.("private");
       }
       setQuest(nextQuest);
-      onTitle?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
+      onTitleRef.current?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
       if (!quiet) scrollToLatest();
       const unreadSignature = nextQuest.notifications.filter((item) => item.readAt === null)
@@ -90,29 +103,53 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     } catch (reason) {
       if (!quiet) setError(reason instanceof Error ? reason.message : "Coordination could not be loaded");
     } finally {
-      if (!quiet) setLoading(false);
+      lastLoadedAtRef.current = Date.now();
+      if (!quiet) {
+        hasLoadedRef.current = true;
+        setLoading(false);
+      }
     }
-  }, [onGroupAvailabilityChange, onScopeChange, onTitle, runId, scrollToLatest]);
+  }, [activeScope, runId, scrollToLatest]);
+
+  const refresh = useCallback(async () => {
+    if (
+      !hasLoadedRef.current
+      || refreshInFlightRef.current
+      || Date.now() - lastLoadedAtRef.current < REFRESH_COOLDOWN_MS
+    ) return;
+    refreshInFlightRef.current = true;
+    try {
+      await load(true);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
+  }, [load]);
 
   useEffect(() => {
     let active = true;
     const initialLoad = window.setTimeout(() => {
-      if (active) void load();
+      if (!active || initialLoadInFlightRef.current) return;
+      if (hasLoadedRef.current) {
+        void refresh();
+        return;
+      }
+      initialLoadInFlightRef.current = true;
+      void load().finally(() => {
+        initialLoadInFlightRef.current = false;
+      });
     }, 0);
-    const refresh = () => {
-      if (active && !sendingRef.current && document.visibilityState === "visible") void load(true);
+    const refreshWhenActive = () => {
+      if (active && !sendingRef.current && document.visibilityState === "visible") void refresh();
     };
-    const timer = window.setInterval(refresh, REFRESH_INTERVAL_MS);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(refreshWhenActive, REFRESH_INTERVAL_MS);
+    document.addEventListener("visibilitychange", refreshWhenActive);
     return () => {
       active = false;
       window.clearTimeout(initialLoad);
       window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
     };
-  }, [load]);
+  }, [load, refresh]);
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

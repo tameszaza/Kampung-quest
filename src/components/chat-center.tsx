@@ -55,11 +55,21 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
   const [profile, setProfile] = useState<ChatProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const activityLoadInFlightRef = useRef(false);
+  const hydratedActivityIdsRef = useRef(new Set<string>());
   const handleActivityTitle = useCallback((runId: string, title: string, memberCount: number) => {
-    setActivitySummaries((items) => items.map((item) => item.id === `${ACTIVITY_CONVERSATION_PREFIX}${runId}` ? { ...item, title, memberCount } : item));
+    setActivitySummaries((items) => {
+      const id = `${ACTIVITY_CONVERSATION_PREFIX}${runId}`;
+      const current = items.find((item) => item.id === id);
+      if (!current || (current.title === title && current.memberCount === memberCount)) return items;
+      return items.map((item) => item.id === id ? { ...item, title, memberCount } : item);
+    });
   }, []);
 
   const activityRunId = selectedId?.startsWith(ACTIVITY_CONVERSATION_PREFIX) ? selectedId.slice(ACTIVITY_CONVERSATION_PREFIX.length) : null;
+  const handleSelectedActivityTitle = useCallback((title: string, memberCount: number) => {
+    if (activityRunId) handleActivityTitle(activityRunId, title, memberCount);
+  }, [activityRunId, handleActivityTitle]);
   const activitySelected = Boolean(activityRunId);
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const assistantSelected = selectedId === ASSISTANT_CONVERSATION_ID;
@@ -75,6 +85,8 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
   }, [activitySummaries, assistant, conversations, query]);
 
   const loadActivityConversations = useCallback(async () => {
+    if (activityLoadInFlightRef.current) return;
+    activityLoadInFlightRef.current = true;
     try {
       const activities = await listEventActivities();
       const cards = uniqueActivityCards([
@@ -85,10 +97,27 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
         ...activities.invitations.map((invitation) => invitation.activity),
         ...activities.sentInvitations.map((invitation) => invitation.activity),
       ]);
-      const next = await Promise.all(cards.map((card) => toActivitySummary(card, activities.notifications)));
-      setActivitySummaries((current) => mergeActivitySummaries(current, next, initialQuest));
+      const cardsToHydrate = cards.filter((card) => !hydratedActivityIdsRef.current.has(card.runId));
+      cardsToHydrate.forEach((card) => hydratedActivityIdsRef.current.add(card.runId));
+      const hydrated = await Promise.all(cardsToHydrate.map((card) => toActivitySummary(card, activities.notifications)));
+      const cardsById = new Map(cards.map((card) => [`${ACTIVITY_CONVERSATION_PREFIX}${card.runId}`, card]));
+      setActivitySummaries((current) => {
+        const base = hydrated.length ? mergeActivitySummaries(current, hydrated, initialQuest) : current;
+        let changed = base !== current;
+        const updated = base.map((item) => {
+          const card = cardsById.get(item.id);
+          if (!card) return item;
+          const unreadCount = activities.notifications.filter((notification) => notification.runId === card.runId && notification.readAt === null).length;
+          if (item.title === card.title && item.unreadCount === unreadCount) return item;
+          changed = true;
+          return { ...item, title: card.title, unreadCount };
+        });
+        return changed ? updated : current;
+      });
     } catch {
       // The normal chat list remains usable if the activity feed is unavailable.
+    } finally {
+      activityLoadInFlightRef.current = false;
     }
   }, [initialQuest]);
 
@@ -317,7 +346,7 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
             onScopeChange={setActivityScope}
             onGroupAvailabilityChange={setActivityHasGroupThread}
             onBack={() => setSelectedId(null)}
-            onTitle={(title, memberCount) => handleActivityTitle(activityRunId, title, memberCount)}
+            onTitle={handleSelectedActivityTitle}
           />
         </> : activeConversation ? (
           <>
