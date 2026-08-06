@@ -136,6 +136,63 @@ export const assistantTurnAgentOutputSchema = z.object({
 
 export type AssistantTurnAgentOutput = z.infer<typeof assistantTurnAgentOutputSchema>;
 
+/*
+ * Gemini occasionally treats the recurring-rule discriminator as a human
+ * label (for example, "weekly" or "weekly_pattern") even when the rest of
+ * the structured response is valid. Keep the hosted boundary tolerant, then
+ * normalize into the strict domain contract before the brief is persisted.
+ */
+const hostedWeeklyAvailabilityRuleSchema = z.object({
+  ...weeklyAvailabilityRuleSchema.shape,
+  kind: z.string().min(1),
+}).refine((rule) => Date.parse(rule.validUntil) >= Date.parse(rule.validFrom), {
+  message: "Recurring availability end must not precede its start",
+  path: ["validUntil"],
+});
+
+const hostedQuestBriefDraftSchema = questBriefDraftSchema.extend({
+  recurringAvailabilityRules: z.array(hostedWeeklyAvailabilityRuleSchema).optional(),
+});
+
+export const hostedAssistantTurnAgentOutputSchema = z.object({
+  reply: z.string().min(1),
+  briefPatch: hostedQuestBriefDraftSchema,
+  requestedField: assistantBriefFieldSchema.nullable(),
+  suggestedReplies: z.array(z.string().min(1)).max(4),
+  status: z.enum(["collecting", "ready_for_review"]),
+});
+
+export function normalizeWeeklyAvailabilityRuleKind(kind: string): "weekly_recurrence" {
+  const normalized = kind.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if ([
+    "weekly_recurrence",
+    "weekly_recurrence_rule",
+    "weeklyrecurrence",
+    "weekly",
+    "weekly_pattern",
+    "weekly_availability",
+    "weeklyavailability",
+    "recurring",
+    "recurring_availability",
+  ].includes(normalized)) return "weekly_recurrence";
+  throw new Error(`Unsupported recurring availability rule kind: ${kind}`);
+}
+
+export function normalizeHostedAssistantTurnOutput(
+  output: z.infer<typeof hostedAssistantTurnAgentOutputSchema>,
+): AssistantTurnAgentOutput {
+  return assistantTurnAgentOutputSchema.parse({
+    ...output,
+    briefPatch: {
+      ...output.briefPatch,
+      recurringAvailabilityRules: output.briefPatch.recurringAvailabilityRules?.map((rule) => ({
+        ...rule,
+        kind: normalizeWeeklyAvailabilityRuleKind(rule.kind),
+      })),
+    },
+  });
+}
+
 export const assistantAnswerSchema = z.discriminatedUnion("field", [
   z.object({ field: z.literal("goal"), value: z.string().min(3) }),
   z.object({ field: z.literal("interests"), value: z.string().min(1).nullable() }),

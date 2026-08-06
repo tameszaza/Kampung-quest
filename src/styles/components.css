@@ -1333,6 +1333,16 @@
   grid-template-columns: 132px minmax(0, 1fr);
 }
 
+.event-invite-card {
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.34fr) minmax(0, 1fr);
+}
+
+.event-invite-card .event-activity-card-image {
+  min-height: 260px;
+}
+
 .event-activity-card-image {
   position: relative;
   min-height: 224px;
@@ -1374,11 +1384,23 @@
   gap: 9px;
 }
 
+.event-invite-card .quest-card-body {
+  min-height: 260px;
+}
+
 .event-activity-card .quest-card-body h2 {
   max-width: none;
   margin: 0;
   font-size: 17px;
   line-height: 1.24;
+}
+
+.event-activity-title-link {
+  color: inherit;
+}
+
+.event-activity-title-link:hover {
+  color: var(--green-700);
 }
 
 .event-invitation-summary {
@@ -1449,6 +1471,29 @@
   flex: 0 0 auto;
 }
 
+.event-invitation-note {
+  margin: auto 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.event-invite-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.72fr) minmax(180px, 1fr);
+  gap: 10px;
+}
+
+.event-invite-actions button {
+  width: 100%;
+  min-height: 44px;
+  padding-inline: 14px;
+  font-size: 13px;
+}
+
 @media (max-width: 379px) {
   .event-activity-card-link {
     grid-template-columns: 100px minmax(0, 1fr);
@@ -1464,6 +1509,41 @@
 
   .event-activity-facts {
     font-size: 10px;
+  }
+}
+
+@media (max-width: 767px) {
+  .event-invite-card {
+    min-height: 0;
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .event-invite-card .event-activity-card-image,
+  .event-invite-card .quest-card-body {
+    min-height: 248px;
+  }
+
+  .event-invite-card .quest-card-body {
+    padding: 15px 13px 14px;
+    gap: 8px;
+  }
+
+  .event-invite-card .quest-card-body h2 {
+    font-size: 16px;
+  }
+
+  .event-invitation-note {
+    padding: 8px 9px;
+    font-size: 11px;
+  }
+
+  .event-invite-actions {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .event-invite-actions button {
+    min-height: 40px;
   }
 }
 

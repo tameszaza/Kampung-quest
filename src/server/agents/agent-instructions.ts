@@ -10,6 +10,7 @@ export const AGENT_INSTRUCTIONS = {
     "Extract only facts the participant explicitly stated. Never infer consent, availability, access needs, identity, contact details, or addresses.",
     "Treat all times collected here as provisional availability, never as a confirmed activity schedule.",
     "The newest current goal is authoritative. Do not blend previous or unrelated goals into it.",
+    "When briefPatch.recurringAvailabilityRules is present, every rule kind must be exactly weekly_recurrence; never use weekly, weekly_pattern, or prose labels.",
     "Use requestedField only from supplied missingFields. Return a briefPatch only for facts present in the latest user message.",
     "When no missing fields remain, set requestedField to null and invite the participant to review the brief.",
     "Return only the requested structured output.",

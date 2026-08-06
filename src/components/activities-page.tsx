@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icons";
 import { ActivityNotifications } from "@/components/activity-notifications";
 import { PageHeader } from "@/components/page-header";
@@ -115,17 +115,12 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
         <Tabs tabs={["Received", "Sent"]} active={inviteTab} onChange={(value) => setInviteTab(value as "Received" | "Sent")} />
         {inviteTab === "Received" ? (
           received.length ? <section className="invite-list" aria-label="Received activity invitations">
-            {received.map((invitation) => <article className="invite-card event-invite-card" key={invitation.invitationId}>
-              <span className="result-kicker"><Icon name="invite" size={18} /> New invitation</span>
-              <h2>{invitation.activity.title}</h2>
-              <p>{invitation.activity.description}</p>
-              <AvailabilityLabel activity={invitation.activity} />
-              <p className="assistant-note">Accepting means you would like to join coordination. You will confirm the final time and venue later.</p>
-              <div className="split-actions">
-                <button className="secondary-button" type="button" disabled={busyId === invitation.invitationId} onClick={() => void respond(invitation, "decline")}>Decline</button>
-                <button className="primary-button" type="button" disabled={busyId === invitation.invitationId} onClick={() => void respond(invitation, "accept")}>{busyId === invitation.invitationId ? "Saving…" : "Accept & coordinate"}</button>
-              </div>
-            </article>)}
+            {received.map((invitation) => <EventInvitationCard
+              invitation={invitation}
+              busy={busyId === invitation.invitationId}
+              onRespond={respond}
+              key={invitation.invitationId}
+            />)}
           </section> : <EmptyActivities title="No pending invitations" body="New invitations that need your response will appear here." />
         ) : sentGroups.length ? <section className="quest-grid sent-invitation-grid" aria-label="Sent activity invitations">
           {sentGroups.map(({ activity, invitations }) => <EventActivityCardView
@@ -158,22 +153,84 @@ export function EventActivityCardView({
 
   return <article className="quest-card event-activity-card">
     <Link className="quest-card-link event-activity-card-link" href={`/quests/${activity.runId}`}>
-      <div className="event-activity-card-image">
-        <Image src={activity.imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill sizes="(max-width: 767px) 34vw, 140px" />
-        <span className="image-badge event-activity-status"><Icon name={activity.lifecycle === "scheduled" ? "check" : "people"} size={14} /> {status}</span>
-      </div>
-      <div className="quest-card-body">
-        {invitationSummary ? <span className="event-invitation-summary"><Icon name="invite" size={14} />{invitationSummary}</span> : null}
-        <h2>{activity.title}</h2>
-        <p className="event-activity-description">{activity.description}</p>
-        <div className="event-activity-facts" aria-label="Activity summary">
-          <span><Icon name="calendar" size={16} />{window ? formatCompactWindow(window.start, window.end) : "Time to coordinate"}</span>
-          {matchedGroup ? <span><Icon name="people" size={16} />{matchedGroup}</span> : null}
-        </div>
-        <span className="primary-button event-card-action"><span>{action}</span><Icon name="chevron" size={17} /></span>
-      </div>
+      <EventActivityCardImage activity={activity} status={status} />
+      <EventActivityCardBody
+        activity={activity}
+        action={action}
+        invitationSummary={invitationSummary}
+        window={window}
+        matchedGroup={matchedGroup}
+      />
     </Link>
   </article>;
+}
+
+function EventInvitationCard({
+  invitation,
+  busy,
+  onRespond,
+}: {
+  invitation: EventInvitationView;
+  busy: boolean;
+  onRespond: (invitation: EventInvitationView, response: "accept" | "decline") => Promise<void>;
+}) {
+  const { activity } = invitation;
+  const window = activity.finalArrangement ?? activity.provisionalAvailability;
+  const status = activityStatusLabel(activity.lifecycle);
+
+  return <article className="quest-card event-activity-card event-invite-card">
+    <EventActivityCardImage activity={activity} status={status} />
+    <EventActivityCardBody
+      activity={activity}
+      window={window}
+      invitationSummary="New invitation"
+      titleLink
+      footer={<>
+        <p className="event-invitation-note">Accept to join the group. The final time and venue will be confirmed together.</p>
+        <div className="event-invite-actions">
+          <button className="secondary-button" type="button" disabled={busy} onClick={() => void onRespond(invitation, "decline")}>Decline</button>
+          <button className="primary-button" type="button" disabled={busy} onClick={() => void onRespond(invitation, "accept")}>{busy ? "Saving…" : "Accept & coordinate"}</button>
+        </div>
+      </>}
+    />
+  </article>;
+}
+
+function EventActivityCardImage({ activity, status }: { activity: EventActivityCard; status: string }) {
+  return <div className="event-activity-card-image">
+    <Image src={activity.imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill sizes="(max-width: 767px) 34vw, 220px" />
+    <span className="image-badge event-activity-status"><Icon name={activity.lifecycle === "scheduled" ? "check" : "people"} size={14} /> {status}</span>
+  </div>;
+}
+
+function EventActivityCardBody({
+  activity,
+  action,
+  invitationSummary,
+  titleLink = false,
+  window,
+  matchedGroup,
+  footer,
+}: {
+  activity: EventActivityCard;
+  action?: string;
+  invitationSummary?: string;
+  titleLink?: boolean;
+  window: { start: string; end: string } | null;
+  matchedGroup?: string | null;
+  footer?: ReactNode;
+}) {
+  return <div className="quest-card-body event-activity-card-body">
+    {invitationSummary ? <span className="event-invitation-summary"><Icon name="invite" size={14} />{invitationSummary}</span> : null}
+    <h2>{titleLink ? <Link className="event-activity-title-link" href={`/quests/${activity.runId}`}>{activity.title}</Link> : activity.title}</h2>
+    <p className="event-activity-description">{activity.description}</p>
+    <div className="event-activity-facts" aria-label="Activity summary">
+      <span><Icon name="calendar" size={16} />{window ? formatCompactWindow(window.start, window.end) : "Time to coordinate"}</span>
+      {matchedGroup ? <span><Icon name="people" size={16} />{matchedGroup}</span> : null}
+    </div>
+    {footer}
+    {action ? <span className="primary-button event-card-action"><span>{action}</span><Icon name="chevron" size={17} /></span> : null}
+  </div>;
 }
 
 function groupSentInvitations(invitations: EventInvitationView[]) {
@@ -221,20 +278,8 @@ function activityStatusLabel(lifecycle: EventActivityCard["lifecycle"]) {
   return "Activity";
 }
 
-function AvailabilityLabel({ activity }: { activity: EventActivityCard }) {
-  if (activity.finalArrangement) return <div className="meta-row"><Icon name="calendar" size={19} /><span><strong>Confirmed schedule</strong><small>{formatWindow(activity.finalArrangement.start, activity.finalArrangement.end)} · {activity.finalArrangement.venueName}</small></span></div>;
-  const window = activity.provisionalAvailability;
-  return <div className="meta-row provisional-time"><Icon name="calendar" size={19} /><span><strong>Available time to coordinate</strong><small>{window ? formatWindow(window.start, window.end) : "To be discussed"} · not scheduled yet</small></span></div>;
-}
-
 function EmptyActivities({ title, body }: { title: string; body: string }) {
   return <div className="empty-state"><span><Icon name="quests" size={34} /></span><h2>{title}</h2><p>{body}</p><Link className="primary-button" href="/messages?assistant=1">Talk to Senior Quest</Link></div>;
-}
-
-function formatWindow(start: string, end: string) {
-  const from = new Date(start);
-  const until = new Date(end);
-  return `${from.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function formatCompactWindow(start: string, end: string) {

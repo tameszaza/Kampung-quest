@@ -16,7 +16,8 @@ import {
 import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
-  assistantTurnAgentOutputSchema,
+  hostedAssistantTurnAgentOutputSchema,
+  normalizeHostedAssistantTurnOutput,
   memoryAgentOutputSchema,
   questSynthesisOutputSchema,
   recoveryActionSchema,
@@ -132,7 +133,7 @@ export function normalizeGeminiVenueRequirements(requirements: string[]): string
 }
 
 export class HostedAgentRuntime implements AgentRuntime {
-  private readonly conversationAgent: Agent<unknown, typeof assistantTurnAgentOutputSchema>;
+  private readonly conversationAgent: Agent<unknown, typeof hostedAssistantTurnAgentOutputSchema>;
   private readonly memoryAgent: Agent<unknown, typeof memoryAgentOutputSchema>;
   private readonly synthesisAgent: Agent<unknown, typeof questSynthesisOutputSchema>;
   private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
@@ -149,7 +150,7 @@ export class HostedAgentRuntime implements AgentRuntime {
       name: "Senior Quest conversation guide",
       model: options.models.memory,
       instructions: AGENT_INSTRUCTIONS.conversation,
-      outputType: assistantTurnAgentOutputSchema,
+      outputType: hostedAssistantTurnAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
     this.memoryAgent = new Agent({
@@ -190,7 +191,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   }
 
   async conductConversation(input: Parameters<AgentRuntime["conductConversation"]>[0]) {
-    return assistantTurnAgentOutputSchema.parse(await this.runStructured(this.conversationAgent, {
+    const output = await this.runStructured(this.conversationAgent, {
       transcript: input.messages.map(({ role, content }) => ({ role, content })),
       currentBrief: input.brief,
       missingFields: input.missingFields,
@@ -199,7 +200,12 @@ export class HostedAgentRuntime implements AgentRuntime {
         explicitConsentRequired: true,
         preciseLocationForbidden: true,
       },
-    }, { conversationId: input.conversationId }));
+    }, { conversationId: input.conversationId });
+    try {
+      return normalizeHostedAssistantTurnOutput(hostedAssistantTurnAgentOutputSchema.parse(output));
+    } catch (error) {
+      throw new Error(hostedProviderErrorMessage(this.options.provider, error), { cause: error });
+    }
   }
 
   async updateMemory(input: MemoryAgentInput) {

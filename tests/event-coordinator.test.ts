@@ -64,21 +64,39 @@ function approvedRun(): QuestRun {
 }
 
 describe("EventCoordinator", () => {
-  it("shares the generated thumbnail with participant activity cards", async () => {
+  it("keeps an unconfirmed roster private until invitations are sent", async () => {
     const run = approvedRun();
     run.imageUrl = "/api/quest-images/generated-thumbnail";
     const store = new InMemoryKampungStore();
     await store.createQuestRun(run);
     const coordinator = new EventCoordinator({ store });
 
-    await coordinator.createFormation(run);
+    const forming = await coordinator.createFormation(run);
 
-    expect((await coordinator.listActivities("anne")).suggested).toEqual([
+    expect((await coordinator.listActivities("maria")).suggested).toEqual([
       expect.objectContaining({
         runId: run.runId,
         imageUrl: run.imageUrl,
       }),
     ]);
+    expect((await coordinator.listActivities("anne")).suggested).toEqual([]);
+
+    const confirmed = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "confirm-thumbnail-roster",
+    });
+    expect((await coordinator.listActivities("anne")).invitations).toEqual([
+      expect.objectContaining({
+        guestId: "anne",
+        activity: expect.objectContaining({
+          runId: run.runId,
+          imageUrl: run.imageUrl,
+        }),
+      }),
+    ]);
+    expect(confirmed.invitations).toHaveLength(2);
   });
 
   it("chooses the compatible appointment nearest to the requested time", () => {

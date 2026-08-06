@@ -1,11 +1,72 @@
 import { describe, expect, it } from "vitest";
+import { Usage, type Model, type ModelProvider, type ModelRequest } from "@openai/agents";
 import {
   hostedRetrySettings,
   hostedProviderErrorMessage,
   normalizeGeminiVenueRequirements,
+  HostedAgentRuntime,
 } from "@/server/agents/openai-agent-runtime";
 
+class ConversationModelProvider implements ModelProvider {
+  readonly requests: ModelRequest[] = [];
+
+  constructor(private readonly output: unknown) {}
+
+  getModel(): Model {
+    return {
+      getResponse: async (request) => {
+        this.requests.push(request);
+        return {
+          usage: new Usage(),
+          output: [{
+            type: "message" as const,
+            role: "assistant" as const,
+            status: "completed" as const,
+            content: [{ type: "output_text" as const, text: JSON.stringify(this.output) }],
+          }],
+        };
+      },
+      getStreamedResponse: async function* () {},
+    };
+  }
+}
+
 describe("Gemini agent output normalization", () => {
+  it.each(["weekly", "weekly_pattern", "recurring"])("normalizes a hosted recurring rule labelled %s", async (kind) => {
+    const provider = new ConversationModelProvider({
+      reply: "Which mornings suit you?",
+      briefPatch: {
+        recurringAvailabilityRules: [{
+          kind,
+          daysOfWeek: [1, 2, 3, 4, 5],
+          startLocalTime: "09:00",
+          endLocalTime: "12:00",
+          timeZone: "Asia/Singapore",
+          validFrom: "2026-08-06",
+          validUntil: "2026-12-31",
+        }],
+      },
+      requestedField: "availability",
+      suggestedReplies: [],
+      status: "collecting",
+    });
+    const runtime = new HostedAgentRuntime({
+      provider: "gemini",
+      models: { memory: "test", synthesis: "test", safety: "test", recovery: "test" },
+      modelProvider: provider,
+    });
+
+    const output = await runtime.conductConversation({
+      conversationId: "conversation-weekly-rule",
+      messages: [],
+      brief: {},
+      missingFields: ["availability"],
+    });
+
+    expect(output.briefPatch.recurringAvailabilityRules?.[0]?.kind).toBe("weekly_recurrence");
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("maps descriptive public indoor venues to the validator's canonical requirements", () => {
     expect(normalizeGeminiVenueRequirements([
       "Indoor public community center media lounge",

@@ -1940,8 +1940,7 @@ export class EventCoordinator {
       let activity = this.activityCard(state, ownJoinRequest?.status ?? null, null, imageUrl);
       if (state.lifecycle === "forming"
         && state.memberships.length === 0
-        && (state.initiatorId === userId
-          || (state.recruitment.status !== "draft" && state.roster.some((member) => member.userId === userId)))) {
+        && state.initiatorId === userId) {
         result.suggested.push(activity);
       }
       if (state.lifecycle === "recruiting"

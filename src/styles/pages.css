@@ -3204,7 +3204,7 @@
   min-width: 0;
   height: 100%;
   min-height: 0;
-  padding: 16px 14px 18px;
+  padding: 16px 14px 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
