@@ -3,12 +3,13 @@ import { QuestDetail } from "@/components/quest-detail";
 import { quests } from "@/data/mock-data";
 import { currentUser } from "@/server/identity/session";
 import { notFound } from "next/navigation";
+import { activityTabHref, isActivityGroup } from "@/lib/my-activities";
 
-export default async function QuestDetailsPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ from?: string }> }) {
+export default async function QuestDetailsPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ from?: string; tab?: string }> }) {
   const { slug } = await params;
-  const { from } = await searchParams;
+  const { from, tab } = await searchParams;
   const showActivityActions = from !== "my-activities";
-  const backHref = from === "my-activities" ? "/my-quests" : "/quests";
+  const backHref = from === "my-activities" && isActivityGroup(tab) ? activityTabHref(tab) : from === "my-activities" ? "/my-quests" : "/quests";
   const featuredQuest = quests.find((quest) => quest.slug === slug);
   if (featuredQuest) {
     const user = await currentUser();

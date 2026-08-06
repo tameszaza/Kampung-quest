@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { EngineQuestDetail } from "@/components/engine-quest-views";
+import { EventTaskBoard } from "@/components/event-task-board";
 import { Icon } from "@/components/icons";
 import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -11,13 +13,9 @@ import { useUser } from "@/components/user-context";
 import { getQuestRun } from "@/features/assistant/client";
 import {
   confirmEventRoster,
-  decideEventTaskReassignment,
   decideEventArrangement,
   getEventQuest,
-  actOnEventTask,
   proposeEventArrangement,
-  respondToEventRole,
-  retryEventTaskPlan,
   respondToEventInvitation,
   searchEventParticipants,
   suggestEventArrangement,
@@ -60,6 +58,7 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
   onChange: (state: EventQuestView) => void;
 }) {
   const { user } = useUser();
+  const router = useRouter();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -93,6 +92,20 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
     finally { setBusy(""); }
   }
 
+  async function completeActivity() {
+    setBusy("complete");
+    setError("");
+    try {
+      const nextState = await transitionEventQuest({ runId: state.runId, action: "complete", expectedRevision: state.revision });
+      onChange(nextState);
+      router.push("/my-quests?tab=Completed");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "That change could not be saved");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function propose(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -111,7 +124,7 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
     : proposed ? formatWindow(proposed.start, proposed.end) : "No availability window proposed";
 
   return <div className="detail-page engine-detail-page event-workspace quest-detail-ref">
-    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref === "/my-quests" ? "Back to my activities" : "Back to activities"}><Icon name="back" /><span>{backHref === "/my-quests" ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><div className="page-header-side page-header-right"><button className="icon-button detail-save-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button><MobileMoreButton /></div></header></div>
+    <div className="detail-header-wrap"><header className="page-header"><Link className="detail-back-link" href={backHref} aria-label={backHref.startsWith("/my-quests") ? "Back to my activities" : "Back to activities"}><Icon name="back" /><span>{backHref.startsWith("/my-quests") ? "Back to My Activities" : "Back to Quests"}</span></Link><h1>Quest Details</h1><div className="page-header-side page-header-right"><button className="icon-button detail-save-button" type="button" aria-label="Save quest"><Icon name="heart" size={22} /></button><MobileMoreButton /></div></header></div>
     <section className="quest-detail-hero">
       <div className="quest-detail-hero-image">
         <Image src={imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" />
@@ -188,33 +201,9 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
 
         {state.lifecycle === "scheduled" && finalized ? <section className="event-panel scheduled-panel"><span className="result-kicker"><Icon name="check" size={18} /> Everyone confirmed</span><h2>Your activity is scheduled</h2><ArrangementSummary state={state} /><Link href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Discuss or change this plan in chat</Link></section> : null}
 
-        {taskPlan && state.lifecycle !== "forming" ? <section className="event-panel event-task-panel">
-          <span className="section-kicker">Your event quest</span>
-          <h2>Roles and tasks</h2>
-          {taskPlan.status === "generation_pending" ? <p className="assistant-note">Senior Quest is preparing a few useful tasks for everyone.</p> : null}
-          {taskPlan.status === "generation_failed" ? <div className="form-alert" role="alert">Tasks could not be prepared yet.{organizer ? <button className="text-button" type="button" disabled={Boolean(busy)} onClick={() => void act("retry-task-plan", () => retryEventTaskPlan(state.runId, state.revision))}>Try again</button> : null}</div> : null}
-          {!(["generation_pending", "generation_failed"].includes(taskPlan.status)) ? <>
-            <div className="event-task-roles">
-              {taskPlan.roles.map((role) => {
-                const profile = state.participantProgress.find((candidate) => candidate.userId === role.userId);
-                const name = role.userId === user.id ? "You" : profile?.displayName ?? "Community member";
-                return <div key={role.userId} className="event-task-role"><div><strong>{name} · {role.name}</strong><small>{role.responsibility}</small><small>Main contribution: {role.mainContribution}</small></div><span className={`participant-status participant-status-${role.status}`}>{role.status === "acknowledged" ? "Acknowledged" : role.status === "concern_raised" ? "Needs adjustment" : "Please review"}</span>{role.userId === user.id && role.status !== "acknowledged" ? <div className="split-actions"><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act("ack-role", () => respondToEventRole({ runId: state.runId, action: "acknowledge", expectedRevision: state.revision }))}>This role works</button><button className="quiet-button" type="button" disabled={Boolean(busy)} onClick={() => void act("concern-role", () => respondToEventRole({ runId: state.runId, action: "raise_concern", concern: "I need a different role or task.", expectedRevision: state.revision }))}>Raise concern</button></div> : null}</div>;
-              })}
-            </div>
-            {organizer && taskPlan.reassignments.some((request) => request.status === "pending_admin") ? <div className="event-task-reassignments"><h3>Role changes to review</h3>{taskPlan.reassignments.filter((request) => request.status === "pending_admin").map((request) => <div key={request.requestId} className="event-task-card"><div><strong>Participant request</strong><p>{request.reason}</p><small>{request.replacement?.title ?? "No replacement suggested"}</small></div><div className="split-actions"><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act(`approve-reassignment-${request.requestId}`, () => decideEventTaskReassignment({ runId: state.runId, requestId: request.requestId, action: "approve", expectedRevision: state.revision }))}>Approve</button><button className="quiet-button" type="button" disabled={Boolean(busy)} onClick={() => void act(`reject-reassignment-${request.requestId}`, () => decideEventTaskReassignment({ runId: state.runId, requestId: request.requestId, action: "reject", reason: "Please keep the current role for now.", expectedRevision: state.revision }))}>Reject</button></div></div>)}</div> : null}
-            <div className="event-task-list">
-              {taskPlan.tasks.map((task) => {
-                const assigned = task.assignees.some((assignee) => assignee.userId === user.id);
-                const profileNames = task.assignees.map((assignee) => assignee.userId === user.id ? "You" : state.participantProgress.find((candidate) => candidate.userId === assignee.userId)?.displayName ?? "Member").join(", ");
-                const role = taskPlan.roles.find((candidate) => candidate.userId === task.roleUserId);
-                const reviewer = task.reviewerId === user.id;
-                return <div key={task.taskId} className="event-task-card"><div><span className="task-difficulty">{task.difficulty} · {task.points} points</span><h3>{task.title}</h3><p>{task.instruction}</p><small>{role ? `Role: ${role.name} · ` : ""}For {profileNames}</small>{task.reviewReason ? <small>Admin note: {task.reviewReason}</small> : null}</div><span className={`participant-status participant-status-${task.status}`}>{task.status.replaceAll("_", " ")}</span>{assigned && ["acknowledged", "needs_retry"].includes(task.status) && ["scheduled", "in_progress"].includes(state.lifecycle) ? <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act(`submit-${task.taskId}`, () => actOnEventTask({ runId: state.runId, taskId: task.taskId, action: "submit", expectedRevision: state.revision }))}>Mark done</button> : null}{reviewer && task.status === "submitted" ? <div className="split-actions"><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void act(`approve-${task.taskId}`, () => actOnEventTask({ runId: state.runId, taskId: task.taskId, action: "approve", expectedRevision: state.revision }))}>Approve</button><button className="quiet-button" type="button" disabled={Boolean(busy)} onClick={() => void act(`retry-${task.taskId}`, () => actOnEventTask({ runId: state.runId, taskId: task.taskId, action: "needs_retry", reason: "Please complete the task as described.", expectedRevision: state.revision }))}>Needs retry</button></div> : null}</div>;
-              })}
-            </div>
-          </> : null}
-        </section> : null}
+        {taskPlan && state.lifecycle !== "forming" ? <section className="event-panel event-task-panel"><EventTaskBoard state={state} taskPlan={taskPlan} userId={user.id} organizer={organizer} busy={busy} act={act} /></section> : null}
 
-        {organizer && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Quest controls</h2><p>{state.lifecycle === "forming" ? "Cancel this quest if you no longer want to coordinate it." : "Return to group selection to replace someone, or cancel the quest for everyone."}</p><div className="split-actions">{state.lifecycle === "scheduled" ? <button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("start", () => transitionEventQuest({ runId: state.runId, action: "start", expectedRevision: state.revision }))}>Start activity</button> : null}{state.lifecycle === "in_progress" ? <button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("complete", () => transitionEventQuest({ runId: state.runId, action: "complete", expectedRevision: state.revision }))}>Mark completed</button> : null}{!["forming", "in_progress"].includes(state.lifecycle) ? <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("reopen", () => transitionEventQuest({ runId: state.runId, action: "reopen", expectedRevision: state.revision }))}>Edit the group</button> : null}<button className="quiet-button danger" disabled={Boolean(busy)} onClick={() => void act("cancel", () => transitionEventQuest({ runId: state.runId, action: "cancel", expectedRevision: state.revision }))}>Cancel quest</button></div></section> : null}
+        {organizer && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Quest controls</h2><p>{state.lifecycle === "forming" ? "Cancel this quest if you no longer want to coordinate it." : "Return to group selection to replace someone, or cancel the quest for everyone."}</p><div className="split-actions">{state.lifecycle === "scheduled" ? <button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("start", () => transitionEventQuest({ runId: state.runId, action: "start", expectedRevision: state.revision }))}>Start activity</button> : null}{state.lifecycle === "in_progress" ? <button className="primary-button" disabled={Boolean(busy)} onClick={() => void completeActivity()}>{busy === "complete" ? "Completing activity…" : "Mark activity complete"}</button> : null}{!["forming", "in_progress"].includes(state.lifecycle) ? <button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("reopen", () => transitionEventQuest({ runId: state.runId, action: "reopen", expectedRevision: state.revision }))}>Edit the group</button> : null}<button className="quiet-button danger" disabled={Boolean(busy)} onClick={() => void act("cancel", () => transitionEventQuest({ runId: state.runId, action: "cancel", expectedRevision: state.revision }))}>Cancel quest</button></div></section> : null}
 
         {!organizer && ownInvitation?.status === "accepted" && hasActiveMembership && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Can’t continue?</h2><p>Withdraw from this activity so the organizer can update the group and arrangement.</p><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("withdraw", () => transitionEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, action: "withdraw", expectedRevision: state.revision }))}>Withdraw from quest</button></section> : null}
       </article>
