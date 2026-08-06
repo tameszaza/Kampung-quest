@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-runtime";
 import type { QuestRun } from "@/server/domain/schemas";
 import { EventCoordinator } from "@/server/features/event-coordinator";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
@@ -92,6 +93,152 @@ async function scheduledCoordinator() {
 }
 
 describe("event task rewards", () => {
+  it("persists a generated task plan after a concurrent quest update", async () => {
+    const { store, state } = await scheduledCoordinator();
+    const superseded = await store.saveEventCoordinationState({
+      ...state,
+      revision: state.revision + 1,
+      taskPlans: state.taskPlans.map((plan) => ({ ...plan, status: "superseded" as const })),
+    }, state.revision);
+    const deterministicAgent = new DeterministicAgentRuntime();
+    let releaseGeneration: () => void = () => {};
+    let signalGenerationStarted: () => void = () => {};
+    const generationGate = new Promise<void>((resolve) => { releaseGeneration = resolve; });
+    const generationStarted = new Promise<void>((resolve) => { signalGenerationStarted = resolve; });
+    const coordinator = new EventCoordinator({
+      store,
+      generateTaskPlan: async (input) => {
+        signalGenerationStarted();
+        await generationGate;
+        return deterministicAgent.generateEventTaskPlan(input);
+      },
+    });
+
+    const generating = coordinator.ensureTaskPlan(superseded);
+    await generationStarted;
+    const pending = (await store.findEventCoordinationState(state.runId))!;
+    await store.saveEventCoordinationState({
+      ...pending,
+      revision: pending.revision + 1,
+      processedCommands: [...pending.processedCommands, "concurrent-update"],
+      updatedAt: new Date().toISOString(),
+    }, pending.revision);
+    const saveState = store.saveEventCoordinationState.bind(store);
+    let injectedConflicts = 0;
+    store.saveEventCoordinationState = async (nextState, expectedRevision, eligibilityGuard) => {
+      if (nextState.taskPlans.at(-1)?.status === "awaiting_acknowledgement"
+        && injectedConflicts < 6) {
+        const concurrent = (await store.findEventCoordinationState(state.runId))!;
+        injectedConflicts += 1;
+        await saveState({
+          ...concurrent,
+          revision: concurrent.revision + 1,
+          processedCommands: [...concurrent.processedCommands, `conflict-${injectedConflicts}`],
+          updatedAt: new Date().toISOString(),
+        }, concurrent.revision);
+      }
+      return saveState(nextState, expectedRevision, eligibilityGuard);
+    };
+    releaseGeneration();
+
+    const generated = await generating;
+    const persisted = await store.findEventCoordinationState(state.runId);
+
+    expect(generated.taskPlans.at(-1)?.status).toBe("awaiting_acknowledgement");
+    expect(persisted?.taskPlans.at(-1)?.status).toBe("awaiting_acknowledgement");
+    expect(persisted?.processedCommands).toContain("concurrent-update");
+    expect(persisted?.processedCommands).toContain("conflict-6");
+    expect(injectedConflicts).toBe(6);
+  });
+
+  it("persists task generation failure after a concurrent quest update", async () => {
+    const { store, state } = await scheduledCoordinator();
+    const superseded = await store.saveEventCoordinationState({
+      ...state,
+      revision: state.revision + 1,
+      taskPlans: state.taskPlans.map((plan) => ({ ...plan, status: "superseded" as const })),
+    }, state.revision);
+    let releaseGeneration: () => void = () => {};
+    let signalGenerationStarted: () => void = () => {};
+    const generationGate = new Promise<void>((resolve) => { releaseGeneration = resolve; });
+    const generationStarted = new Promise<void>((resolve) => { signalGenerationStarted = resolve; });
+    const coordinator = new EventCoordinator({
+      store,
+      generateTaskPlan: async () => {
+        signalGenerationStarted();
+        await generationGate;
+        throw new Error("Task provider failed");
+      },
+    });
+
+    const generating = coordinator.ensureTaskPlan(superseded);
+    await generationStarted;
+    const pending = (await store.findEventCoordinationState(state.runId))!;
+    await store.saveEventCoordinationState({
+      ...pending,
+      revision: pending.revision + 1,
+      processedCommands: [...pending.processedCommands, "concurrent-failure-update"],
+      updatedAt: new Date().toISOString(),
+    }, pending.revision);
+    releaseGeneration();
+
+    const failed = await generating;
+
+    expect(failed.taskPlans.at(-1)?.status).toBe("generation_failed");
+    expect(failed.taskPlans.at(-1)?.generationError).toContain("Task provider failed");
+    expect(failed.processedCommands).toContain("concurrent-failure-update");
+  });
+
+  it("marks an abandoned pending task plan as failed so it can be retried", async () => {
+    const { store, coordinator, state } = await scheduledCoordinator();
+    const latestPlan = state.taskPlans.at(-1)!;
+    const abandonedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    const stuck = await store.saveEventCoordinationState({
+      ...state,
+      revision: state.revision + 1,
+      taskPlans: state.taskPlans.map((plan) => plan.planId === latestPlan.planId
+        ? {
+            ...plan,
+            status: "generation_pending" as const,
+            roles: [],
+            tasks: [],
+            updatedAt: abandonedAt,
+          }
+        : plan),
+      updatedAt: abandonedAt,
+    }, state.revision);
+
+    const recovered = await coordinator.ensureTaskPlan(stuck);
+
+    expect(recovered.taskPlans.at(-1)?.status).toBe("generation_failed");
+    expect(recovered.taskPlans.at(-1)?.generationError).toContain("interrupted");
+  });
+
+  it("times out task generation before pending-plan recovery can supersede it", async () => {
+    const { store, state } = await scheduledCoordinator();
+    const superseded = await store.saveEventCoordinationState({
+      ...state,
+      revision: state.revision + 1,
+      taskPlans: state.taskPlans.map((plan) => ({ ...plan, status: "superseded" as const })),
+    }, state.revision);
+    const coordinator = new EventCoordinator({
+      store,
+      generateTaskPlan: () => new Promise(() => undefined),
+    });
+    vi.useFakeTimers();
+    try {
+      const generating = coordinator.ensureTaskPlan(superseded);
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+      const recovered = await generating;
+
+      expect(recovered.taskPlans.at(-1)?.status).toBe("generation_failed");
+      expect(recovered.taskPlans.at(-1)?.generationError).toContain("timed out");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("creates a small role-matched task plan only after everyone confirms", async () => {
     const { state } = await scheduledCoordinator();
     const plan = state.taskPlans.at(-1)!;

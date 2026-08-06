@@ -31,6 +31,9 @@ import {
 } from "@/server/domain/event-tasks";
 import { logger, safeErrorMessage } from "@/server/observability/logger";
 
+const TASK_PLAN_GENERATION_TIMEOUT_MS = 2 * 60_000;
+const TASK_PLAN_GENERATION_STALE_MS = TASK_PLAN_GENERATION_TIMEOUT_MS + 60_000;
+
 export interface EventCoordinationStore {
   createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
   findEventCoordinationState(runId: string): Promise<EventCoordinationState | null>;
@@ -1962,7 +1965,19 @@ export class EventCoordinator {
       plan.rosterRevision === state.rosterRevision
       && plan.questGoalHash === goalHash
       && !["superseded", "suspended"].includes(plan.status));
-    if (existing) return state;
+    if (existing) {
+      const pendingSince = Date.parse(existing.updatedAt);
+      const stalePending = existing.status === "generation_pending"
+        && Number.isFinite(pendingSince)
+        && Date.now() - pendingSince >= TASK_PLAN_GENERATION_STALE_MS;
+      return stalePending
+        ? this.saveFailedTaskPlan(
+            state.runId,
+            existing.planId,
+            "Task generation was interrupted. Please try again.",
+          )
+        : state;
+    }
 
     const now = new Date().toISOString();
     const pending: EventTaskPlan = {
@@ -1991,70 +2006,135 @@ export class EventCoordinator {
       updatedAt: now,
     }, state.revision);
 
+    let generated: EventTaskPlan;
+    let taskAnnouncement: string;
+    let completedAt: string;
     try {
       const taskInput = this.taskPlanInput(started, finalized.venueName, activeUserIds);
-      const output = await (this.dependencies.generateTaskPlan
-        ? this.dependencies.generateTaskPlan(taskInput)
-        : fallbackTaskPlan(taskInput));
+      const output = await this.generateTaskPlanWithTimeout(taskInput);
       const parsed = eventTaskPlanAgentOutputSchema.parse(output);
       const errors = validateEventTaskPlan(parsed, taskInput.participants, state.initiatorId);
       if (errors.length) throw new Error(errors.join("; "));
-      const generated = this.materializeTaskPlan(pending, parsed, now, state.initiatorId, activeUserIds);
-      const taskAnnouncement = `Senior Quest prepared ${generated.tasks.length} event tasks. Please review your role and task.`;
-      return this.dependencies.store.saveEventCoordinationState({
-        ...started,
-        taskPlans: started.taskPlans.map((plan) => plan.planId === pending.planId ? generated : plan),
-        threads: started.threads.map((thread) => ({
-          ...thread,
-          revision: thread.revision + 1,
-          messages: [...thread.messages, {
-            messageId: `message_${randomUUID()}`,
-            role: "system" as const,
-            body: taskAnnouncement,
-            kind: "change_card" as const,
-            createdAt: now,
-          }],
-          updatedAt: now,
-        })),
-        groupThread: started.groupThread ? {
-          ...started.groupThread,
-          revision: started.groupThread.revision + 1,
-          messages: [...started.groupThread.messages, {
-            messageId: `message_${randomUUID()}`,
-            senderId: null,
-            role: "system" as const,
-            body: taskAnnouncement,
-            kind: "change_card" as const,
-            createdAt: now,
-          }],
-          updatedAt: now,
-        } : null,
-        revision: started.revision + 1,
-        auditEvents: [...started.auditEvents, this.auditEvent(started, "task_plan_generated", null, null, {
-          planId: generated.planId,
-          taskCount: generated.tasks.length,
-        }, started.lifecycle)],
-        updatedAt: now,
-      }, started.revision);
+      completedAt = new Date().toISOString();
+      generated = this.materializeTaskPlan(pending, parsed, completedAt, state.initiatorId, activeUserIds);
+      taskAnnouncement = `Senior Quest prepared ${generated.tasks.length} event tasks. Please review your role and task.`;
     } catch (error) {
+      return this.saveFailedTaskPlan(started.runId, pending.planId, safeErrorMessage(error));
+    }
+    return this.saveGeneratedTaskPlan(
+      started.runId,
+      pending.planId,
+      generated,
+      taskAnnouncement,
+    );
+  }
+
+  private async generateTaskPlanWithTimeout(
+    input: EventTaskPlanAgentInput,
+  ): Promise<EventTaskPlanAgentOutput> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.dependencies.generateTaskPlan
+          ? this.dependencies.generateTaskPlan(input)
+          : fallbackTaskPlan(input),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Task generation timed out. Please try again.")),
+            TASK_PLAN_GENERATION_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  private async saveGeneratedTaskPlan(
+    runId: string,
+    planId: string,
+    generated: EventTaskPlan,
+    taskAnnouncement: string,
+  ): Promise<EventCoordinationState> {
+    while (true) {
+      const current = await this.requireState(runId);
+      const pending = current.taskPlans.find((plan) => plan.planId === planId);
+      if (!pending || pending.status !== "generation_pending") return current;
+      const persistedAt = new Date().toISOString();
+      try {
+        return await this.dependencies.store.saveEventCoordinationState({
+          ...current,
+          taskPlans: current.taskPlans.map((plan) => plan.planId === planId ? generated : plan),
+          threads: current.threads.map((thread) => ({
+            ...thread,
+            revision: thread.revision + 1,
+            messages: [...thread.messages, {
+              messageId: `message_${randomUUID()}`,
+              role: "system" as const,
+              body: taskAnnouncement,
+              kind: "change_card" as const,
+              createdAt: persistedAt,
+            }],
+            updatedAt: persistedAt,
+          })),
+          groupThread: current.groupThread ? {
+            ...current.groupThread,
+            revision: current.groupThread.revision + 1,
+            messages: [...current.groupThread.messages, {
+              messageId: `message_${randomUUID()}`,
+              senderId: null,
+              role: "system" as const,
+              body: taskAnnouncement,
+              kind: "change_card" as const,
+              createdAt: persistedAt,
+            }],
+            updatedAt: persistedAt,
+          } : null,
+          revision: current.revision + 1,
+          auditEvents: [...current.auditEvents, this.auditEvent(current, "task_plan_generated", null, null, {
+            planId: generated.planId,
+            taskCount: generated.tasks.length,
+          }, current.lifecycle)],
+          updatedAt: persistedAt,
+        }, current.revision);
+      } catch (error) {
+        if (!this.isQuestStateConflict(error)) throw error;
+      }
+    }
+  }
+
+  private isQuestStateConflict(error: unknown): boolean {
+    return error instanceof Error && error.message.startsWith("Quest state conflict;");
+  }
+
+  private async saveFailedTaskPlan(
+    runId: string,
+    planId: string,
+    generationError: string,
+  ): Promise<EventCoordinationState> {
+    while (true) {
+      const current = await this.requireState(runId);
+      const pending = current.taskPlans.find((plan) => plan.planId === planId);
+      if (!pending || pending.status !== "generation_pending") return current;
+      const now = new Date().toISOString();
       const failed: EventTaskPlan = {
         ...pending,
         status: "generation_failed",
-        generationError: safeErrorMessage(error),
-        updatedAt: new Date().toISOString(),
+        generationError,
+        updatedAt: now,
       };
       try {
         return await this.dependencies.store.saveEventCoordinationState({
-          ...started,
-          taskPlans: started.taskPlans.map((plan) => plan.planId === pending.planId ? failed : plan),
-          revision: started.revision + 1,
-          auditEvents: [...started.auditEvents, this.auditEvent(started, "task_plan_generation_failed", null, null, {
-            planId: failed.planId,
-          }, started.lifecycle)],
-          updatedAt: failed.updatedAt,
-        }, started.revision);
-      } catch {
-        return started;
+          ...current,
+          taskPlans: current.taskPlans.map((plan) => plan.planId === planId ? failed : plan),
+          revision: current.revision + 1,
+          auditEvents: [...current.auditEvents, this.auditEvent(current, "task_plan_generation_failed", null, null, {
+            planId,
+          }, current.lifecycle)],
+          updatedAt: now,
+        }, current.revision);
+      } catch (error) {
+        if (!this.isQuestStateConflict(error)) throw error;
       }
     }
   }
