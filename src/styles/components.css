@@ -34,7 +34,7 @@
 }
 
 .tab-count-parentheses {
-  color: var(--danger);
+  color: inherit;
   font-weight: 800;
   white-space: nowrap;
 }

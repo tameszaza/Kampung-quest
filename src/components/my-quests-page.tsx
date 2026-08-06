@@ -15,7 +15,7 @@ export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
   const router = useRouter();
   const [tab, setTab] = useState<ActivityGroup>(initialTab);
   const readGroup = useRef<ActivityGroup | null>(null);
-  const { activities, loading, error, refresh, markCategoryRead } = useActivityBadges();
+  const { activities, counts, loading, error, refresh, markCategoryRead } = useActivityBadges();
 
   useEffect(() => {
     if (!activities || readGroup.current === tab) return;
@@ -42,12 +42,17 @@ export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
     label: group,
     count: activities ? groupActivities(activities, group).length : undefined,
     countStyle: "parentheses" as const,
+    badgeCount: counts.myByGroup[group],
   }));
   return (
     <div className="page-container narrow-page my-activities-ref">
       <PageHeader title="My Activities" />
       <Tabs tabs={tabOptions} active={tab} onChange={(value) => selectTab(value as ActivityGroup)} />
-      {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button type="button" className="text-button" onClick={() => void refresh()}>Try again</button></div> : null}
+      {error ? <div className="activity-error-banner" role="alert">
+        <span className="activity-error-icon" aria-hidden="true"><Icon name="shield" size={19} /></span>
+        <div className="activity-error-copy"><strong>Activities couldn’t be refreshed</strong><p>{friendlyActivityError(error)}</p></div>
+        <button type="button" className="secondary-button" onClick={() => void refresh()}>Try again</button>
+      </div> : null}
       {!activities && loading && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading your activities…</div> : null}
       {activities && visible.length === 0 ? <div className="empty-state"><span><Icon name="check" size={34} /></span><h2>Nothing here yet</h2><p>{emptyCopy(tab)}</p></div> : null}
       <section className="joined-list" aria-label={tab}>
@@ -90,4 +95,9 @@ function emptyCopy(group: ActivityGroup) {
   if (group === "Awaiting confirmation") return "Arrangements that need confirmation will appear here.";
   if (group === "Upcoming") return "Fully confirmed activities will appear here.";
   return `You have no ${group.toLowerCase()} activities.`;
+}
+
+function friendlyActivityError(error: string) {
+  if (/networkerror|failed to fetch|fetch resource/i.test(error)) return "Check your connection and try again.";
+  return "We couldn’t load your activities right now. Please try again.";
 }

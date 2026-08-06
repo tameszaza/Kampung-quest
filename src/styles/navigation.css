@@ -4,7 +4,25 @@
 }
 
 .mobile-more-button {
+  position: relative;
   flex: 0 0 auto;
+}
+
+.mobile-more-trigger-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--danger);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .desktop-avatar {
@@ -111,6 +129,10 @@
 
 @media (min-width: 768px) {
   .mobile-more-button {
+    display: none;
+  }
+
+  .mobile-more-trigger-badge {
     display: none;
   }
 

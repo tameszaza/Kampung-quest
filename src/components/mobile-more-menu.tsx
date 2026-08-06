@@ -7,17 +7,20 @@ import { Icon } from "@/components/icons";
 
 export function MobileMoreButton({ className = "" }: { className?: string }) {
   const [open, setOpen] = useState(false);
+  const { counts } = useActivityBadges();
+  const newActivities = counts.my > 99 ? "99+" : String(counts.my);
 
   return <>
     <button
       className={`icon-button mobile-more-button${className ? ` ${className}` : ""}`}
       type="button"
-      aria-label="Open menu"
+      aria-label={counts.my ? `Open menu, ${counts.my} new My Activities` : "Open menu"}
       aria-expanded={open}
       aria-controls="mobile-more-menu"
       onClick={() => setOpen(true)}
     >
       <Icon name="menu" />
+      {counts.my ? <b className="mobile-more-trigger-badge" aria-hidden="true">{newActivities}</b> : null}
     </button>
     <MobileMoreSheet open={open} onClose={() => setOpen(false)} />
   </>;
