@@ -344,6 +344,34 @@ describe("event task rewards", () => {
     expect(plan.tasks.every((task) => [10, 20, 30].includes(task.points))).toBe(true);
   });
 
+  it("keeps a completed event in every member's Completed activity list", async () => {
+    const { coordinator, state: scheduled } = await scheduledCoordinator();
+    const started = await coordinator.transitionQuest({
+      runId: scheduled.runId,
+      actorId: "maria",
+      action: "start",
+      expectedRevision: scheduled.revision,
+      idempotencyKey: "start-completed-list-event",
+    });
+    const completed = await coordinator.transitionQuest({
+      runId: started.runId,
+      actorId: "maria",
+      action: "complete",
+      expectedRevision: started.revision,
+      idempotencyKey: "complete-completed-list-event",
+    });
+
+    expect(completed.lifecycle).toBe("completed");
+    for (const userId of ["maria", "anne", "david"]) {
+      const activities = await coordinator.listActivities(userId);
+      expect(activities.my.completed.map((activity) => activity.runId)).toContain(completed.runId);
+      expect(activities.my.upcoming.map((activity) => activity.runId)).not.toContain(completed.runId);
+      const detail = await coordinator.getStateForUser(completed.runId, userId);
+      expect(detail.lifecycle).toBe("completed");
+      if (userId !== "maria") expect(detail.viewer.canChat).toBe(false);
+    }
+  });
+
   it("requires every role acknowledgement before a task can earn points", async () => {
     const { coordinator, state: initial } = await scheduledCoordinator();
     let state = initial;

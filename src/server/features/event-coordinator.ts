@@ -199,6 +199,8 @@ export class EventCoordinator {
       invitation.guestId === userId && invitation.status === "pending");
     const activeMembership = [...current.memberships].reverse().find((membership) =>
       membership.userId === userId && this.isActiveMembership(membership));
+    const terminalMembership = [...current.memberships].reverse().find((membership) =>
+      membership.userId === userId && this.isTerminalMembership(membership));
     const hasInvitationHistory = current.invitations.some((invitation) => invitation.guestId === userId);
     const selectedMember = current.recruitment.status !== "draft"
       && current.roster.some((member) => member.userId === userId)
@@ -212,7 +214,7 @@ export class EventCoordinator {
     const eligibleApplicant = applicantAssessment?.eligible === true;
     const discoverableApplicant = eligibleApplicant
       || (applicantAssessment?.eligible === false && applicantAssessment.discoverable);
-    if (!organizer && !pendingInvitation && !activeMembership && !selectedMember && !ownJoinRequestGrantsAccess && !discoverableApplicant) {
+    if (!organizer && !pendingInvitation && !activeMembership && !terminalMembership && !selectedMember && !ownJoinRequestGrantsAccess && !discoverableApplicant) {
       throw new Error("Event coordination state was not found");
     }
     if (current.lifecycle === "scheduled" && this.canCoordinate(current, userId)) {
@@ -227,7 +229,7 @@ export class EventCoordinator {
         : this.basicRosterValidation(current.proposal);
     }
     safe.viewer = {
-      role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : activeMembership ? "participant" : selectedMember ? "selected" : "applicant",
+      role: organizer ? "organizer" : pendingInvitation ? "pending_invitee" : activeMembership || terminalMembership ? "participant" : selectedMember ? "selected" : "applicant",
       canChat: this.canCoordinate(current, userId),
       pendingInvitationId: pendingInvitation?.invitationId ?? null,
       recruitmentEligibility: applicantAssessment?.eligible === true
@@ -2541,7 +2543,8 @@ export class EventCoordinator {
         if (state.initiatorId === userId) result.sentInvitations.push(view);
       }
       const membership = [...state.memberships].reverse().find((candidate) =>
-        candidate.userId === userId && (this.isActiveMembership(candidate) || state.lifecycle === "cancelled"));
+        candidate.userId === userId
+        && (this.isActiveMembership(candidate) || this.isTerminalMembership(candidate)));
       if (!membership) continue;
       if (membership.status === "cancelled" || state.lifecycle === "cancelled") result.my.cancelled.push(activity);
       else if (membership.status === "completed" || state.lifecycle === "completed") result.my.completed.push(activity);
@@ -2801,6 +2804,10 @@ export class EventCoordinator {
 
   private isActiveMembership(membership: EventMembership): boolean {
     return !["withdrawn", "replaced", "cancelled", "completed"].includes(membership.status);
+  }
+
+  private isTerminalMembership(membership: EventMembership): boolean {
+    return membership.status === "completed" || membership.status === "cancelled";
   }
 
   private canCoordinate(state: EventCoordinationState, userId: string): boolean {
