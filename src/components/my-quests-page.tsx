@@ -2,40 +2,26 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useActivityBadges } from "@/components/activity-badge-context";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
-import { listEventActivities } from "@/features/events/client";
 import type { EventActivityCard, UserEventActivities } from "@/server/domain/event-coordination";
 import { activityGroups, activityTabHref, isActivityGroup, type ActivityGroup } from "@/lib/my-activities";
 
 export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
   const router = useRouter();
   const [tab, setTab] = useState<ActivityGroup>(initialTab);
-  const [activities, setActivities] = useState<UserEventActivities | null>(null);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const next = await listEventActivities();
-      setActivities(next);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "My Activities could not be loaded");
-    }
-  }, []);
+  const readGroup = useRef<ActivityGroup | null>(null);
+  const { activities, counts, loading, error, refresh, markCategoryRead } = useActivityBadges();
 
   useEffect(() => {
-    let active = true;
-    void listEventActivities().then((next) => {
-      if (active) setActivities(next);
-    }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "My Activities could not be loaded");
-    });
-    return () => { active = false; };
-  }, []);
+    if (!activities || readGroup.current === tab) return;
+    readGroup.current = tab;
+    markCategoryRead("my", tab);
+  }, [activities, markCategoryRead, tab]);
 
   useEffect(() => {
     function syncTabFromHistory() {
@@ -52,12 +38,16 @@ export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
   }
 
   const visible = activities ? groupActivities(activities, tab) : [];
+  const tabOptions = activityGroups.map((group) => ({
+    label: group,
+    count: activities ? counts.myByGroup[group] : undefined,
+  }));
   return (
     <div className="page-container narrow-page my-activities-ref">
       <PageHeader title="My Activities" />
-      <Tabs tabs={[...activityGroups]} active={tab} onChange={(value) => selectTab(value as ActivityGroup)} />
-      {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button type="button" className="text-button" onClick={() => void load()}>Try again</button></div> : null}
-      {!activities && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading your activities…</div> : null}
+      <Tabs tabs={tabOptions} active={tab} onChange={(value) => selectTab(value as ActivityGroup)} />
+      {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button type="button" className="text-button" onClick={() => void refresh()}>Try again</button></div> : null}
+      {!activities && loading && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading your activities…</div> : null}
       {activities && visible.length === 0 ? <div className="empty-state"><span><Icon name="check" size={34} /></span><h2>Nothing here yet</h2><p>{emptyCopy(tab)}</p></div> : null}
       <section className="joined-list" aria-label={tab}>
         {visible.map((activity) => <JoinedEventCard activity={activity} group={tab} key={activity.runId} />)}

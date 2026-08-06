@@ -938,6 +938,31 @@ export class EventCoordinator {
     const privateThread = current.threads.find((thread) => thread.userId === input.actorId);
     if (!privateThread) throw new Error("Your private coordination context was not found");
     const now = new Date().toISOString();
+    const actor = await this.dependencies.resolveMember?.(input.actorId);
+    const actorName = actor?.displayName ?? this.displayMember(input.actorId);
+    const groupMessageNotifications = current.memberships
+      .filter((membership) => this.isActiveMembership(membership) && membership.userId !== input.actorId)
+      .map((membership) => ({
+        notificationId: `notification_${randomUUID()}`,
+        userId: membership.userId,
+        kind: "group_message" as const,
+        title: `${actorName} sent a group message`,
+        body: input.body,
+        readAt: null,
+        deduplicationKey: `group-message:${input.runId}:${input.clientMessageId}:${membership.userId}`,
+        createdAt: now,
+      }));
+    const groupMessageOutbox = groupMessageNotifications.map((notification) => ({
+      jobId: `outbox_${randomUUID()}`,
+      kind: "notification" as const,
+      recipientId: notification.userId,
+      deduplicationKey: notification.deduplicationKey,
+      payload: { runId: input.runId, notificationId: notification.notificationId },
+      status: "pending" as const,
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    }));
     const participantMessage = {
       messageId: input.clientMessageId,
       senderId: input.actorId,
@@ -958,6 +983,8 @@ export class EventCoordinator {
       ...current,
       revision: current.revision + 1,
       groupThread: acceptedGroup,
+      notifications: [...current.notifications, ...groupMessageNotifications],
+      outbox: [...current.outbox, ...groupMessageOutbox],
       auditEvents: [...current.auditEvents, this.auditEvent(current, "group_coordination_message_added", input.actorId, null, {
         threadId: group.threadId,
         messageId: input.clientMessageId,
@@ -1922,19 +1949,27 @@ export class EventCoordinator {
     }, current.revision);
   }
 
-  async markNotificationsRead(input: { actorId: string; runId?: string }): Promise<number> {
+  async markNotificationsRead(input: { actorId: string; runId?: string; includeGroupMessages?: boolean }): Promise<number> {
     const states = await this.dependencies.store.listEventCoordinationStates(input.actorId);
     let marked = 0;
     for (const current of states.filter((state) => !input.runId || state.runId === input.runId)) {
       const unread = current.notifications.filter((notification) =>
-        notification.userId === input.actorId && notification.readAt === null).length;
+        notification.userId === input.actorId
+        && notification.readAt === null
+        && (input.includeGroupMessages
+          ? notification.kind === "group_message"
+          : notification.kind !== "group_message")).length;
       if (!unread) continue;
       const now = new Date().toISOString();
       await this.dependencies.store.saveEventCoordinationState({
         ...current,
         revision: current.revision + 1,
         notifications: current.notifications.map((notification) =>
-          notification.userId === input.actorId && notification.readAt === null
+          notification.userId === input.actorId
+          && notification.readAt === null
+          && (input.includeGroupMessages
+            ? notification.kind === "group_message"
+            : notification.kind !== "group_message")
             ? { ...notification, readAt: now }
             : notification),
         auditEvents: [...current.auditEvents, this.auditEvent(current, "notifications_read", input.actorId, null, { count: unread }, current.lifecycle)],
@@ -2486,6 +2521,7 @@ export class EventCoordinator {
     );
     const result: UserEventActivities = {
       unreadCount: 0,
+      groupChatUnread: {},
       notifications: [],
       suggested: [],
       invitations: [],
@@ -2501,8 +2537,11 @@ export class EventCoordinator {
     const suggestedScores = new Map<string, number>();
     for (const state of states) {
       const userNotifications = state.notifications.filter((notification) => notification.userId === userId);
-      result.unreadCount += userNotifications.filter((notification) => notification.readAt === null).length;
-      result.notifications.push(...userNotifications.map((notification) => ({
+      const groupChatUnread = unreadGroupMessages(state, userId);
+      if (groupChatUnread) result.groupChatUnread[state.runId] = groupChatUnread;
+      const activityNotifications = userNotifications.filter((notification) => notification.kind !== "group_message");
+      result.unreadCount += activityNotifications.filter((notification) => notification.readAt === null).length;
+      result.notifications.push(...activityNotifications.map((notification) => ({
         ...notification,
         runId: state.runId,
       })));
@@ -2700,7 +2739,7 @@ export class EventCoordinator {
         imageUrl: "/assets/profile-group.jpg",
         preview: state.groupThread.messages.at(-1)?.body ?? "Shared activity chat",
         lastMessageAt: state.groupThread.messages.at(-1)?.createdAt ?? state.groupThread.updatedAt,
-        unreadCount: 0,
+        unreadCount: unreadGroupMessages(state, userId),
         memberCount: activeMembers.length,
         questId: state.runId,
         canLeave: false as const,
@@ -3400,4 +3439,11 @@ function stateParticipant(state: EventCoordinationState, userId: string): { cont
   return {
     contributions: state.proposal.proposedParticipants.find((participant) => participant.candidateId === userId)?.contributionsUsed ?? [],
   };
+}
+
+function unreadGroupMessages(state: EventCoordinationState, userId: string): number {
+  return state.notifications.filter((notification) =>
+    notification.userId === userId
+    && notification.kind === "group_message"
+    && notification.readAt === null).length;
 }

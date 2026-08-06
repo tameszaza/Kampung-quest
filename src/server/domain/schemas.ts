@@ -145,6 +145,8 @@ export type AssistantTurnAgentOutput = z.infer<typeof assistantTurnAgentOutputSc
 const hostedWeeklyAvailabilityRuleSchema = z.object({
   ...weeklyAvailabilityRuleSchema.shape,
   kind: z.string().min(1),
+  startLocalTime: z.string().min(1),
+  endLocalTime: z.string().min(1),
 }).refine((rule) => Date.parse(rule.validUntil) >= Date.parse(rule.validFrom), {
   message: "Recurring availability end must not precede its start",
   path: ["validUntil"],
@@ -178,6 +180,34 @@ export function normalizeWeeklyAvailabilityRuleKind(kind: string): "weekly_recur
   throw new Error(`Unsupported recurring availability rule kind: ${kind}`);
 }
 
+export function normalizeHostedLocalTime(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(normalized)) return normalized;
+
+  const twelveHour = normalized.match(/^(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?m\.?$/i);
+  if (twelveHour) {
+    const hour = Number(twelveHour[1]);
+    const minute = Number(twelveHour[2] ?? "0");
+    if (hour >= 1 && hour <= 12 && minute <= 59) {
+      const hour24 = twelveHour[3].toLowerCase() === "p"
+        ? (hour === 12 ? 12 : hour + 12)
+        : (hour === 12 ? 0 : hour);
+      return `${String(hour24).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+  }
+
+  const twentyFourHour = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (twentyFourHour) {
+    const hour = Number(twentyFourHour[1]);
+    const minute = Number(twentyFourHour[2]);
+    if (hour <= 23 && minute <= 59) {
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+  }
+
+  return normalized;
+}
+
 export function normalizeHostedAssistantTurnOutput(
   output: z.infer<typeof hostedAssistantTurnAgentOutputSchema>,
 ): AssistantTurnAgentOutput {
@@ -188,6 +218,8 @@ export function normalizeHostedAssistantTurnOutput(
       recurringAvailabilityRules: output.briefPatch.recurringAvailabilityRules?.map((rule) => ({
         ...rule,
         kind: normalizeWeeklyAvailabilityRuleKind(rule.kind),
+        startLocalTime: normalizeHostedLocalTime(rule.startLocalTime),
+        endLocalTime: normalizeHostedLocalTime(rule.endLocalTime),
       })),
     },
   });

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { EngineQuestDetail } from "@/components/engine-quest-views";
 import { EventTaskBoard } from "@/components/event-task-board";
+import { ChatProfileDialog } from "@/components/chat-profile-dialog";
 import { Icon } from "@/components/icons";
 import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -14,6 +15,7 @@ import {
   confirmEventRoster,
   decideEventArrangement,
   getEventQuest,
+  getEventParticipantProfile,
   proposeEventArrangement,
   respondToEventInvitation,
   searchEventParticipants,
@@ -23,7 +25,7 @@ import {
   updateEventRoster,
 } from "@/features/events/client";
 import type { EventCoordinationState, EventQuestView, EventRosterMember } from "@/server/domain/event-coordination";
-import type { ChatContact } from "@/server/identity/types";
+import type { ChatContact, ChatProfile } from "@/server/identity/types";
 import { activityLabel, activityStatusLabel, participantCountLabel } from "@/lib/activity-label";
 import { latestInvitationForUser, latestMembershipForUser } from "@/lib/event-participant-history";
 
@@ -62,6 +64,8 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [contacts, setContacts] = useState<ChatContact[]>([]);
+  const [profile, setProfile] = useState<ChatProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const organizer = state.initiatorId === user.id;
   const editingRoster = organizer && state.lifecycle === "forming";
   const ownInvitation = latestInvitationForUser(state.invitations, user.id);
@@ -90,6 +94,18 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
     try { setContacts(await searchEventParticipants(state.runId, query)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "People could not be searched"); }
     finally { setBusy(""); }
+  }
+
+  async function openParticipantProfile(userId: string) {
+    setProfileLoading(true);
+    setError("");
+    try {
+      setProfile(await getEventParticipantProfile(state.runId, userId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "That profile could not be loaded");
+    } finally {
+      setProfileLoading(false);
+    }
   }
 
   async function completeActivity() {
@@ -158,16 +174,18 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
               membershipStatus: membership?.status,
               fallback: member.source === "recommended" ? "suggested" : editingRoster ? "selected" : "pending",
             });
-            const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
-            const displayName = member.userId === user.id ? "You" : profile?.displayName ?? "Community member";
+            const memberProfile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
+            const displayName = member.userId === user.id ? "You" : memberProfile?.displayName ?? "Community member";
             const subtitle = editingRoster
               ? member.userId === state.initiatorId
                 ? "Organizer · You started this quest"
                 : `${member.source === "recommended" ? "Recommended match" : "Selected by you"} · ${member.proposedRole.replaceAll("_", " ")}`
               : member.proposedRole.replaceAll("_", " ");
             return <div key={member.userId}>
-              <ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} />
-              <p><strong>{displayName}</strong><small>{subtitle}</small></p>
+              <button className="participant-profile-trigger" type="button" disabled={profileLoading} onClick={() => void openParticipantProfile(member.userId)} aria-label={`Open ${displayName}'s profile`}>
+                <ProfileAvatar name={displayName} photoUrl={memberProfile?.photoUrl} size={44} />
+                <span><strong>{displayName}</strong><small>{subtitle}</small></span>
+              </button>
               {editingRoster && member.userId !== state.initiatorId ? <button type="button" className="quiet-button participant-management" disabled={Boolean(busy)} aria-label={`Remove ${displayName}`} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}
               {!editingRoster && organizer && state.lifecycle !== "forming" && invitation && ["pending", "accepted"].includes(invitation.status) ? <button type="button" className="quiet-button participant-management" disabled={Boolean(busy)} aria-label={`Replace ${displayName}`} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button> : null}
               <span className={`participant-status participant-status-${status.key}`}>{status.label}</span>
@@ -197,6 +215,7 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
 
         {!organizer && ownInvitation?.status === "accepted" && hasActiveMembership && !["cancelled", "completed"].includes(state.lifecycle) ? <section className="event-panel event-danger-zone"><h2>Can’t continue?</h2><p>Withdraw from this activity so the organizer can update the group and arrangement.</p><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("withdraw", () => transitionEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, action: "withdraw", expectedRevision: state.revision }))}>Withdraw from quest</button></section> : null}
       </article>
+      {profile ? <ChatProfileDialog profile={profile} onClose={() => setProfile(null)} /> : null}
   </div>;
 }
 

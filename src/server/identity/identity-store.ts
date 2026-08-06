@@ -8,9 +8,12 @@ import type {
   StoredUser,
   UserPreferences,
   UserProfile,
+  ChatMessageCursor,
+  ChatMessagePage,
 } from "@/server/identity/types";
 import { defaultPreferences, publicUser } from "@/server/identity/types";
 import { normalizeUsername } from "@/server/identity/username";
+import { pageChatMessages } from "@/server/chat/message-sync";
 
 export type NewUser = Omit<StoredUser, "id" | "accountType" | "username" | "onboardingComplete" | "emergencyContact"> & {
   username?: string | null;
@@ -67,6 +70,7 @@ export interface IdentityStore {
   blockUser(userId: string, blockedUserId: string): Promise<void>;
   unblockUser(userId: string, blockedUserId: string): Promise<void>;
   listMessages(userId: string, conversationId: string): Promise<ChatMessage[]>;
+  listMessagesPage(userId: string, conversationId: string, after?: ChatMessageCursor): Promise<ChatMessagePage>;
   sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage>;
 }
 
@@ -396,9 +400,17 @@ export class InMemoryIdentityStore implements IdentityStore {
   }
 
   async listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
+    return (await this.listMessagesPage(userId, conversationId)).messages;
+  }
+
+  async listMessagesPage(userId: string, conversationId: string, after?: ChatMessageCursor): Promise<ChatMessagePage> {
     this.requireConversationMember(userId, conversationId);
     this.lastReadAt.set(readKey(conversationId, userId), new Date().toISOString());
-    return (this.messages.get(conversationId) ?? []).map((message) => this.toMessage(userId, message));
+    return pageChatMessages(
+      (this.messages.get(conversationId) ?? []).map((message) => this.toMessage(userId, message)),
+      conversationId,
+      after,
+    );
   }
 
   async sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage> {

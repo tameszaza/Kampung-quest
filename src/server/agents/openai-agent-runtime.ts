@@ -9,6 +9,7 @@ import {
 } from "@openai/agents";
 import type { AgentAuditSink, AgentRuntime, MemoryAgentInput } from "@/server/agents/agent-runtime";
 import { AGENT_INSTRUCTIONS } from "@/server/agents/agent-instructions";
+import { logger, safeErrorMessage } from "@/server/observability/logger";
 import {
   coordinationProviderOutputSchema,
   normalizeCoordinationProviderOutput,
@@ -226,6 +227,13 @@ export class HostedAgentRuntime implements AgentRuntime {
     try {
       return normalizeHostedAssistantTurnOutput(hostedAssistantTurnAgentOutputSchema.parse(output));
     } catch (error) {
+      logger.error("agent.output.invalid", {
+        role: this.conversationAgent.name,
+        model: typeof this.conversationAgent.model === "string" ? this.conversationAgent.model : "custom-model",
+        provider: this.options.provider,
+        conversationId: input.conversationId,
+        error: safeErrorMessage(error),
+      });
       throw new Error(hostedProviderErrorMessage(this.options.provider, error), { cause: error });
     }
   }
@@ -438,11 +446,12 @@ export class HostedAgentRuntime implements AgentRuntime {
   ): Promise<unknown> {
     const startedAt = Date.now();
     const model = typeof agent.model === "string" ? agent.model : "custom-model";
+    const runId = `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     try {
       const result = await this.runner.run(agent, JSON.stringify(minimizeProviderInput(input)));
       if (!result.finalOutput) throw new Error("Agent returned no structured output");
       await this.audit({
-        runId: `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
+        runId,
         role: agent.name,
         model,
         promptVersion: "v2",
@@ -454,13 +463,23 @@ export class HostedAgentRuntime implements AgentRuntime {
       });
       return result.finalOutput;
     } catch (error) {
+      const latencyMs = Date.now() - startedAt;
+      logger.error("agent.run.failed", {
+        runId,
+        role: agent.name,
+        model,
+        provider: this.options.provider,
+        latencyMs,
+        error: safeErrorMessage(error),
+        ...metadata,
+      });
       await this.audit({
-        runId: `agent_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
+        runId,
         role: agent.name,
         model,
         promptVersion: "v2",
         outcome: "failed",
-        latencyMs: Date.now() - startedAt,
+        latencyMs,
         inputTokens: null,
         outputTokens: null,
         metadata: { provider: this.options.provider, ...metadata },

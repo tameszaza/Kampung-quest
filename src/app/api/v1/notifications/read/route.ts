@@ -4,7 +4,10 @@ import { eventCoordinator } from "@/server/container";
 import { errorResponse } from "@/server/http/responses";
 import { requireUser } from "@/server/identity/session";
 
-const requestSchema = z.object({ runId: z.string().min(1).optional() });
+const requestSchema = z.object({
+  runId: z.string().min(1).optional(),
+  includeGroupMessages: z.boolean().optional(),
+});
 
 export async function POST(request: Request) {
   try {

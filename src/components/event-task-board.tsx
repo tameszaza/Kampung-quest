@@ -126,6 +126,7 @@ function TaskItem({ task, state, userId, busy, act }: { task: EventTask; state: 
   const assigned = task.assignees.some((assignee) => assignee.userId === userId);
   const reviewer = task.reviewerId === userId;
   const names = task.assignees.map((assignee) => assignee.userId === userId ? "You" : state.participantProgress.find((candidate) => candidate.userId === assignee.userId)?.displayName ?? "Community member");
+  const showAssignees = names.length > 1 || names.some((name) => name !== "You");
   const canSubmit = assigned && ["acknowledged", "needs_retry"].includes(task.status) && ["scheduled", "in_progress"].includes(state.lifecycle);
   const canReview = reviewer && task.status === "submitted";
 
@@ -133,7 +134,7 @@ function TaskItem({ task, state, userId, busy, act }: { task: EventTask; state: 
     <div className="event-task-item-heading"><span className="event-task-difficulty">{difficultyLabel(task.difficulty)} · {task.points} points</span><span className={`event-task-status event-task-status-${task.status}`}>{task.status === "approved" ? <Icon name="check" size={15} /> : null}{taskStatusLabel(task.status)}</span></div>
     <h4>{task.title}</h4>
     <p>{task.instruction}</p>
-    <div className="event-task-item-meta"><span><Icon name="people" size={16} />For {names.join(", ")}</span>{task.reviewReason ? <span><Icon name="shield" size={16} />Admin note: {task.reviewReason}</span> : null}</div>
+    {showAssignees || task.reviewReason ? <div className="event-task-item-meta">{showAssignees ? <span><Icon name="people" size={16} />{names.join(", ")}</span> : null}{task.reviewReason ? <span><Icon name="shield" size={16} />Admin note: {task.reviewReason}</span> : null}</div> : null}
     {canSubmit ? <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => act(`submit-${task.taskId}`, () => actOnEventTask({ runId: state.runId, taskId: task.taskId, action: "submit", expectedRevision: state.revision }))}>Mark task done</button> : null}
     {canReview ? <div className="event-task-item-actions"><button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => act(`approve-${task.taskId}`, () => actOnEventTask({ runId: state.runId, taskId: task.taskId, action: "approve", expectedRevision: state.revision }))}>Approve task</button><button className="quiet-button" type="button" disabled={Boolean(busy)} onClick={() => act(`retry-${task.taskId}`, () => actOnEventTask({ runId: state.runId, taskId: task.taskId, action: "needs_retry", reason: "Please complete the task as described.", expectedRevision: state.revision }))}>Needs changes</button></div> : null}
   </article>;

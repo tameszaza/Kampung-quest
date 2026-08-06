@@ -1252,8 +1252,44 @@ describe("EventCoordinator", () => {
       role: "assistant",
       body: "I couldn't process that message right now. Your message was delivered to the group; please try asking Senior Quest again.",
     }));
-    expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
+    const persisted = (await store.findEventCoordinationState(state.runId))!;
+    expect(persisted.groupThread?.messages)
       .toContainEqual(expect.objectContaining({ messageId: "group-provider-failure-message" }));
+    expect(persisted.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "anne",
+        kind: "group_message",
+        body: "Should we meet at NTU Hall 15?",
+      }),
+      expect.objectContaining({
+        userId: "david",
+        kind: "group_message",
+        body: "Should we meet at NTU Hall 15?",
+      }),
+    ]));
+    expect(persisted.outbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        recipientId: "anne",
+        kind: "notification",
+        deduplicationKey: expect.stringContaining(`group-message:${state.runId}:group-provider-failure-message`),
+      }),
+      expect.objectContaining({
+        recipientId: "david",
+        kind: "notification",
+        deduplicationKey: expect.stringContaining(`group-message:${state.runId}:group-provider-failure-message`),
+      }),
+    ]));
+    const anneActivities = await coordinator.listActivities("anne");
+    expect(anneActivities.notifications).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "group_message" }),
+    ]));
+    expect(anneActivities.groupChatUnread[state.runId]).toBe(1);
+    expect((await coordinator.listCoordinationConversations("anne")).find((conversation) => conversation.type === "quest_group"))
+      .toMatchObject({ unreadCount: 1 });
+    await coordinator.markNotificationsRead({ actorId: "anne", runId: state.runId });
+    expect((await coordinator.listActivities("anne")).groupChatUnread[state.runId]).toBe(1);
+    await coordinator.markNotificationsRead({ actorId: "anne", runId: state.runId, includeGroupMessages: true });
+    expect((await coordinator.listActivities("anne")).groupChatUnread[state.runId]).toBeUndefined();
   });
 
   it("makes a group message durable before the hosted provider finishes", async () => {

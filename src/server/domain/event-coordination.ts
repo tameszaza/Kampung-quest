@@ -105,7 +105,8 @@ export interface EventNotification {
     | "change"
     | "cancellation"
     | "availability_shared"
-    | "availability_confirmed";
+    | "availability_confirmed"
+    | "group_message";
   title: string;
   body: string;
   readAt: string | null;
@@ -455,6 +456,7 @@ export interface EventInvitationView extends EventInvitation {
 
 export interface UserEventActivities {
   unreadCount: number;
+  groupChatUnread: Record<string, number>;
   notifications: EventNotificationView[];
   suggested: EventActivityCard[];
   invitations: EventInvitationView[];

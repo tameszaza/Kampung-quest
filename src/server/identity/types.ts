@@ -70,6 +70,26 @@ export type ChatMessage = {
   receipt?: "delivered" | "read";
 };
 
+export type ChatMessageCursor = {
+  conversationId: string;
+  messageId: string;
+  createdAt: string;
+};
+
+export type ChatMessagePage = {
+  messages: ChatMessage[];
+  cursor: ChatMessageCursor | null;
+  hasMore: boolean;
+  resetRequired: boolean;
+};
+
+export type ChatMessageSync = {
+  mode: "snapshot" | "delta";
+  cursor: string | null;
+  hasMore: boolean;
+  resetRequired: boolean;
+};
+
 export type ChatContact = {
   id: string;
   fullName: string;

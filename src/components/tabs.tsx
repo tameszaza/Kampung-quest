@@ -3,6 +3,7 @@
 export interface TabOption {
   label: string;
   count?: number;
+  showZero?: boolean;
 }
 
 export function Tabs({
@@ -22,20 +23,23 @@ export function Tabs({
       role="tablist"
       style={{ gridTemplateColumns: `repeat(${Math.max(1, options.length)}, minmax(0, 1fr))` }}
     >
-      {options.map(({ label, count }) => (
-        <button
-          key={label}
-          type="button"
-          role="tab"
-          aria-label={count && count > 0 ? `${label}, ${count}` : label}
-          aria-selected={active === label}
-          className={active === label ? "active" : ""}
-          onClick={() => onChange(label)}
-        >
-          <span>{label}</span>
-          {count && count > 0 ? <span className="tab-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span> : null}
-        </button>
-      ))}
+      {options.map(({ label, count, showZero }) => {
+        const showBadge = count !== undefined && (showZero || count > 0);
+        return (
+          <button
+            key={label}
+            type="button"
+            role="tab"
+            aria-label={showBadge ? `${label}, ${count}` : label}
+            aria-selected={active === label}
+            className={active === label ? "active" : ""}
+            onClick={() => onChange(label)}
+          >
+            <span>{label}</span>
+            {showBadge ? <span className="tab-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

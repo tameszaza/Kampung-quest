@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAppState } from "@/components/app-state";
+import { ActivityBadgeProvider, useActivityBadges } from "@/components/activity-badge-context";
 import { Icon, type IconName } from "@/components/icons";
 import { useUser } from "@/components/user-context";
-import { listEventActivities } from "@/features/events/client";
 import { authClient } from "@/lib/auth-client";
 import { SafeImage } from "@/components/safe-image";
 
@@ -32,18 +32,24 @@ function isActive(pathname: string, matches: string[]) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  return <ActivityBadgeProvider><AppShellContent>{children}</AppShellContent></ActivityBadgeProvider>;
+}
+
+function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { toast, showToast } = useAppState();
+  const { toast } = useAppState();
   const { user } = useUser();
-  const [unreadActivityCount, setUnreadActivityCount] = useState(0);
+  const { counts: activityCounts } = useActivityBadges();
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const knownActivityNotifications = useRef<Set<string> | null>(null);
-  const activityReadVersion = useRef(0);
 
   useEffect(() => {
+    // ChatCenter owns the conversation list while this route is open. Avoid
+    // running a second identical poller beside the active chat view.
+    if (pathname === "/messages") return;
     let active = true;
     const loadUnreadMessages = async () => {
+      if (document.visibilityState !== "visible") return;
       try {
         const response = await fetch("/api/chat/conversations", { cache: "no-store" });
         if (!response.ok) return;
@@ -56,7 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     void loadUnreadMessages();
     const timer = window.setInterval(() => void loadUnreadMessages(), 4_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, []);
+  }, [pathname]);
 
   async function logOut() {
     await authClient.signOut();
@@ -73,50 +79,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [user.preferences.highContrast, user.preferences.textSize]);
 
-  useEffect(() => {
-    let active = true;
-    async function refreshActivityNotifications() {
-      if (document.visibilityState !== "visible") return;
-      const requestVersion = activityReadVersion.current;
-      try {
-        const activities = await listEventActivities();
-        if (!active || requestVersion !== activityReadVersion.current) return;
-        window.dispatchEvent(new CustomEvent("event-activities-refreshed", { detail: activities }));
-        const unread = activities.notifications.filter((notification) => notification.readAt === null);
-        const previous = knownActivityNotifications.current;
-        if (previous) {
-          const newest = unread.find((notification) => !previous.has(notification.notificationId));
-          if (newest) showToast(newest.title);
-        }
-        knownActivityNotifications.current = new Set(unread.map((notification) => notification.notificationId));
-        setUnreadActivityCount(unread.length);
-      } catch {
-        // Notification refresh is best effort and must not interrupt navigation.
-      }
-    }
-    const refresh = () => void refreshActivityNotifications();
-    refresh();
-    const timer = window.setInterval(refresh, 5_000);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [showToast]);
-
-  useEffect(() => {
-    const clearActivityBadge = () => {
-      activityReadVersion.current += 1;
-      knownActivityNotifications.current = new Set();
-      setUnreadActivityCount(0);
-    };
-    window.addEventListener("event-activities-read", clearActivityBadge);
-    return () => window.removeEventListener("event-activities-read", clearActivityBadge);
-  }, []);
-
   return (
     <div className="app-shell">
       <aside className="desktop-nav">
@@ -130,13 +92,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
+                aria-label={navAriaLabel(item, activityCounts.activities, activityCounts.my, unreadMessages)}
                 title={item.label}
                 className={isActive(pathname, item.match) ? "active" : ""}
               >
                 <Icon name={item.icon} size={21} />
-                <span>{item.label}</span>
-                {item.href === "/quests" && unreadActivityCount ? <b className="nav-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
+                <span className="nav-label">{item.label}{item.href === "/quests" && activityCounts.activities ? <span className="nav-count"> ({formatCount(activityCounts.activities)})</span> : null}</span>
+                {item.href === "/quests" && activityCounts.activities ? <b className="nav-badge nav-activity-compact" aria-hidden="true">{formatCount(activityCounts.activities)}</b> : null}
+                {item.href === "/my-quests" && activityCounts.my ? <b className="nav-badge" aria-label={`${activityCounts.my} new activities`}>{formatCount(activityCounts.my)}</b> : null}
                 {item.href === "/messages" && unreadMessages ? <span className="nav-badge" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</span> : null}
               </Link>
             ))}
@@ -161,11 +124,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.href}
             href={item.href}
             className={isActive(pathname, item.match) ? "active" : ""}
-            aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
+            aria-label={navAriaLabel(item, activityCounts.activities, activityCounts.my, unreadMessages)}
           >
             <Icon name={item.icon} size={23} />
-            <span>{item.label}</span>
-            {item.href === "/quests" && unreadActivityCount ? <b className="nav-badge" aria-label={`${unreadActivityCount} unread activity updates`}>{Math.min(unreadActivityCount, 99)}</b> : null}
+            <span className="nav-label">{item.label}{item.href === "/quests" && activityCounts.activities ? <span className="nav-count"> ({formatCount(activityCounts.activities)})</span> : null}</span>
           </Link>
         ))}
         <button className="mobile-create" type="button" onClick={() => router.push("/messages?assistant=1")} aria-label="Talk to Senior Quest">
@@ -176,7 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.href}
             href={item.href}
             className={isActive(pathname, item.match) ? "active" : ""}
-            aria-label={item.href === "/messages" && unreadMessages ? `${item.label}, ${unreadMessages} unread` : item.label}
+            aria-label={navAriaLabel(item, activityCounts.activities, activityCounts.my, unreadMessages)}
           >
             <Icon name={item.icon} size={23} />
             <span>{item.label}</span>
@@ -188,4 +150,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       {toast ? <div className="toast" role="status">{toast}</div> : null}
     </div>
   );
+}
+
+function formatCount(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
+
+function navAriaLabel(
+  item: { href: string; label: string },
+  activityCount: number,
+  myActivityCount: number,
+  unreadMessages: number,
+) {
+  if (item.href === "/quests" && activityCount) return `${item.label}, ${activityCount} new`;
+  if (item.href === "/my-quests" && myActivityCount) return `${item.label}, ${myActivityCount} new`;
+  if (item.href === "/messages" && unreadMessages) return `${item.label}, ${unreadMessages} unread`;
+  return item.label;
 }

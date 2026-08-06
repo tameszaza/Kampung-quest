@@ -5,9 +5,12 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { listUserNotifications } from "@/features/assistant/client";
+import type { EventNotificationView, UserEventActivities } from "@/server/domain/event-coordination";
 import type { QuestNotification } from "@/server/quest/quest-notifications";
 
-export function ActivityNotifications() {
+type ActivityNotification = QuestNotification | EventNotificationView;
+
+export function ActivityNotifications({ activities }: { activities?: UserEventActivities | null }) {
   const [reloadToken, setReloadToken] = useState(0);
   const [state, setState] = useState<{ status: "loading" | "ready" | "error"; items: QuestNotification[] }>({
     status: "loading",
@@ -26,19 +29,21 @@ export function ActivityNotifications() {
 
   if (state.status === "loading") return <div className="connected-state" role="status"><span className="connected-spinner" />Loading notifications…</div>;
   if (state.status === "error") return <div className="connected-state error" role="alert"><Icon name="shield" /><strong>Notifications could not load.</strong><button className="secondary-button" type="button" onClick={() => { setState({ status: "loading", items: [] }); setReloadToken((token) => token + 1); }}>Try again</button></div>;
-  if (state.items.length === 0) {
+  const items: ActivityNotification[] = [...state.items, ...(activities?.notifications ?? [])]
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  if (items.length === 0) {
     return <div className="empty-state activity-notifications-empty"><span><Icon name="bell" size={32} /></span><h2>You’re all caught up</h2><p>Suggestions, invitations, and activity updates will appear here.</p></div>;
   }
 
   return (
     <section className="activity-notifications" aria-label="Activity notifications">
-      {state.items.map((item) => (
-        <article className={`activity-notification activity-notification-${item.kind}`} key={item.id}>
-          {item.actor ? <ProfileAvatar name={item.actor.displayName} photoUrl={item.actor.photoUrl} size={46} /> : <span className="activity-notification-icon" aria-hidden="true"><Icon name={iconFor(item.kind)} size={22} /></span>}
+      {items.map((item) => (
+        <article className={`activity-notification activity-notification-${item.kind}`} key={"id" in item ? item.id : item.notificationId}>
+          {"actor" in item && item.actor ? <ProfileAvatar name={item.actor.displayName} photoUrl={item.actor.photoUrl} size={46} /> : <span className="activity-notification-icon" aria-hidden="true"><Icon name={iconFor(item.kind)} size={22} /></span>}
           <div className="activity-notification-content">
             <div className="activity-notification-heading"><h2>{item.title}</h2><time dateTime={item.createdAt}>{formatNotificationTime(item.createdAt)}</time></div>
-            <p>{item.message}</p>
-            <Link href={`/quests/${encodeURIComponent(item.questRunId)}`}>View activity <span aria-hidden="true">→</span></Link>
+            <p>{"message" in item ? item.message : item.body}</p>
+            <Link href={`/quests/${encodeURIComponent("questRunId" in item ? item.questRunId : item.runId)}`}>View activity <span aria-hidden="true">→</span></Link>
           </div>
         </article>
       ))}
@@ -46,10 +51,11 @@ export function ActivityNotifications() {
   );
 }
 
-function iconFor(kind: QuestNotification["kind"]): "bell" | "calendar" | "close" | "shield" {
+function iconFor(kind: ActivityNotification["kind"]): "bell" | "calendar" | "close" | "message" | "shield" {
   if (kind === "joined") return "calendar";
   if (kind === "declined") return "close";
   if (kind === "status") return "shield";
+  if (kind === "group_message") return "message";
   return "bell";
 }
 

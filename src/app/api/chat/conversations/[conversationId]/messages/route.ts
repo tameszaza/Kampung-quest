@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { eventCoordinator } from "@/server/container";
 import type { EventCoordinationMessage, EventQuestView } from "@/server/domain/event-coordination";
+import { decodeMessageCursor, pageChatMessages, syncMeta } from "@/server/chat/message-sync";
 import { identityStore } from "@/server/identity/container";
 import { sendMessageSchema } from "@/server/identity/schemas";
 import { requireUser } from "@/server/identity/session";
@@ -9,10 +10,16 @@ import { errorResponse } from "@/server/http/responses";
 
 type RouteContext = { params: Promise<{ conversationId: string }> };
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   try {
     const user = await requireUser();
     const { conversationId } = await context.params;
+    let after;
+    try {
+      after = decodeMessageCursor(new URL(request.url).searchParams.get("after"), conversationId);
+    } catch {
+      return NextResponse.json({ error: "This chat sync cursor is invalid. Reload the conversation." }, { status: 400 });
+    }
     const questConversation = parseQuestConversationId(conversationId);
     if (questConversation) {
       const [thread, quest] = await Promise.all([
@@ -21,11 +28,18 @@ export async function GET(_request: Request, context: RouteContext) {
           : eventCoordinator.getCoordinationThread(questConversation.runId, user.id),
         eventCoordinator.getStateForUser(questConversation.runId, user.id),
       ]);
+      const messages = thread.messages.map((message) => toChatMessage(message, conversationId, user.id, quest));
+      const page = pageChatMessages(messages, conversationId, after);
       return NextResponse.json({
-        messages: thread.messages.map((message) => toChatMessage(message, conversationId, user.id, quest)),
+        messages: page.messages,
+        sync: syncMeta(page, after && !page.resetRequired ? "delta" : "snapshot"),
       });
     }
-    return NextResponse.json({ messages: await identityStore.listMessages(user.id, conversationId) });
+    const page = await identityStore.listMessagesPage(user.id, conversationId, after);
+    return NextResponse.json({
+      messages: page.messages,
+      sync: syncMeta(page, after && !page.resetRequired ? "delta" : "snapshot"),
+    });
   } catch (error) {
     return errorResponse(error);
   }
@@ -59,13 +73,17 @@ export async function POST(request: Request, context: RouteContext) {
           });
       const message = updated.messages.find((candidate) => candidate.messageId === clientMessageId)!;
       const quest = await eventCoordinator.getStateForUser(questConversation.runId, user.id);
+      const chatMessage = toChatMessage(message, conversationId, user.id, quest);
+      const page = pageChatMessages([chatMessage], conversationId);
       return NextResponse.json(
-        { message: toChatMessage(message, conversationId, user.id, quest) },
+        { message: chatMessage, sync: syncMeta(page, "snapshot") },
         { status: 201 },
       );
     }
+    const message = await identityStore.sendMessage(user.id, conversationId, body);
+    const page = pageChatMessages([message], conversationId);
     return NextResponse.json(
-      { message: await identityStore.sendMessage(user.id, conversationId, body) },
+      { message, sync: syncMeta(page, "snapshot") },
       { status: 201 },
     );
   } catch (error) {

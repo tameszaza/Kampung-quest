@@ -24,6 +24,7 @@ import type {
   EventParticipantProgress,
   EventQuestView,
 } from "@/server/domain/event-coordination";
+import type { ChatMessageSync } from "@/server/identity/types";
 import { createClientRequestId } from "@/lib/client-request-id";
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -56,10 +57,17 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const hasLoadedRef = useRef(false);
   const lastLoadedAtRef = useRef(0);
   const acknowledgedNotificationsRef = useRef("");
+  const privateSyncRef = useRef<{ runId: string; cursor: string | null; hasMore: boolean } | null>(null);
+  const groupSyncRef = useRef<{ runId: string; cursor: string | null; hasMore: boolean } | null>(null);
+  const threadRef = useRef<EventCoordinationThread | null>(null);
+  const groupThreadRef = useRef<EventGroupCoordinationThread | null>(null);
   const onTitleRef = useRef(onTitle);
   const onScopeChangeRef = useRef(onScopeChange);
   const onGroupAvailabilityChangeRef = useRef(onGroupAvailabilityChange);
   const activeScope = controlledScope ?? scope;
+
+  threadRef.current = thread;
+  groupThreadRef.current = groupThread;
 
   onTitleRef.current = onTitle;
   onScopeChangeRef.current = onScopeChange;
@@ -71,16 +79,30 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
 
   const load = useCallback(async (quiet = false) => {
     try {
-      const [nextThread, nextQuest] = await Promise.all([
-        getEventCoordinationThread(runId),
+      const privateSync = privateSyncRef.current?.runId === runId ? privateSyncRef.current : null;
+      const [rawThread, nextQuest] = await Promise.all([
+        getThreadWithFallback(
+          () => getEventCoordinationThread(runId, privateSync?.cursor ?? undefined),
+          () => getEventCoordinationThread(runId),
+          Boolean(privateSync?.cursor),
+        ),
         getEventQuest(runId),
       ]);
+      const nextThread = mergeCoordinationThread(threadRef.current, rawThread);
+      privateSyncRef.current = { runId, cursor: rawThread.sync.cursor, hasMore: rawThread.sync.hasMore };
       if (!nextQuest) throw new Error("This activity could not be found");
       const activeMemberCount = nextQuest.memberships.filter((membership) => isActiveMembershipStatus(membership.status)).length;
       const groupAvailable = activeMemberCount >= 2 && ["organizer", "participant"].includes(nextQuest.viewer.role);
-      const nextGroupThread = groupAvailable && activeScope === "group"
-        ? await getEventGroupCoordinationThread(runId)
+      const groupSync = groupSyncRef.current?.runId === runId ? groupSyncRef.current : null;
+      const rawGroupThread = groupAvailable && activeScope === "group"
+        ? await getThreadWithFallback(
+          () => getEventGroupCoordinationThread(runId, groupSync?.cursor ?? undefined),
+          () => getEventGroupCoordinationThread(runId),
+          Boolean(groupSync?.cursor),
+        )
         : null;
+      const nextGroupThread = rawGroupThread ? mergeCoordinationThread(groupThreadRef.current, rawGroupThread) : null;
+      if (rawGroupThread) groupSyncRef.current = { runId, cursor: rawGroupThread.sync.cursor, hasMore: rawGroupThread.sync.hasMore };
       setThread(nextThread);
       if (nextGroupThread || !groupAvailable) setGroupThread(nextGroupThread);
       onGroupAvailabilityChangeRef.current?.(groupAvailable);
@@ -92,11 +114,12 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       onTitleRef.current?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
       if (!quiet) scrollToLatest();
-      const unreadSignature = nextQuest.notifications.filter((item) => item.readAt === null)
+      const unreadSignature = nextQuest.notifications.filter((item) =>
+        item.readAt === null && (activeScope === "group" ? item.kind === "group_message" : item.kind !== "group_message"))
         .map((item) => item.notificationId).sort().join(":");
       if (unreadSignature && acknowledgedNotificationsRef.current !== unreadSignature) {
         acknowledgedNotificationsRef.current = unreadSignature;
-        void markEventNotificationsRead(runId).catch(() => {
+        void markEventNotificationsRead(runId, activeScope === "group").catch(() => {
           acknowledgedNotificationsRef.current = "";
         });
       }
@@ -180,9 +203,13 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     scrollToLatest();
     try {
       if (activeScope === "group") {
-        setGroupThread(await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
+        const nextGroupThread = await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId });
+        groupSyncRef.current = { runId, cursor: nextGroupThread.sync.cursor, hasMore: nextGroupThread.sync.hasMore };
+        setGroupThread(nextGroupThread);
       } else {
-        setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
+        const nextThread = await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId });
+        privateSyncRef.current = { runId, cursor: nextThread.sync.cursor, hasMore: nextThread.sync.hasMore };
+        setThread(nextThread);
       }
       void refreshQuest().catch(() => {
         // The faster thread response is authoritative for the message. Polling
@@ -197,8 +224,10 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
           : await getEventCoordinationThread(runId);
         const delivered = reconciled.messages.some((message) => message.messageId === clientMessageId);
         if (activeScope === "group") {
+          groupSyncRef.current = { runId, cursor: reconciled.sync.cursor, hasMore: reconciled.sync.hasMore };
           setGroupThread(reconciled as EventGroupCoordinationThread);
         } else {
+          privateSyncRef.current = { runId, cursor: reconciled.sync.cursor, hasMore: reconciled.sync.hasMore };
           setThread(reconciled as EventCoordinationThread);
         }
         if (delivered) {
@@ -494,6 +523,29 @@ function ParticipantProgress({ participant }: { participant: EventParticipantPro
 
 function isActiveMembershipStatus(status: EventParticipantProgress["membershipStatus"]) {
   return status !== null && !["withdrawn", "replaced", "cancelled", "completed"].includes(status);
+}
+
+async function getThreadWithFallback<T>(load: () => Promise<T>, reload: () => Promise<T>, hasCursor: boolean) {
+  try {
+    return await load();
+  } catch (reason) {
+    if (!hasCursor) throw reason;
+    return reload();
+  }
+}
+
+function mergeCoordinationThread<T extends { messages: EventCoordinationThread["messages"]; sync: ChatMessageSync }>(
+  current: { messages: EventCoordinationThread["messages"] } | null,
+  next: T,
+): T {
+  if (!current || next.sync.mode !== "delta" || next.sync.resetRequired) return next;
+  const messages = new Map(current.messages.map((message) => [message.messageId, message]));
+  for (const message of next.messages) messages.set(message.messageId, message);
+  return {
+    ...next,
+    messages: [...messages.values()].sort((left, right) =>
+      left.createdAt.localeCompare(right.createdAt) || left.messageId.localeCompare(right.messageId)),
+  };
 }
 
 function CoordinationSkeleton() {

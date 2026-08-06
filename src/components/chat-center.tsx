@@ -5,15 +5,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
+import { ChatProfileDialog } from "@/components/chat-profile-dialog";
 import { EventCoordinationConversation } from "@/components/event-coordination-conversation";
 import { Icon } from "@/components/icons";
 import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { useAppState } from "@/components/app-state";
+import { useActivityBadges } from "@/components/activity-badge-context";
 import { getQuestRun } from "@/features/assistant/client";
-import { getEventCoordinationThread, getEventQuest, listEventActivities } from "@/features/events/client";
+import { getEventCoordinationThread, getEventGroupCoordinationThread, getEventQuest } from "@/features/events/client";
+import { latestChatMessage } from "@/features/events/conversation-preview";
 import { visibleConversationSummaries } from "@/features/events/conversation-projection";
 import type { EventActivityCard } from "@/server/domain/event-coordination";
-import type { ChatContact, ChatMessage, ChatProfile, ConversationSummary } from "@/server/identity/types";
+import type { ChatContact, ChatMessage, ChatMessageSync, ChatProfile, ConversationSummary } from "@/server/identity/types";
 import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
@@ -35,6 +38,7 @@ const assistantConversation: ConversationSummary = {
 
 export function ChatCenter({ initialConversation, initialQuest, startNewAssistant = false }: { initialConversation?: "assistant"; initialQuest?: string; startNewAssistant?: boolean }) {
   const { showToast } = useAppState();
+  const { activities: activityFeed } = useActivityBadges();
   const initialActivityId = initialQuest ? `${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}` : null;
   const [activitySummaries, setActivitySummaries] = useState<ConversationSummary[]>(() => initialQuest ? [activitySummary(initialQuest)] : []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -55,6 +59,9 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   const [profile, setProfile] = useState<ChatProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const selectedIdRef = useRef(selectedId);
+  const messageSyncRef = useRef<{ conversationId: string; cursor: string | null; hasMore: boolean } | null>(null);
+  const messageLoadInFlightRef = useRef<string | null>(null);
   const activityLoadInFlightRef = useRef(false);
   const hydratedActivityIdsRef = useRef(new Set<string>());
   const handleActivityTitle = useCallback((runId: string, title: string, memberCount: number) => {
@@ -88,7 +95,8 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     if (activityLoadInFlightRef.current) return;
     activityLoadInFlightRef.current = true;
     try {
-      const activities = await listEventActivities();
+      if (!activityFeed) return;
+      const activities = activityFeed;
       const cards = uniqueActivityCards([
         ...(initialQuest ? [activityCardPlaceholder(initialQuest)] : []),
         ...activities.my.awaitingCoordination,
@@ -99,7 +107,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
       ]);
       const cardsToHydrate = cards.filter((card) => !hydratedActivityIdsRef.current.has(card.runId));
       cardsToHydrate.forEach((card) => hydratedActivityIdsRef.current.add(card.runId));
-      const hydrated = await Promise.all(cardsToHydrate.map((card) => toActivitySummary(card, activities.notifications)));
+      const hydrated = await Promise.all(cardsToHydrate.map((card) => toActivitySummary(card, activities.groupChatUnread[card.runId] ?? 0)));
       const cardsById = new Map(cards.map((card) => [`${ACTIVITY_CONVERSATION_PREFIX}${card.runId}`, card]));
       setActivitySummaries((current) => {
         const base = hydrated.length ? mergeActivitySummaries(current, hydrated, initialQuest) : current;
@@ -107,7 +115,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         const updated = base.map((item) => {
           const card = cardsById.get(item.id);
           if (!card) return item;
-          const unreadCount = activities.notifications.filter((notification) => notification.runId === card.runId && notification.readAt === null).length;
+          const unreadCount = activities.groupChatUnread[card.runId] ?? 0;
           if (item.title === card.title && item.unreadCount === unreadCount) return item;
           changed = true;
           return { ...item, title: card.title, unreadCount };
@@ -119,9 +127,9 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     } finally {
       activityLoadInFlightRef.current = false;
     }
-  }, [initialQuest]);
+  }, [activityFeed, initialQuest]);
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (refreshAssistant = false) => {
     try {
       const response = await fetch("/api/chat/conversations", { cache: "no-store" });
       const result = await response.json() as { conversations?: ConversationSummary[]; error?: string };
@@ -129,13 +137,19 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
       const nextConversations = (result.conversations ?? []).filter((conversation) =>
         conversation.type !== "quest_private" && conversation.type !== "quest_group");
       setConversations(nextConversations);
-      const assistantResponse = await fetch("/api/v1/assistant/conversations", { cache: "no-store" });
-      if (assistantResponse.ok) {
-        const snapshot = await assistantResponse.json() as AssistantConversationSnapshot | null;
-        const latest = snapshot?.messages.at(-1);
-        if (latest && snapshot) setAssistant({ ...assistantConversation, preview: latest.content, lastMessageAt: snapshot.updatedAt });
+      if (refreshAssistant) {
+        const assistantResponse = await fetch("/api/v1/assistant/conversations", { cache: "no-store" });
+        if (assistantResponse.ok) {
+          const snapshot = await assistantResponse.json() as AssistantConversationSnapshot | null;
+          const latest = snapshot?.messages.at(-1);
+          if (latest && snapshot) setAssistant({ ...assistantConversation, preview: latest.content, lastMessageAt: snapshot.updatedAt });
+        }
       }
-      setSelectedId((current) => current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null));
+      setSelectedId((current) => {
+        const next = current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null);
+        selectedIdRef.current = next;
+        return next;
+      });
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load conversations");
@@ -145,30 +159,56 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   }, []);
 
   const loadMessages = useCallback(async (conversationId: string, quiet = false) => {
+    if (messageLoadInFlightRef.current === conversationId) return;
+    messageLoadInFlightRef.current = conversationId;
     if (!quiet) setMessageLoading(true);
-    try {
-      const response = await fetch(`/api/chat/conversations/${conversationId}/messages`, { cache: "no-store" });
-      const result = await response.json() as { messages?: ChatMessage[]; error?: string };
+    const knownSync = messageSyncRef.current?.conversationId === conversationId ? messageSyncRef.current : null;
+    const fetchPage = async (cursor?: string | null) => {
+      const query = cursor ? `?after=${encodeURIComponent(cursor)}` : "";
+      const response = await fetch(`/api/chat/conversations/${conversationId}/messages${query}`, { cache: "no-store" });
+      const result = await response.json() as { messages?: ChatMessage[]; sync?: ChatMessageSync; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Could not load messages");
-      setMessages(result.messages ?? []);
+      return result;
+    };
+    try {
+      let result;
+      try {
+        result = await fetchPage(knownSync?.cursor);
+      } catch (reason) {
+        if (!knownSync?.cursor) throw reason;
+        // A stale cursor can happen after a deployment, data restore, or a
+        // conversation being recreated. One full snapshot safely re-baselines
+        // the stream instead of leaving the UI permanently stale.
+        messageSyncRef.current = null;
+        result = await fetchPage();
+      }
+      if (selectedIdRef.current !== conversationId) return;
+      const sync = result.sync ?? { mode: "snapshot" as const, cursor: null, hasMore: false, resetRequired: false };
+      setMessages((current) => sync.mode === "delta" && !sync.resetRequired
+        ? mergeChatMessages(current, result.messages ?? [])
+        : current.every((message) => message.conversationId === conversationId)
+          ? mergeChatMessages(current, result.messages ?? [])
+          : result.messages ?? []);
+      messageSyncRef.current = { conversationId, cursor: sync.cursor, hasMore: sync.hasMore };
       if (!quiet) requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not load messages");
+      if (selectedIdRef.current === conversationId) setError(reason instanceof Error ? reason.message : "Could not load messages");
     } finally {
       if (!quiet) setMessageLoading(false);
+      if (messageLoadInFlightRef.current === conversationId) messageLoadInFlightRef.current = null;
     }
   }, []);
 
   /* eslint-disable react-hooks/set-state-in-effect -- These effects subscribe the
    * chat view to remote conversation state; state updates occur after fetches resolve. */
-  useEffect(() => { void loadConversations(); }, [loadConversations]);
+  useEffect(() => { void loadConversations(true); }, [loadConversations]);
   useEffect(() => {
     void loadActivityConversations();
-    const timer = window.setInterval(() => void loadActivityConversations(), 10_000);
-    return () => window.clearInterval(timer);
   }, [loadActivityConversations]);
   useEffect(() => {
-    const timer = window.setInterval(() => void loadConversations(), 4_000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadConversations();
+    }, 4_000);
     return () => window.clearInterval(timer);
   }, [loadConversations]);
   useEffect(() => {
@@ -182,6 +222,11 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function openConversation(id: string) {
+    selectedIdRef.current = id;
+    if (messageSyncRef.current?.conversationId !== id) {
+      messageSyncRef.current = null;
+      setMessages([]);
+    }
     setSelectedId(id);
     if (id === ASSISTANT_CONVERSATION_ID || id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) setMessages([]);
     if (id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) {
@@ -190,7 +235,9 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     }
     setMenuOpen(false);
     setConfirmAction(null);
-    setActivitySummaries((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
+    if (!id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) {
+      setActivitySummaries((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
+    }
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   }
 
@@ -208,13 +255,18 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ body }),
       });
-      const result = await response.json() as { message?: ChatMessage; error?: string };
+      const result = await response.json() as { message?: ChatMessage; sync?: ChatMessageSync; error?: string };
       if (!response.ok || !result.message) throw new Error(result.error ?? "Message was not sent");
-      setMessages((items) => [...items, result.message!]);
+      if (selectedIdRef.current === selectedId) {
+        setMessages((items) => mergeChatMessages(items, [result.message!]));
+        if (result.sync) {
+          messageSyncRef.current = { conversationId: selectedId, cursor: result.sync.cursor, hasMore: result.sync.hasMore };
+        }
+        requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+      }
       setConversations((items) => items.map((item) => item.id === selectedId
         ? { ...item, preview: body, lastMessageAt: result.message!.createdAt }
         : item).sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)));
-      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     } catch (reason) {
       input.value = body;
       setError(reason instanceof Error ? reason.message : "Message was not sent");
@@ -271,6 +323,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         setConversations((items) => items.map((item) => item.id === selected.id ? { ...item, blocked: action === "block" } : item));
       } else {
         setConversations((items) => items.filter((item) => item.id !== selected.id));
+        selectedIdRef.current = null;
         setSelectedId(null);
         setMessages([]);
       }
@@ -312,7 +365,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         {activitySelected && activityRunId && activeConversation ? <>
           <div className="chat-header-stack">
             <header className="chat-header activity-chat-header">
-              <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
+              <button className="icon-button chat-back" type="button" onClick={() => { selectedIdRef.current = null; setSelectedId(null); }} aria-label="Back to conversations"><Icon name="back" /></button>
               <Link className="chat-header-identity" href={`/quests/${encodeURIComponent(activityRunId)}`} aria-label={`Open ${activeConversation.title} quest details`}>
                 <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />
                 <span><h2>{activeConversation.title}</h2><p>{memberLabel(activeConversation.memberCount)} · Activity planning</p></span>
@@ -343,16 +396,21 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
             embedded
             showHeader={false}
             scope={activityScope}
-            onScopeChange={setActivityScope}
+            onScopeChange={(nextScope) => {
+              setActivityScope(nextScope);
+              if (nextScope === "group") {
+                setActivitySummaries((items) => items.map((item) => item.id === selectedId ? { ...item, unreadCount: 0 } : item));
+              }
+            }}
             onGroupAvailabilityChange={setActivityHasGroupThread}
-            onBack={() => setSelectedId(null)}
+            onBack={() => { selectedIdRef.current = null; setSelectedId(null); }}
             onTitle={handleSelectedActivityTitle}
           />
         </> : activeConversation ? (
           <>
             <div className="chat-header-stack">
               <header className="chat-header">
-                <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
+                <button className="icon-button chat-back" type="button" onClick={() => { selectedIdRef.current = null; setSelectedId(null); }} aria-label="Back to conversations"><Icon name="back" /></button>
                 {assistantSelected ? <AssistantAvatar size={48} /> : activeConversation.type === "direct" ? <button className="chat-profile-trigger" type="button" onClick={() => void openChatProfile(activeConversation.otherUserId, activeConversation.id)} aria-label={`Open ${activeConversation.title}'s profile`}><Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} /></button> : <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />}
                 <span><h2>{activeConversation.title}</h2><p>{assistantSelected ? "Your friendly community helper" : activeConversation.type === "group" ? `${activeConversation.memberCount} members` : "Community member"}</p></span>
                 <div className="chat-header-actions">
@@ -491,24 +549,6 @@ function AssistantAvatar({ size }: { size: number }) {
   return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true">♥</span>;
 }
 
-function ChatProfileDialog({ profile, onClose }: { profile: ChatProfile; onClose: () => void }) {
-  return <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="create-sheet chat-profile-sheet" role="dialog" aria-modal="true" aria-labelledby="chat-profile-title">
-      <button className="icon-button sheet-close" type="button" onClick={onClose} aria-label="Close profile"><Icon name="close" /></button>
-      <div className="chat-profile-hero"><Avatar src={profile.photoUrl} name={profile.fullName} size={86} /><h2 id="chat-profile-title">{profile.fullName}</h2>{profile.username ? <p>@{profile.username}</p> : null}</div>
-      <dl className="chat-profile-details">
-        <div><dt>Full name</dt><dd>{profile.fullName}</dd></div>
-        <div><dt>Email</dt><dd>{profile.email || "Not shared"}</dd></div>
-        <div><dt>Phone</dt><dd>{profile.phone || "Not shared"}</dd></div>
-      </dl>
-      <section className="emergency-profile-card">
-        <h3>Emergency contact</h3>
-        {profile.emergencyContact ? <dl className="chat-profile-details"><div><dt>Name</dt><dd>{profile.emergencyContact.name}</dd></div><div><dt>Relationship</dt><dd>{profile.emergencyContact.relationship}</dd></div><div><dt>Phone</dt><dd>{profile.emergencyContact.phone}</dd></div>{profile.emergencyContact.email ? <div><dt>Email</dt><dd>{profile.emergencyContact.email}</dd></div> : null}</dl> : <p>No emergency contact added.</p>}
-      </section>
-    </section>
-  </div>;
-}
-
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
@@ -530,6 +570,14 @@ function formatMessageTime(value: string) {
 
 function memberLabel(count: number) {
   return `${count} member${count === 1 ? "" : "s"}`;
+}
+
+function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
+  if (!incoming.length) return current;
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
 }
 
 function activitySummary(runId: string): ConversationSummary {
@@ -564,21 +612,22 @@ function activityCardPlaceholder(runId: string): EventActivityCard {
   };
 }
 
-async function toActivitySummary(card: EventActivityCard, notifications: Array<{ runId: string; readAt: string | null }>): Promise<ConversationSummary> {
-  const [run, view, thread] = await Promise.all([
+async function toActivitySummary(card: EventActivityCard, groupChatUnread: number): Promise<ConversationSummary> {
+  const [run, view, thread, groupThread] = await Promise.all([
     getQuestRun(card.runId).catch(() => null),
     getEventQuest(card.runId).catch(() => null),
     getEventCoordinationThread(card.runId).catch(() => null),
+    getEventGroupCoordinationThread(card.runId).catch(() => null),
   ]);
-  const latestMessage = thread?.messages.at(-1);
+  const latestMessage = latestChatMessage(thread?.messages ?? [], groupThread?.messages ?? []);
   return {
     id: `${ACTIVITY_CONVERSATION_PREFIX}${card.runId}`,
     type: "group",
     title: card.title,
     imageUrl: run?.imageUrl ?? null,
     preview: latestMessage?.body ?? "Activity planning · Open to coordinate",
-    lastMessageAt: thread?.updatedAt ?? view?.updatedAt ?? card.finalArrangement?.start ?? card.provisionalAvailability?.start ?? "now",
-    unreadCount: notifications.filter((notification) => notification.runId === card.runId && notification.readAt === null).length,
+    lastMessageAt: latestMessage?.createdAt ?? thread?.updatedAt ?? groupThread?.updatedAt ?? view?.updatedAt ?? card.finalArrangement?.start ?? card.provisionalAvailability?.start ?? "now",
+    unreadCount: groupChatUnread,
     memberCount: view?.participantProgress.length ?? 0,
   };
 }

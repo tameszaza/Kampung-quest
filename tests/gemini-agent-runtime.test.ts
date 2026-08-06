@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Usage, type Model, type ModelProvider, type ModelRequest } from "@openai/agents";
 import {
   hostedRetrySettings,
@@ -39,8 +39,8 @@ describe("Gemini agent output normalization", () => {
         recurringAvailabilityRules: [{
           kind,
           daysOfWeek: [1, 2, 3, 4, 5],
-          startLocalTime: "09:00",
-          endLocalTime: "12:00",
+          startLocalTime: "9:00 AM",
+          endLocalTime: "12 PM",
           timeZone: "Asia/Singapore",
           validFrom: "2026-08-06",
           validUntil: "2026-12-31",
@@ -64,7 +64,48 @@ describe("Gemini agent output normalization", () => {
     });
 
     expect(output.briefPatch.recurringAvailabilityRules?.[0]?.kind).toBe("weekly_recurrence");
+    expect(output.briefPatch.recurringAvailabilityRules?.[0]?.startLocalTime).toBe("09:00");
+    expect(output.briefPatch.recurringAvailabilityRules?.[0]?.endLocalTime).toBe("12:00");
     expect(provider.requests).toHaveLength(1);
+  });
+
+  it("logs the conversation when hosted structured output remains invalid", async () => {
+    const provider = new ConversationModelProvider({
+      reply: "Which mornings suit you?",
+      briefPatch: {
+        recurringAvailabilityRules: [{
+          kind: "weekly_recurrence",
+          daysOfWeek: [1],
+          startLocalTime: "morning",
+          endLocalTime: "12 PM",
+          timeZone: "Asia/Singapore",
+          validFrom: "2026-08-06",
+          validUntil: "2026-12-31",
+        }],
+      },
+      requestedField: "availability",
+      suggestedReplies: [],
+      status: "collecting",
+    });
+    const runtime = new HostedAgentRuntime({
+      provider: "gemini",
+      models: { memory: "test", synthesis: "test", safety: "test", recovery: "test" },
+      modelProvider: provider,
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(runtime.conductConversation({
+        conversationId: "conversation-invalid-output",
+        messages: [],
+        brief: {},
+        missingFields: ["availability"],
+      })).rejects.toThrow(/gemini provider unavailable/);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"event":"agent.output.invalid"'));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"conversationId":"conversation-invalid-output"'));
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("maps descriptive public indoor venues to the validator's canonical requirements", () => {

@@ -2,60 +2,37 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useActivityBadges } from "@/components/activity-badge-context";
+import { useAppState } from "@/components/app-state";
 import { Icon } from "@/components/icons";
 import { ActivityNotifications } from "@/components/activity-notifications";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
 import { useUser } from "@/components/user-context";
-import { listEventActivities, markEventNotificationsRead, respondToEventInvitation } from "@/features/events/client";
+import { respondToEventInvitation } from "@/features/events/client";
 import type {
   EventActivityCard,
   EventInvitationView,
-  UserEventActivities,
 } from "@/server/domain/event-coordination";
 
 export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Suggested" | "Invited" | "Notifications" }) {
   const [tab, setTab] = useState<"Suggested" | "Invited" | "Notifications">(initialTab);
   const [inviteTab, setInviteTab] = useState<"Received" | "Sent">("Received");
-  const [activities, setActivities] = useState<UserEventActivities | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const notificationsRead = useRef(false);
+  const readTab = useRef<string | null>(null);
   const { user } = useUser();
-
-  const load = useCallback(async () => {
-    try {
-      setActivities(await listEventActivities());
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Activities could not be loaded");
-    }
-  }, []);
+  const { showToast } = useAppState();
+  const { activities, counts, loading, error: activityError, refresh, markCategoryRead } = useActivityBadges();
 
   useEffect(() => {
-    let active = true;
-    void listEventActivities().then((next) => {
-      if (active) setActivities(notificationsRead.current ? { ...next, unreadCount: 0 } : next);
-    }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Activities could not be loaded");
-    });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    void markEventNotificationsRead().then(() => {
-      notificationsRead.current = true;
-      if (active) {
-        setActivities((current) => current ? { ...current, unreadCount: 0 } : current);
-        window.dispatchEvent(new Event("event-activities-read"));
-      }
-    }).catch(() => {
-      // Reading notifications is best effort and must not block activities.
-    });
-    return () => { active = false; };
-  }, []);
+    if (!activities || readTab.current === tab) return;
+    readTab.current = tab;
+    if (tab === "Suggested") markCategoryRead("suggested");
+    if (tab === "Invited") markCategoryRead("invited");
+    if (tab === "Notifications") markCategoryRead("notifications");
+  }, [activities, markCategoryRead, tab]);
 
   async function respond(invitation: EventInvitationView, response: "accept" | "decline") {
     setBusyId(invitation.invitationId);
@@ -67,7 +44,8 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
         response,
         expectedRevision: await currentRevision(invitation.runId),
       });
-      await load();
+      await refresh();
+      if (response === "accept") showToast("Invitation accepted. This activity is now in My Activities.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Your invitation response was not saved");
     } finally {
@@ -85,24 +63,22 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
   const received = activities?.invitations ?? [];
   const sent = activities?.sentInvitations ?? [];
   const sentGroups = groupSentInvitations(sent);
-  const suggestedCount = activities?.suggested.length ?? 0;
-  const invitedCount = received.length;
-  const notificationCount = activities?.unreadCount ?? 0;
+  const displayError = error || activityError;
 
   return (
     <div className="page-container">
       <PageHeader title="Activities" />
       <Tabs
         tabs={[
-          { label: "Suggested", count: suggestedCount },
-          { label: "Invited", count: invitedCount },
-          { label: "Notifications", count: notificationCount },
+          { label: "Suggested", count: counts.suggested },
+          { label: "Invited", count: counts.invited },
+          { label: "Notifications", count: counts.notifications },
         ]}
         active={tab}
         onChange={(value) => setTab(value as "Suggested" | "Invited" | "Notifications")}
       />
-      {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button className="text-button" type="button" onClick={() => void load()}>Try again</button></div> : null}
-      {!activities && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading activities…</div> : null}
+      {displayError ? <div className="connected-state error" role="alert"><Icon name="shield" />{displayError}<button className="text-button" type="button" onClick={() => void refresh()}>Try again</button></div> : null}
+      {!activities && loading && !displayError ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading activities…</div> : null}
       {activities && tab === "Suggested" ? <>
         <p className="matched-copy">Matched for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>
         {activities.suggested.length ? (
@@ -131,7 +107,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
           />)}
         </section> : <EmptyActivities title="No sent invitations" body="Invitations are created after you confirm a suggested group." />}
       </> : null}
-      {activities && tab === "Notifications" ? <ActivityNotifications /> : null}
+      {activities && tab === "Notifications" ? <ActivityNotifications activities={activities} /> : null}
     </div>
   );
 }

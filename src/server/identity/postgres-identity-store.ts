@@ -5,6 +5,8 @@ import { normalizePhone, seededCommunityMembers } from "@/server/identity/identi
 import type {
   ChatContact,
   ChatMessage,
+  ChatMessageCursor,
+  ChatMessagePage,
   ChatProfile,
   ConversationSummary,
   EmergencyContact,
@@ -14,6 +16,7 @@ import type {
 } from "@/server/identity/types";
 import { defaultPreferences, publicUser } from "@/server/identity/types";
 import { normalizeUsername } from "@/server/identity/username";
+import { CHAT_MESSAGE_PAGE_SIZE } from "@/server/chat/message-sync";
 
 type UserRow = {
   user_id: string;
@@ -692,7 +695,21 @@ export class PostgresIdentityStore implements IdentityStore {
   }
 
   async listMessages(userId: string, conversationId: string): Promise<ChatMessage[]> {
+    return (await this.listMessagesPage(userId, conversationId)).messages;
+  }
+
+  async listMessagesPage(userId: string, conversationId: string, after?: ChatMessageCursor): Promise<ChatMessagePage> {
     await this.requireMember(userId, conversationId);
+    if (after) {
+      const cursor = await this.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM chat.messages
+           WHERE conversation_id = $1 AND message_id = $2
+         ) AS exists`,
+        [conversationId, after.messageId],
+      );
+      if (!cursor.rows[0]?.exists) return this.listMessagesPage(userId, conversationId);
+    }
     const result = await this.pool.query<{
       message_id: string; conversation_id: string; sender_id: string | null; body: string;
       created_at: Date | string; full_name: string | null; photo_url: string | null;
@@ -712,16 +729,24 @@ export class PostgresIdentityStore implements IdentityStore {
        FROM chat.messages message
        LEFT JOIN identity.users sender ON sender.user_id = message.sender_id
        WHERE message.conversation_id = $1
+         AND (
+           $3::text IS NULL
+           OR message.created_at > (SELECT cursor.created_at FROM chat.messages cursor WHERE cursor.conversation_id = $1 AND cursor.message_id = $3)
+           OR (
+             message.created_at = (SELECT cursor.created_at FROM chat.messages cursor WHERE cursor.conversation_id = $1 AND cursor.message_id = $3)
+             AND message.message_id > $3
+           )
+         )
        ORDER BY message.created_at ASC
-       LIMIT 300`,
-      [conversationId, userId],
+       LIMIT ${CHAT_MESSAGE_PAGE_SIZE + 1}`,
+      [conversationId, userId, after?.messageId ?? null],
     );
     await this.pool.query(
       `UPDATE chat.conversation_members SET last_read_at = now()
        WHERE conversation_id = $1 AND user_id = $2`,
       [conversationId, userId],
     );
-    return result.rows.map((row) => ({
+    const messages = result.rows.slice(0, CHAT_MESSAGE_PAGE_SIZE).map((row) => ({
       id: row.message_id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
@@ -732,6 +757,15 @@ export class PostgresIdentityStore implements IdentityStore {
       mine: row.sender_id === userId,
       receipt: row.sender_id === userId ? (row.receipt ?? "delivered") : undefined,
     }));
+    const lastMessage = messages.at(-1);
+    return {
+      messages,
+      cursor: lastMessage
+        ? { conversationId, messageId: lastMessage.id, createdAt: lastMessage.createdAt }
+        : after ?? null,
+      hasMore: result.rows.length > CHAT_MESSAGE_PAGE_SIZE,
+      resetRequired: false,
+    };
   }
 
   async sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage> {

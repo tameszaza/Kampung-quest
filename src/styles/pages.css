@@ -204,7 +204,7 @@
   padding: 10px 2px;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
 }
@@ -231,6 +231,20 @@
 
 .home-mobile-menu-links > a > svg {
   color: var(--muted);
+}
+
+.mobile-more-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  display: inline-grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .home-avatar img {
@@ -6758,6 +6772,38 @@
   margin: 0;
 }
 
+.quest-participants .participant-profile-trigger {
+  min-width: 0;
+  grid-column: 1 / span 2;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quest-participants .participant-profile-trigger > span:last-child {
+  min-width: 0;
+  display: grid;
+}
+
+.quest-participants .participant-profile-trigger strong,
+.quest-participants .participant-profile-trigger small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-participants .participant-profile-trigger:hover strong,
+.quest-participants .participant-profile-trigger:focus-visible strong {
+  color: var(--green-700);
+  text-decoration: underline;
+}
+
 .quest-participants .event-roster p strong,
 .quest-participants .event-roster p small {
   overflow: hidden;
@@ -7305,9 +7351,10 @@
 }
 
 .event-task-item > .primary-button {
-  justify-self: start;
+  justify-self: end;
   min-height: 42px;
   margin-top: 2px;
+  max-width: 100%;
 }
 
 .event-task-empty {

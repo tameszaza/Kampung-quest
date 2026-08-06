@@ -5,6 +5,8 @@ import type {
   UserEventActivities,
 } from "@/server/domain/event-coordination";
 import type { ChatContact } from "@/server/identity/types";
+import type { ChatMessageSync } from "@/server/identity/types";
+import type { ChatProfile } from "@/server/identity/types";
 import { createClientRequestId } from "@/lib/client-request-id";
 
 async function json<T>(response: Response): Promise<T> {
@@ -27,6 +29,10 @@ export async function getEventQuest(runId: string): Promise<EventQuestView | nul
   const response = await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}`, { cache: "no-store" });
   if (response.status === 404) return null;
   return json(response);
+}
+
+export async function getEventParticipantProfile(runId: string, userId: string): Promise<ChatProfile> {
+  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/participants/${encodeURIComponent(userId)}`, { cache: "no-store" }));
 }
 
 export async function updateEventRoster(input: {
@@ -132,17 +138,17 @@ export async function transitionEventQuest(input: {
   }));
 }
 
-export async function markEventNotificationsRead(runId?: string): Promise<number> {
+export async function markEventNotificationsRead(runId?: string, includeGroupMessages = false): Promise<number> {
   const response = await fetch("/api/v1/notifications/read", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ runId }),
+    body: JSON.stringify({ runId, includeGroupMessages }),
   });
   return (await json<{ marked: number }>(response)).marked;
 }
 
-export async function getEventCoordinationThread(runId: string): Promise<EventCoordinationThread> {
-  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/coordination`, { cache: "no-store" }));
+export async function getEventCoordinationThread(runId: string, after?: string): Promise<EventCoordinationThread & { sync: ChatMessageSync }> {
+  return json(await fetch(withAfter(`/api/v1/event-quests/${encodeURIComponent(runId)}/coordination`, after), { cache: "no-store" }));
 }
 
 export async function sendEventCoordinationMessage(input: {
@@ -150,7 +156,7 @@ export async function sendEventCoordinationMessage(input: {
   body: string;
   expectedRevision: number;
   clientMessageId?: string;
-}): Promise<EventCoordinationThread> {
+}): Promise<EventCoordinationThread & { sync: ChatMessageSync }> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/coordination`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -170,8 +176,8 @@ export async function confirmEventRequirements(runId: string, expectedRevision: 
   }));
 }
 
-export async function getEventGroupCoordinationThread(runId: string): Promise<EventGroupCoordinationThread> {
-  return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(runId)}/coordination/group`, { cache: "no-store" }));
+export async function getEventGroupCoordinationThread(runId: string, after?: string): Promise<EventGroupCoordinationThread & { sync: ChatMessageSync }> {
+  return json(await fetch(withAfter(`/api/v1/event-quests/${encodeURIComponent(runId)}/coordination/group`, after), { cache: "no-store" }));
 }
 
 export async function sendEventGroupCoordinationMessage(input: {
@@ -179,7 +185,7 @@ export async function sendEventGroupCoordinationMessage(input: {
   body: string;
   expectedRevision: number;
   clientMessageId?: string;
-}): Promise<EventGroupCoordinationThread> {
+}): Promise<EventGroupCoordinationThread & { sync: ChatMessageSync }> {
   return json(await fetch(`/api/v1/event-quests/${encodeURIComponent(input.runId)}/coordination/group`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -189,6 +195,12 @@ export async function sendEventGroupCoordinationMessage(input: {
       clientMessageId: input.clientMessageId ?? createClientRequestId(),
     }),
   }));
+}
+
+function withAfter(path: string, after?: string) {
+  if (!after) return path;
+  const params = new URLSearchParams({ after });
+  return `${path}?${params.toString()}`;
 }
 
 export async function proposeEventArrangement(input: {

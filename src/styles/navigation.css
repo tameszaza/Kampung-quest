@@ -64,6 +64,17 @@
   line-height: 1;
 }
 
+.nav-count {
+  color: var(--danger);
+  font-size: .9em;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.nav-activity-compact {
+  display: none;
+}
+
 .bottom-nav > a.active {
   color: var(--green-700);
 }
@@ -180,6 +191,14 @@
     display: none;
   }
 
+  .desktop-nav nav a .nav-label {
+    display: none;
+  }
+
+  .desktop-nav nav a .nav-activity-compact {
+    display: grid;
+  }
+
   .desktop-nav nav a .nav-badge {
     position: absolute;
     top: 1px;
@@ -279,6 +298,15 @@
   .desktop-nav nav a span,
   .desktop-create-label {
     display: inline;
+  }
+
+  .desktop-nav nav a .nav-label,
+  .desktop-nav nav a .nav-count {
+    display: inline;
+  }
+
+  .desktop-nav nav a .nav-activity-compact {
+    display: none;
   }
 
   .desktop-create {
