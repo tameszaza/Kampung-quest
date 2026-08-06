@@ -180,17 +180,18 @@ Add the equivalent HTTPS URI for production. A first Google sign-in opens the pr
 screen with Google name, email, and photo prefilled. The name and photo remain editable; the
 verified Google email is locked. Returning members go straight back into their existing account.
 
-Route handlers call a small application-owned domain interface: `KampungQuestEngine` owns memory, retrieval, synthesis, validation, and safety orchestration; `EventCoordinator` owns the post-synthesis roster, invitation, membership, private coordination, arrangement, notification, and recovery lifecycle. Both use the same injected `KampungStore`, with optimistic revisions and atomic state/audit/outbox writes. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
+Route handlers call a small application-owned domain interface: `KampungQuestEngine` owns memory, retrieval, synthesis, validation, and safety orchestration; `EventCoordinator` owns the post-synthesis roster, invitation, membership, private coordination, arrangement, final role/task plan, verified task reward, notification, and recovery lifecycle. Task plans are generated only after an arrangement is fully confirmed, become active after every participant acknowledges their role, and write points to an auditable ledger only after an authorized reviewer approves a submitted task. Both coordinators use the same injected `KampungStore`, with optimistic revisions and atomic state/audit/outbox writes. Docker uses PostgreSQL with pgvector so memory and quest state survive restarts. Tests and credential-free development can use deterministic in-memory adapters.
 
 ## Core engine storage
 
-One PostgreSQL instance contains four logical schemas:
+One PostgreSQL instance contains five logical schemas:
 
 | Schema | Responsibility |
 | --- | --- |
 | `memory` | Authoritative conversation events, exact constraints, versioned Markdown, normalized facts and agent audit records |
 | `retrieval` | Rebuildable need, interest and offer embeddings tied to an exact active memory version |
 | `quest` | Quest runs, proposals, safety/validation results, event-coordination aggregates, immutable audit events and delivery outbox |
+| `rewards` | Append-only verified task awards and reversals used to calculate member point balances and history |
 | `assistant` | AI conversation transcripts, authoritative brief drafts and replayable workflow events |
 
 The Personal Memory Micro-Agent is invoked only when new information arrives. It receives the active Markdown snapshot, current soft facts, authoritative constraints and the new narrative. A new snapshot becomes active only after all three embeddings are stored. Failed model or embedding work remains recorded while the previous active memory stays usable.

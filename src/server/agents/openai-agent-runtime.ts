@@ -16,9 +16,15 @@ import {
 import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
 import {
+  eventTaskPlanAgentOutputSchema,
+  eventTaskReassignmentAgentOutputSchema,
+  type EventTaskPlanAgentInput,
+  type EventTaskPlanAgentOutput,
+} from "@/server/domain/event-tasks";
+import {
   hostedAssistantTurnAgentOutputSchema,
-  normalizeHostedAssistantTurnOutput,
   memoryAgentOutputSchema,
+  normalizeHostedAssistantTurnOutput,
   questSynthesisOutputSchema,
   recoveryActionSchema,
   safetyReviewSchema,
@@ -139,6 +145,8 @@ export class HostedAgentRuntime implements AgentRuntime {
   private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
   private readonly coordinationAgent: Agent<unknown, typeof coordinationProviderOutputSchema>;
+  private readonly taskPlanAgent: Agent<unknown, typeof eventTaskPlanAgentOutputSchema>;
+  private readonly taskReassignmentAgent: Agent<unknown, typeof eventTaskReassignmentAgentOutputSchema>;
   private readonly runner: Runner;
 
   constructor(private readonly options: HostedAgentRuntimeOptions) {
@@ -186,6 +194,20 @@ export class HostedAgentRuntime implements AgentRuntime {
       model: options.models.recovery,
       instructions: AGENT_INSTRUCTIONS.coordination,
       outputType: coordinationProviderOutputSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.taskPlanAgent = new Agent({
+      name: "Kampung event task planner",
+      model: options.models.recovery,
+      instructions: AGENT_INSTRUCTIONS.taskPlan,
+      outputType: eventTaskPlanAgentOutputSchema,
+      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
+    });
+    this.taskReassignmentAgent = new Agent({
+      name: "Kampung event task reassignment",
+      model: options.models.recovery,
+      instructions: AGENT_INSTRUCTIONS.taskReassignment,
+      outputType: eventTaskReassignmentAgentOutputSchema,
       modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
   }
@@ -290,6 +312,17 @@ export class HostedAgentRuntime implements AgentRuntime {
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
+    const hasUnknownParticipant = input.proposal.proposedParticipants.some(
+      (participant) => !input.profiles.has(participant.candidateId),
+    );
+    if (hasUnknownParticipant) {
+      return safetyReviewSchema.parse({
+        status: "human_review",
+        riskLevel: "medium",
+        conditions: ["A human coordinator must review the unsupported participant."],
+        requiresHumanReview: true,
+      });
+    }
     const profiles = [...input.profiles.values()];
     const aliases = this.aliases(profiles);
     return safetyReviewSchema.parse(await this.runStructured(this.safetyAgent, {
@@ -302,6 +335,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         explicitConsentRequired: true,
         contactDetailsMustRemainPrivate: true,
         peerToPeerMoneyAllowed: false,
+        paymentEducationAllowed: true,
       },
     }, input.auditContext));
   }
@@ -326,6 +360,55 @@ export class HostedAgentRuntime implements AgentRuntime {
     const candidateId = reverse.get(output.replacementCandidateId);
     if (!candidateId) throw new Error("Agent returned an unknown reserve participant");
     return { replacementCandidateId: candidateId };
+  }
+
+  async generateEventTaskPlan(input: EventTaskPlanAgentInput): Promise<EventTaskPlanAgentOutput> {
+    const aliases = new Map(input.participants.map((participant, index) => [participant.userId, `p_${index + 1}`]));
+    const reverse = new Map([...aliases.entries()].map(([userId, alias]) => [alias, userId]));
+    const output = eventTaskPlanAgentOutputSchema.parse(await this.runStructured(this.taskPlanAgent, {
+      quest: input.quest,
+      appointment: input.appointment,
+      participants: input.participants.map((participant) => ({
+        ...participant,
+        userId: aliases.get(participant.userId),
+        isOrganizer: participant.userId === input.organizerId,
+      })),
+      rules: {
+        taskCount: "3-5 total",
+        points: { easy: 10, medium: 20, hard: 30 },
+        independentOrganizerReview: "A task assigned to the organizer must leave at least one other participant unassigned as its verifier.",
+        noDirectStateMutation: true,
+      },
+    }, { questTitle: input.quest.title }));
+    return {
+      roles: output.roles.map((role) => ({ ...role, userId: reverse.get(role.userId) ?? role.userId })),
+      tasks: output.tasks.map((task) => ({
+        ...task,
+        roleUserId: task.roleUserId ? reverse.get(task.roleUserId) ?? task.roleUserId : undefined,
+        assigneeIds: task.assigneeIds.map((userId) => reverse.get(userId) ?? userId),
+      })),
+    };
+  }
+
+  async proposeEventTaskReassignment(input: Parameters<AgentRuntime["proposeEventTaskReassignment"]>[0]) {
+    const ids = [input.participant.userId, ...input.task.assignees.map((assignee) => assignee.userId)];
+    const aliases = new Map([...new Set(ids)].map((userId, index) => [userId, `p_${index + 1}`]));
+    const output = eventTaskReassignmentAgentOutputSchema.parse(await this.runStructured(this.taskReassignmentAgent, {
+      task: {
+        ...input.task,
+        assignees: input.task.assignees.map((assignee) => ({
+          ...assignee,
+          userId: aliases.get(assignee.userId),
+        })),
+      },
+      participant: {
+        ...input.participant,
+        userId: aliases.get(input.participant.userId),
+      },
+      reason: input.reason,
+      rules: { preserveDifficulty: true, noDirectStateMutation: true },
+    }, { taskTitle: input.task.title }));
+    return { ...output, difficulty: input.task.difficulty };
   }
 
   async coordinateEvent(input: Parameters<AgentRuntime["coordinateEvent"]>[0]) {

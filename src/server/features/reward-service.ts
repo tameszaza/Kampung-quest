@@ -1,4 +1,5 @@
 import type { EventActivityCard } from "@/server/domain/event-coordination";
+import type { EventRewardEntry } from "@/server/domain/event-tasks";
 
 export const POINTS_PER_COMPLETED_ACTIVITY = 100;
 
@@ -25,15 +26,20 @@ export interface RewardOffer {
 }
 
 export interface RewardEarning {
+  earningId: string;
   runId: string;
   title: string;
   points: number;
+  taskId?: string;
+  difficulty?: "easy" | "medium" | "hard";
+  earnedAt?: string;
 }
 
 export interface RewardSummary {
   balance: number;
   lifetimePoints: number;
   completedActivityCount: number;
+  approvedTaskCount: number;
   pointsPerCompletedActivity: number;
   pointsUntilNextReward: number;
   earnings: RewardEarning[];
@@ -148,6 +154,7 @@ export const rewardOffers: RewardOffer[] = [
 export function buildRewardSummary(completedActivities: EventActivityCard[]): RewardSummary {
   const uniqueActivities = [...new Map(completedActivities.map((activity) => [activity.runId, activity])).values()];
   const earnings = uniqueActivities.map((activity) => ({
+    earningId: `activity:${activity.runId}`,
     runId: activity.runId,
     title: activity.title,
     points: POINTS_PER_COMPLETED_ACTIVITY,
@@ -161,6 +168,68 @@ export function buildRewardSummary(completedActivities: EventActivityCard[]): Re
     balance,
     lifetimePoints: balance,
     completedActivityCount: uniqueActivities.length,
+    approvedTaskCount: 0,
+    pointsPerCompletedActivity: POINTS_PER_COMPLETED_ACTIVITY,
+    pointsUntilNextReward: nextOffer ? nextOffer.pointsCost - balance : 0,
+    earnings,
+    offers: rewardOffers,
+  };
+}
+
+export function buildTaskRewardSummary(entries: Array<EventRewardEntry & {
+  taskTitle: string;
+  eventTitle: string;
+  difficulty: "easy" | "medium" | "hard";
+}>): RewardSummary {
+  const earnings = entries.map((entry) => ({
+    earningId: entry.entryId,
+    runId: entry.runId,
+    title: `${entry.eventTitle} · ${entry.taskTitle}`,
+    points: entry.points,
+    taskId: entry.taskId,
+    difficulty: entry.difficulty,
+    earnedAt: entry.createdAt,
+  }));
+  const balance = earnings.reduce((total, earning) => total + earning.points, 0);
+  const nextOffer = [...rewardOffers]
+    .sort((left, right) => left.pointsCost - right.pointsCost)
+    .find((offer) => offer.pointsCost > balance);
+  return {
+    balance,
+    lifetimePoints: balance,
+    completedActivityCount: 0,
+    approvedTaskCount: entries.filter((entry) => entry.kind === "task_award").length,
+    pointsPerCompletedActivity: 0,
+    pointsUntilNextReward: nextOffer ? nextOffer.pointsCost - balance : 0,
+    earnings,
+    offers: rewardOffers,
+  };
+}
+
+export function buildRewardSummaryWithTaskEntries(
+  completedActivities: EventActivityCard[],
+  entries: Array<EventRewardEntry & {
+    taskTitle: string;
+    eventTitle: string;
+    difficulty: "easy" | "medium" | "hard";
+  }>,
+  taskPlanRunIds: ReadonlySet<string>,
+): RewardSummary {
+  const legacySummary = buildRewardSummary(
+    completedActivities.filter((activity) => !taskPlanRunIds.has(activity.runId)),
+  );
+  const taskSummary = buildTaskRewardSummary(entries);
+  const earnings = [...legacySummary.earnings, ...taskSummary.earnings]
+    .sort((left, right) => (right.earnedAt ?? "").localeCompare(left.earnedAt ?? ""));
+  const balance = earnings.reduce((total, earning) => total + earning.points, 0);
+  const nextOffer = [...rewardOffers]
+    .sort((left, right) => left.pointsCost - right.pointsCost)
+    .find((offer) => offer.pointsCost > balance);
+  return {
+    balance,
+    lifetimePoints: balance,
+    completedActivityCount: legacySummary.completedActivityCount,
+    approvedTaskCount: taskSummary.approvedTaskCount,
     pointsPerCompletedActivity: POINTS_PER_COMPLETED_ACTIVITY,
     pointsUntilNextReward: nextOffer ? nextOffer.pointsCost - balance : 0,
     earnings,

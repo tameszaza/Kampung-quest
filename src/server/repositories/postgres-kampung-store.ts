@@ -381,6 +381,73 @@ export class PostgresKampungStore implements KampungStore {
         );
       }
     }
+    for (const plan of state.taskPlans ?? []) {
+      await client.query(
+        `INSERT INTO quest.event_task_plans
+          (plan_id, run_id, roster_revision, arrangement_version, status, quest_goal_hash, payload, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+         ON CONFLICT (plan_id) DO UPDATE
+         SET status = EXCLUDED.status, arrangement_version = EXCLUDED.arrangement_version,
+             quest_goal_hash = EXCLUDED.quest_goal_hash, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+        [plan.planId, state.runId, plan.rosterRevision, plan.arrangementVersion, plan.status,
+          plan.questGoalHash, JSON.stringify(plan), plan.createdAt, plan.updatedAt],
+      );
+      for (const role of plan.roles) {
+        await client.query(
+        `INSERT INTO quest.event_final_roles
+            (plan_id, user_id, name, responsibility, main_contribution, status, payload, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+           ON CONFLICT (plan_id, user_id) DO UPDATE
+           SET name = EXCLUDED.name, responsibility = EXCLUDED.responsibility,
+               main_contribution = EXCLUDED.main_contribution,
+               status = EXCLUDED.status, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+          [plan.planId, role.userId, role.name, role.responsibility, role.mainContribution, role.status, JSON.stringify(role), role.updatedAt],
+        );
+      }
+      for (const task of plan.tasks) {
+        await client.query(
+        `INSERT INTO quest.event_tasks
+            (task_id, plan_id, run_id, title, instruction, role_user_id, reviewer_id, difficulty, points, status, payload, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+           ON CONFLICT (task_id) DO UPDATE
+           SET title = EXCLUDED.title, instruction = EXCLUDED.instruction,
+               role_user_id = EXCLUDED.role_user_id, reviewer_id = EXCLUDED.reviewer_id,
+               difficulty = EXCLUDED.difficulty, points = EXCLUDED.points,
+               status = EXCLUDED.status, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+          [task.taskId, plan.planId, state.runId, task.title, task.instruction, task.roleUserId, task.reviewerId,
+            task.difficulty, task.points, task.status, JSON.stringify(task), task.createdAt, task.updatedAt],
+        );
+        for (const assignee of task.assignees) {
+          await client.query(
+            `INSERT INTO quest.event_task_assignees (task_id, user_id, acknowledged_at)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (task_id, user_id) DO UPDATE SET acknowledged_at = EXCLUDED.acknowledged_at`,
+            [task.taskId, assignee.userId, assignee.acknowledgedAt],
+          );
+        }
+      }
+      for (const reassignment of plan.reassignments) {
+        await client.query(
+          `INSERT INTO quest.event_task_reassignments
+            (request_id, task_id, requester_id, status, payload, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+           ON CONFLICT (request_id) DO UPDATE
+           SET status = EXCLUDED.status, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+          [reassignment.requestId, reassignment.taskId, reassignment.requesterId, reassignment.status,
+            JSON.stringify(reassignment), reassignment.createdAt, reassignment.updatedAt],
+        );
+      }
+    }
+    for (const entry of state.rewardEntries ?? []) {
+      await client.query(
+        `INSERT INTO rewards.point_ledger
+          (entry_id, user_id, run_id, task_id, points, kind, reverses_entry_id, actor_id, reason, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (entry_id) DO NOTHING`,
+        [entry.entryId, entry.userId, entry.runId, entry.taskId, entry.points, entry.kind,
+          entry.reversesEntryId, entry.actorId, entry.reason, entry.createdAt],
+      );
+    }
     for (const notification of state.notifications) {
       await client.query(
         `INSERT INTO quest.event_notifications

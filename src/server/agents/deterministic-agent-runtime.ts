@@ -99,6 +99,53 @@ export class DeterministicAgentRuntime implements AgentRuntime {
     };
   }
 
+  async generateEventTaskPlan(
+    input: Parameters<AgentRuntime["generateEventTaskPlan"]>[0],
+  ): ReturnType<AgentRuntime["generateEventTaskPlan"]> {
+    const contributionFor = (participant: typeof input.participants[number]) =>
+      participant.contributions.find((item) => item.trim())?.trim();
+    const roles = input.participants.map((participant) => {
+      const contribution = contributionFor(participant);
+      return {
+        userId: participant.userId,
+        name: humanizeRole(participant.proposedRole).slice(0, 40),
+        responsibility: `${humanizeRole(participant.proposedRole)}: ${contribution ?? "help the group"}`.slice(0, 120),
+        mainContribution: (contribution ?? "Help welcome and support the group").slice(0, 120),
+      };
+    });
+    const tasks = input.participants.map((participant, index) => {
+      const contribution = contributionFor(participant)
+        ?? "Welcome everyone and help the activity begin smoothly";
+      return {
+        title: `${humanizeRole(participant.proposedRole).slice(0, 50)} task ${index + 1}`,
+        instruction: `${contribution}. Tell the group when it is done.`.slice(0, 180),
+        roleUserId: participant.userId,
+        difficulty: index === 0 ? "medium" as const : "easy" as const,
+        assigneeIds: [participant.userId],
+      };
+    });
+    while (tasks.length < 3) {
+      tasks.push({
+        title: `Group support task ${tasks.length + 1}`,
+        instruction: "Greet everyone and help the activity begin smoothly.",
+        roleUserId: input.participants[0].userId,
+        difficulty: "easy",
+        assigneeIds: [input.participants[0].userId],
+      });
+    }
+    return { roles, tasks: tasks.slice(0, 5) };
+  }
+
+  async proposeEventTaskReassignment(
+    input: Parameters<AgentRuntime["proposeEventTaskReassignment"]>[0],
+  ): ReturnType<AgentRuntime["proposeEventTaskReassignment"]> {
+    return {
+      title: `Alternative: ${input.task.title}`.slice(0, 60),
+      instruction: `${input.participant.contributions[0] ?? "Welcome everyone and help the activity begin smoothly"}. Tell the group when it is done.`.slice(0, 180),
+      difficulty: input.task.difficulty,
+    };
+  }
+
   async coordinateEvent(
     input: Parameters<AgentRuntime["coordinateEvent"]>[0],
   ): ReturnType<AgentRuntime["coordinateEvent"]> {
@@ -192,6 +239,11 @@ export class DeterministicAgentRuntime implements AgentRuntime {
       intent: { type: "update_requirement", patch: requirementPatch },
     };
   }
+}
+
+function humanizeRole(value: string): string {
+  const text = value.replaceAll("_", " ").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Quest helper";
 }
 
 function parseRequestedLocalTime(message: string): string | null {

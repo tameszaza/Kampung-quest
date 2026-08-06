@@ -248,6 +248,8 @@ export const eventCoordinator = new EventCoordinator({
     latestMessage: message,
     auditContext: { questRunId: state.runId, coordinationThreadId: thread.threadId },
   }),
+  generateTaskPlan: (input) => agentDependencies.agents.generateEventTaskPlan(input),
+  proposeTaskReassignment: (input) => agentDependencies.agents.proposeEventTaskReassignment(input),
 });
 
 export const kampungQuestEngine = new KampungQuestEngine({

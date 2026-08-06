@@ -28,6 +28,14 @@ export class UnavailableAgentRuntime implements AgentRuntime {
     return Promise.reject(this.unavailable());
   }
 
+  generateEventTaskPlan(): ReturnType<AgentRuntime["generateEventTaskPlan"]> {
+    return Promise.reject(this.unavailable());
+  }
+
+  proposeEventTaskReassignment(): ReturnType<AgentRuntime["proposeEventTaskReassignment"]> {
+    return Promise.reject(this.unavailable());
+  }
+
   coordinateEvent(): ReturnType<AgentRuntime["coordinateEvent"]> {
     return Promise.reject(this.unavailable());
   }

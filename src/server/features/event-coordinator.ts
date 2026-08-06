@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Participant, QuestProposal, QuestRun, ValidationResult } from "@/server/domain/schemas";
 import type {
   CoordinationRequirements,
@@ -19,7 +19,21 @@ import type {
   EventRecruitmentViewerEligibility,
   UserEventActivities,
 } from "@/server/domain/event-coordination";
+import {
+  eventTaskPlanAgentOutputSchema,
+  normalizeEventTaskPlanReviewers,
+  pointsForDifficulty,
+  validateEventTaskPlan,
+  type EventTask,
+  type EventTaskPlan,
+  type EventTaskPlanAgentInput,
+  type EventTaskPlanAgentOutput,
+  type EventTaskReassignmentAgentInput,
+} from "@/server/domain/event-tasks";
 import { logger, safeErrorMessage } from "@/server/observability/logger";
+
+const TASK_PLAN_GENERATION_TIMEOUT_MS = 2 * 60_000;
+const TASK_PLAN_GENERATION_STALE_MS = TASK_PLAN_GENERATION_TIMEOUT_MS + 60_000;
 
 export interface EventCoordinationStore {
   createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
@@ -86,6 +100,12 @@ interface EventCoordinatorDependencies {
     requirementPatch?: Partial<CoordinationRequirements>;
     intent?: CoordinationIntent;
   }>;
+  generateTaskPlan?: (input: EventTaskPlanAgentInput) => Promise<EventTaskPlanAgentOutput>;
+  proposeTaskReassignment?: (input: EventTaskReassignmentAgentInput) => Promise<{
+    title: string;
+    instruction: string;
+    difficulty: EventTaskReassignmentAgentInput["task"]["difficulty"];
+  }>;
 }
 
 export class EventCoordinator {
@@ -149,6 +169,8 @@ export class EventCoordinator {
       threads: [],
       groupThread: null,
       arrangements: [],
+      taskPlans: [],
+      rewardEntries: [],
       appointmentSuggestions: [],
       notifications: [],
       auditEvents: [{
@@ -171,7 +193,7 @@ export class EventCoordinator {
   }
 
   async getStateForUser(runId: string, userId: string): Promise<EventQuestView> {
-    const current = await this.requireState(runId);
+    let current = await this.requireState(runId);
     const organizer = current.initiatorId === userId;
     const pendingInvitation = [...current.invitations].reverse().find((invitation) =>
       invitation.guestId === userId && invitation.status === "pending");
@@ -192,6 +214,9 @@ export class EventCoordinator {
       || (applicantAssessment?.eligible === false && applicantAssessment.discoverable);
     if (!organizer && !pendingInvitation && !activeMembership && !selectedMember && !ownJoinRequestGrantsAccess && !discoverableApplicant) {
       throw new Error("Event coordination state was not found");
+    }
+    if (current.lifecycle === "scheduled" && this.canCoordinate(current, userId)) {
+      current = await this.ensureTaskPlan(current);
     }
     const safe = structuredClone(current) as EventQuestView;
     const imageUrl = (await this.dependencies.store.findQuestRun?.(runId))?.imageUrl;
@@ -260,6 +285,23 @@ export class EventCoordinator {
     safe.auditEvents = [];
     safe.outbox = [];
     safe.processedCommands = [];
+    safe.rewardEntries = safe.rewardEntries.filter((entry) => entry.userId === userId);
+    safe.taskPlans = safe.taskPlans.map((plan) => ({
+      ...plan,
+      roles: plan.roles.map((role) => ({
+        ...role,
+        concern: organizer || role.userId === userId ? role.concern : null,
+      })),
+      tasks: plan.tasks.map((task) => ({
+        ...task,
+        reviewReason: organizer || task.reviewerId === userId || task.assignees.some((assignee) => assignee.userId === userId)
+          ? task.reviewReason
+          : null,
+      })),
+      reassignments: organizer
+        ? plan.reassignments
+        : plan.reassignments.filter((request) => request.requesterId === userId),
+    }));
     if (!organizer) safe.invitations = safe.invitations.filter((invitation) => invitation.guestId === userId);
     if (!organizer) safe.joinRequests = safe.joinRequests.filter((request) => request.applicantId === userId);
     safe.proposal.quest.needsAddressed = [];
@@ -817,7 +859,7 @@ export class EventCoordinator {
       visibleAppointmentVersion: appointmentMutation?.version ?? responseState.groupThread.visibleAppointmentVersion,
       updatedAt: now,
     } : responseState.groupThread;
-    await this.dependencies.store.saveEventCoordinationState({
+    const savedState = await this.dependencies.store.saveEventCoordinationState({
       ...responseState,
       lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? responseState.lifecycle,
       revision: responseState.revision + 1,
@@ -865,6 +907,7 @@ export class EventCoordinator {
       auditEvents: responseState.auditEvents,
       updatedAt: now,
     }, responseState.revision);
+    if (savedState.lifecycle === "scheduled") await this.ensureTaskPlan(savedState);
     return structuredClone(updatedThread);
   }
 
@@ -1060,7 +1103,7 @@ export class EventCoordinator {
       createdAt: now,
       updatedAt: now,
     })) ?? [];
-    await this.dependencies.store.saveEventCoordinationState({
+    const savedState = await this.dependencies.store.saveEventCoordinationState({
       ...responseState,
       lifecycle: organizerAction?.mutation?.lifecycle ?? appointmentMutation?.lifecycle ?? responseState.lifecycle,
       revision: responseState.revision + 1,
@@ -1097,6 +1140,7 @@ export class EventCoordinator {
       auditEvents: responseState.auditEvents,
       updatedAt: now,
     }, responseState.revision);
+    if (savedState.lifecycle === "scheduled") await this.ensureTaskPlan(savedState);
     return structuredClone(updatedGroup);
   }
 
@@ -1274,6 +1318,11 @@ export class EventCoordinator {
       revision: current.revision + 1,
       arrangements: [...arrangements, arrangement],
       memberships,
+      taskPlans: materialChanges.length > 0
+        ? current.taskPlans.map((plan) => ["generation_pending", "awaiting_acknowledgement", "active"].includes(plan.status)
+          ? { ...plan, status: "suspended" as const, updatedAt: now }
+          : plan)
+        : current.taskPlans,
       notifications: [...current.notifications, ...changeNotifications],
       auditEvents: [...current.auditEvents, this.auditEvent(current, "arrangement_proposed", input.actorId, input.idempotencyKey, {
         arrangementId: arrangement.arrangementId,
@@ -1481,7 +1530,7 @@ export class EventCoordinator {
       }
     }
 
-    return this.dependencies.store.saveEventCoordinationState({
+    const saved = await this.dependencies.store.saveEventCoordinationState({
       ...current,
       lifecycle,
       revision: current.revision + 1,
@@ -1508,6 +1557,7 @@ export class EventCoordinator {
       processedCommands: [...current.processedCommands, input.idempotencyKey],
       updatedAt: now,
     }, current.revision);
+    return saved.lifecycle === "scheduled" ? this.ensureTaskPlan(saved) : saved;
   }
 
   async updateRoster(input: {
@@ -1855,6 +1905,11 @@ export class EventCoordinator {
           && ["proposed", "initiator_approved", "awaiting_participant_confirmation", "finalized"].includes(arrangement.status)
           ? { ...arrangement, status: "superseded" as const, updatedAt: now }
           : arrangement),
+      taskPlans: input.action === "cancel" || input.action === "reopen"
+        ? current.taskPlans.map((plan) => ["generation_pending", "awaiting_acknowledgement", "active"].includes(plan.status)
+          ? { ...plan, status: "suspended" as const, updatedAt: now }
+          : plan)
+        : current.taskPlans,
       notifications: [...current.notifications, ...notifications],
       outbox: input.action === "cancel"
         ? [...current.outbox.map((job) => job.status === "pending" ? { ...job, status: "cancelled" as const, updatedAt: now } : job), ...cancellationJobs]
@@ -1897,6 +1952,520 @@ export class EventCoordinator {
       throw new Error("Only the recipient of an open recruiting suggestion can hide it");
     }
     await this.dependencies.store.hideEventSuggestion(input.actorId, input.runId);
+  }
+
+  async ensureTaskPlan(state: EventCoordinationState): Promise<EventCoordinationState> {
+    if (state.lifecycle !== "scheduled") return state;
+    const currentPlans = state.taskPlans ?? [];
+    const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
+    if (!finalized) return state;
+    const activeMemberships = state.memberships.filter((membership) => this.isActiveMembership(membership));
+    const activeUserIds = activeMemberships.map((membership) => membership.userId);
+    const goalHash = createHash("sha256")
+      .update(`${state.proposal.quest.title}|${state.proposal.quest.sharedGoal}|${state.rosterRevision}`)
+      .digest("hex")
+      .slice(0, 16);
+    const existing = [...currentPlans].reverse().find((plan) =>
+      plan.rosterRevision === state.rosterRevision
+      && plan.questGoalHash === goalHash
+      && !["superseded", "suspended"].includes(plan.status));
+    if (existing) {
+      const pendingSince = Date.parse(existing.updatedAt);
+      const stalePending = existing.status === "generation_pending"
+        && Number.isFinite(pendingSince)
+        && Date.now() - pendingSince >= TASK_PLAN_GENERATION_STALE_MS;
+      return stalePending
+        ? this.saveFailedTaskPlan(
+            state.runId,
+            existing.planId,
+            "Task generation was interrupted. Please try again.",
+          )
+        : state;
+    }
+
+    const now = new Date().toISOString();
+    const pending: EventTaskPlan = {
+      planId: `task_plan_${randomUUID()}`,
+      rosterRevision: state.rosterRevision,
+      arrangementVersion: finalized.version,
+      questGoalHash: goalHash,
+      status: "generation_pending",
+      roles: [],
+      tasks: [],
+      reassignments: [],
+      generationAttempts: 1,
+      generationError: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const started = await this.dependencies.store.saveEventCoordinationState({
+      ...state,
+      taskPlans: [...currentPlans, pending],
+      rewardEntries: state.rewardEntries ?? [],
+      revision: state.revision + 1,
+      auditEvents: [...state.auditEvents, this.auditEvent(state, "task_plan_generation_started", null, null, {
+        planId: pending.planId,
+        arrangementVersion: finalized.version,
+      }, state.lifecycle)],
+      updatedAt: now,
+    }, state.revision);
+
+    let generated: EventTaskPlan;
+    let taskAnnouncement: string;
+    let completedAt: string;
+    let fallbackUsed = false;
+    let normalized: EventTaskPlanAgentOutput | null = null;
+    const taskInput = this.taskPlanInput(started, finalized.venueName, activeUserIds);
+    try {
+      const output = await this.generateTaskPlanWithTimeout(taskInput);
+      const parsed = eventTaskPlanAgentOutputSchema.parse(output);
+      normalized = normalizeEventTaskPlanReviewers(parsed, activeUserIds, state.initiatorId);
+      fallbackUsed = validateEventTaskPlan(normalized, taskInput.participants, state.initiatorId).length > 0;
+    } catch {
+      fallbackUsed = true;
+    }
+    try {
+      if (fallbackUsed || !normalized) {
+        normalized = normalizeEventTaskPlanReviewers(
+          fallbackTaskPlan(taskInput),
+          activeUserIds,
+          state.initiatorId,
+        );
+      }
+      const errors = validateEventTaskPlan(normalized, taskInput.participants, state.initiatorId);
+      if (errors.length) throw new Error(errors.join("; "));
+      completedAt = new Date().toISOString();
+      generated = this.materializeTaskPlan(pending, normalized, completedAt, state.initiatorId, activeUserIds);
+      taskAnnouncement = `Senior Quest prepared ${generated.tasks.length} event tasks. Please review your role and task.`;
+    } catch (error) {
+      return this.saveFailedTaskPlan(started.runId, pending.planId, safeErrorMessage(error));
+    }
+    return this.saveGeneratedTaskPlan(
+      started.runId,
+      pending.planId,
+      generated,
+      taskAnnouncement,
+      fallbackUsed,
+    );
+  }
+
+  private async generateTaskPlanWithTimeout(
+    input: EventTaskPlanAgentInput,
+  ): Promise<EventTaskPlanAgentOutput> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.dependencies.generateTaskPlan
+          ? this.dependencies.generateTaskPlan(input)
+          : fallbackTaskPlan(input),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Task generation timed out. Please try again.")),
+            TASK_PLAN_GENERATION_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  private async saveGeneratedTaskPlan(
+    runId: string,
+    planId: string,
+    generated: EventTaskPlan,
+    taskAnnouncement: string,
+    fallbackUsed: boolean,
+  ): Promise<EventCoordinationState> {
+    while (true) {
+      const current = await this.requireState(runId);
+      const pending = current.taskPlans.find((plan) => plan.planId === planId);
+      if (!pending || pending.status !== "generation_pending") return current;
+      const persistedAt = new Date().toISOString();
+      try {
+        return await this.dependencies.store.saveEventCoordinationState({
+          ...current,
+          taskPlans: current.taskPlans.map((plan) => plan.planId === planId ? generated : plan),
+          threads: current.threads.map((thread) => ({
+            ...thread,
+            revision: thread.revision + 1,
+            messages: [...thread.messages, {
+              messageId: `message_${randomUUID()}`,
+              role: "system" as const,
+              body: taskAnnouncement,
+              kind: "change_card" as const,
+              createdAt: persistedAt,
+            }],
+            updatedAt: persistedAt,
+          })),
+          groupThread: current.groupThread ? {
+            ...current.groupThread,
+            revision: current.groupThread.revision + 1,
+            messages: [...current.groupThread.messages, {
+              messageId: `message_${randomUUID()}`,
+              senderId: null,
+              role: "system" as const,
+              body: taskAnnouncement,
+              kind: "change_card" as const,
+              createdAt: persistedAt,
+            }],
+            updatedAt: persistedAt,
+          } : null,
+          revision: current.revision + 1,
+          auditEvents: [...current.auditEvents, this.auditEvent(current, "task_plan_generated", null, null, {
+            planId: generated.planId,
+            taskCount: generated.tasks.length,
+            fallbackUsed,
+          }, current.lifecycle)],
+          updatedAt: persistedAt,
+        }, current.revision);
+      } catch (error) {
+        if (!this.isQuestStateConflict(error)) throw error;
+      }
+    }
+  }
+
+  private isQuestStateConflict(error: unknown): boolean {
+    return error instanceof Error && error.message.startsWith("Quest state conflict;");
+  }
+
+  private async saveFailedTaskPlan(
+    runId: string,
+    planId: string,
+    generationError: string,
+  ): Promise<EventCoordinationState> {
+    while (true) {
+      const current = await this.requireState(runId);
+      const pending = current.taskPlans.find((plan) => plan.planId === planId);
+      if (!pending || pending.status !== "generation_pending") return current;
+      const now = new Date().toISOString();
+      const failed: EventTaskPlan = {
+        ...pending,
+        status: "generation_failed",
+        generationError,
+        updatedAt: now,
+      };
+      try {
+        return await this.dependencies.store.saveEventCoordinationState({
+          ...current,
+          taskPlans: current.taskPlans.map((plan) => plan.planId === planId ? failed : plan),
+          revision: current.revision + 1,
+          auditEvents: [...current.auditEvents, this.auditEvent(current, "task_plan_generation_failed", null, null, {
+            planId,
+          }, current.lifecycle)],
+          updatedAt: now,
+        }, current.revision);
+      } catch (error) {
+        if (!this.isQuestStateConflict(error)) throw error;
+      }
+    }
+  }
+
+  async retryTaskPlan(input: {
+    runId: string;
+    actorId: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.initiatorId !== input.actorId) throw new Error("Only the event organizer can retry task generation");
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    const latest = [...(current.taskPlans ?? [])].at(-1);
+    if (!latest || latest.status !== "generation_failed") throw new Error("This event has no failed task plan to retry");
+    const reset = await this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      taskPlans: current.taskPlans.map((plan) => plan.planId === latest.planId
+        ? { ...plan, status: "superseded" as const, updatedAt: new Date().toISOString() }
+        : plan),
+      revision: current.revision + 1,
+      auditEvents: [...current.auditEvents, this.auditEvent(current, "task_plan_retry", input.actorId, input.idempotencyKey, {
+        planId: latest.planId,
+      }, current.lifecycle)],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: new Date().toISOString(),
+    }, current.revision);
+    return this.ensureTaskPlan(reset);
+  }
+
+  async respondToRole(input: {
+    runId: string;
+    actorId: string;
+    action: "acknowledge" | "raise_concern";
+    concern?: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    const plan = this.latestTaskPlan(current);
+    if (!plan || ["generation_pending", "generation_failed", "suspended", "superseded"].includes(plan.status)) {
+      throw new Error("The event task plan is not ready yet");
+    }
+    const role = plan.roles.find((candidate) => candidate.userId === input.actorId);
+    if (!role) throw new Error("Only an active participant can respond to a role");
+    if (input.action === "raise_concern" && current.lifecycle !== "scheduled") {
+      throw new Error("Role changes are only available before the activity starts");
+    }
+    const now = new Date().toISOString();
+    const nextRole = input.action === "acknowledge"
+      ? { ...role, status: "acknowledged" as const, concern: null, acknowledgedAt: now, updatedAt: now }
+      : { ...role, status: "concern_raised" as const, concern: input.concern?.trim() || "This role needs to be adjusted.", acknowledgedAt: null, updatedAt: now };
+    const replacementRequests = input.action === "raise_concern"
+      ? await Promise.all(plan.tasks
+        .filter((task) => task.assignees.some((assignee) => assignee.userId === input.actorId)
+          && !plan.reassignments.some((request) => request.taskId === task.taskId && request.requesterId === input.actorId && request.status === "pending_admin"))
+        .map(async (task) => {
+          const participant = stateParticipant(current, input.actorId);
+          const replacement = this.dependencies.proposeTaskReassignment
+            ? await this.dependencies.proposeTaskReassignment({
+                task,
+                participant: {
+                  userId: input.actorId,
+                  role: role.name,
+                  contributions: participant.contributions,
+                },
+                reason: input.concern ?? "Role needs adjustment",
+              })
+            : {
+                title: `Alternative: ${task.title}`.slice(0, 60),
+                instruction: "Choose an equivalent way to help the event.",
+                difficulty: task.difficulty,
+              };
+          const equivalentReplacement = { ...replacement, difficulty: task.difficulty };
+          return {
+            requestId: `task_reassignment_${randomUUID()}`,
+            taskId: task.taskId,
+            requesterId: input.actorId,
+            reason: input.concern?.trim() || "This role needs to be adjusted.",
+            replacement: equivalentReplacement,
+            status: "pending_admin" as const,
+            reviewedBy: null,
+            reviewedAt: null,
+            reviewReason: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+        }))
+      : [];
+    const nextPlan = this.recalculateTaskAcknowledgements({
+      ...plan,
+      roles: plan.roles.map((candidate) => candidate.userId === input.actorId ? nextRole : candidate),
+      reassignments: [...plan.reassignments, ...replacementRequests],
+      status: "awaiting_acknowledgement",
+      updatedAt: now,
+    });
+    return this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      taskPlans: current.taskPlans.map((candidate) => candidate.planId === plan.planId ? nextPlan : candidate),
+      revision: current.revision + 1,
+      auditEvents: [...current.auditEvents, this.auditEvent(current, `role_${input.action}`, input.actorId, input.idempotencyKey, {
+        planId: plan.planId,
+      }, current.lifecycle)],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: now,
+    }, current.revision);
+  }
+
+  async actOnTask(input: {
+    runId: string;
+    taskId: string;
+    actorId: string;
+    action: "submit" | "approve" | "needs_retry" | "reverse";
+    reason?: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    const plan = this.latestTaskPlan(current);
+    if (!plan || plan.status !== "active") throw new Error("Tasks are not active yet");
+    if (!["scheduled", "in_progress", "completed"].includes(current.lifecycle)) {
+      throw new Error("Tasks are unavailable while the event arrangement is changing");
+    }
+    const task = plan.tasks.find((candidate) => candidate.taskId === input.taskId);
+    if (!task) throw new Error("Task was not found");
+    const assigneeIds = task.assignees.map((assignee) => assignee.userId);
+    const isAssignee = assigneeIds.includes(input.actorId);
+    const canReview = input.actorId === task.reviewerId
+      && (input.actorId === current.initiatorId || this.isActiveMember(current, input.actorId));
+    const now = new Date().toISOString();
+    if (input.action === "submit") {
+      if (!isAssignee) throw new Error("Only an assigned participant can submit this task");
+      if (!["acknowledged", "needs_retry"].includes(task.status)) throw new Error("This task is not ready for submission");
+      if (current.lifecycle === "completed" || current.lifecycle === "cancelled") throw new Error("This event is no longer accepting task submissions");
+    } else {
+      if (!canReview) throw new Error("You do not have permission to review this task");
+      if (input.action === "approve" && task.status !== "submitted") throw new Error("Only submitted tasks can be approved");
+      if (input.action === "needs_retry" && task.status !== "submitted") throw new Error("Only submitted tasks can be sent back");
+      if (input.action === "reverse" && task.status !== "approved") throw new Error("Only approved tasks can be reversed");
+      if (["needs_retry", "reverse"].includes(input.action) && !input.reason?.trim()) throw new Error("A reason is required");
+    }
+    const nextTask: EventTask = input.action === "submit"
+      ? { ...task, status: "submitted", submittedAt: now, reviewedBy: null, reviewedAt: null, updatedAt: now }
+      : input.action === "approve"
+        ? { ...task, status: "approved", reviewedBy: input.actorId, reviewedAt: now, reviewReason: null, updatedAt: now }
+        : { ...task, status: "needs_retry", reviewedBy: input.actorId, reviewedAt: now, reviewReason: input.reason?.trim() ?? null, updatedAt: now };
+    const rewardEntries = [...(current.rewardEntries ?? [])];
+    if (input.action === "approve") {
+      if (rewardEntries.some((entry) => entry.taskId === task.taskId && entry.kind === "task_award")) {
+        throw new Error("This task has already awarded points");
+      }
+      rewardEntries.push(...assigneeIds.map((userId) => ({
+        entryId: `reward_${randomUUID()}`,
+        userId,
+        runId: current.runId,
+        taskId: task.taskId,
+        points: task.points,
+        kind: "task_award" as const,
+        reversesEntryId: null,
+        actorId: input.actorId,
+        reason: null,
+        createdAt: now,
+      })));
+    }
+    if (input.action === "reverse") {
+      rewardEntries.push(...rewardEntries
+        .filter((entry) => entry.taskId === task.taskId && entry.kind === "task_award")
+        .map((entry) => ({
+          entryId: `reward_${randomUUID()}`,
+          userId: entry.userId,
+          runId: current.runId,
+          taskId: task.taskId,
+          points: -entry.points,
+          kind: "reversal" as const,
+          reversesEntryId: entry.entryId,
+          actorId: input.actorId,
+          reason: input.reason?.trim() ?? null,
+          createdAt: now,
+        })));
+    }
+    return this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      taskPlans: current.taskPlans.map((candidate) => candidate.planId === plan.planId
+        ? { ...plan, tasks: plan.tasks.map((candidateTask) => candidateTask.taskId === task.taskId ? nextTask : candidateTask), updatedAt: now }
+        : candidate),
+      rewardEntries,
+      revision: current.revision + 1,
+      auditEvents: [...current.auditEvents, this.auditEvent(current, `task_${input.action}`, input.actorId, input.idempotencyKey, {
+        planId: plan.planId,
+        taskId: task.taskId,
+        points: input.action === "approve" ? task.points : undefined,
+        reason: input.reason?.trim() || undefined,
+      }, current.lifecycle)],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: now,
+    }, current.revision);
+  }
+
+  async listRewardEntries(userId: string): Promise<Array<{
+    entryId: string;
+    userId: string;
+    runId: string;
+    taskId: string;
+    points: number;
+    kind: "task_award" | "reversal";
+    reversesEntryId: string | null;
+    actorId: string;
+    reason: string | null;
+    createdAt: string;
+    taskTitle: string;
+    eventTitle: string;
+    difficulty: "easy" | "medium" | "hard";
+  }>> {
+    const states = await this.dependencies.store.listEventCoordinationStates(userId);
+    return states.flatMap((state) => (state.rewardEntries ?? [])
+      .filter((entry) => entry.userId === userId)
+      .map((entry) => {
+        const task = (state.taskPlans ?? []).flatMap((plan) => plan.tasks).find((candidate) => candidate.taskId === entry.taskId);
+        return {
+          ...entry,
+          taskTitle: task?.title ?? "Event task",
+          eventTitle: state.proposal.quest.title,
+          difficulty: task?.difficulty ?? "easy",
+        };
+      }))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async listTaskRewardRunIds(userId: string): Promise<Set<string>> {
+    const states = await this.dependencies.store.listEventCoordinationStates(userId);
+    return new Set(states
+      .filter((state) => (state.taskPlans ?? []).some((plan) =>
+        plan.status !== "superseded"
+        && plan.status !== "generation_failed"
+        && (plan.roles.some((role) => role.userId === userId)
+          || plan.tasks.some((task) => task.assignees.some((assignee) => assignee.userId === userId)))))
+      .map((state) => state.runId));
+  }
+
+  async decideTaskReassignment(input: {
+    runId: string;
+    requestId: string;
+    actorId: string;
+    action: "approve" | "reject";
+    reason?: string;
+    expectedRevision: number;
+    idempotencyKey: string;
+  }): Promise<EventCoordinationState> {
+    const current = await this.requireState(input.runId);
+    if (current.processedCommands.includes(input.idempotencyKey)) return current;
+    if (current.initiatorId !== input.actorId) throw new Error("Only the event organizer can decide a task reassignment");
+    if (current.revision !== input.expectedRevision) throw new Error("Quest state conflict; reload and retry");
+    const plan = this.latestTaskPlan(current);
+    const request = plan?.reassignments.find((candidate) => candidate.requestId === input.requestId);
+    if (!plan || !request || request.status !== "pending_admin") throw new Error("Task reassignment was not found");
+    const task = plan.tasks.find((candidate) => candidate.taskId === request.taskId);
+    if (!task) throw new Error("Task was not found");
+    const now = new Date().toISOString();
+    const approved = input.action === "approve";
+    const nextRequest = {
+      ...request,
+      status: approved ? "approved" as const : "rejected" as const,
+      reviewedBy: input.actorId,
+      reviewedAt: now,
+      reviewReason: input.reason?.trim() || null,
+      updatedAt: now,
+    };
+    const nextTask = approved && request.replacement
+      ? {
+          ...task,
+          title: request.replacement.title,
+          instruction: request.replacement.instruction,
+          difficulty: request.replacement.difficulty,
+          points: pointsForDifficulty(request.replacement.difficulty),
+          status: "assigned" as const,
+          assignees: task.assignees.map((assignee) => ({ ...assignee, acknowledgedAt: null })),
+          submittedAt: null,
+          reviewedBy: null,
+          reviewedAt: null,
+          reviewReason: null,
+          updatedAt: now,
+        }
+      : task;
+    const nextPlan = this.recalculateTaskAcknowledgements({
+      ...plan,
+      roles: plan.roles.map((role) => role.userId === request.requesterId
+        ? { ...role, status: "pending" as const, concern: approved ? null : role.concern, acknowledgedAt: null, updatedAt: now }
+        : role),
+      tasks: plan.tasks.map((candidate) => candidate.taskId === task.taskId ? nextTask : candidate),
+      reassignments: plan.reassignments.map((candidate) => candidate.requestId === request.requestId ? nextRequest : candidate),
+      updatedAt: now,
+    });
+    return this.dependencies.store.saveEventCoordinationState({
+      ...current,
+      taskPlans: current.taskPlans.map((candidate) => candidate.planId === plan.planId ? nextPlan : candidate),
+      revision: current.revision + 1,
+      auditEvents: [...current.auditEvents, this.auditEvent(current, `task_reassignment_${input.action}`, input.actorId, input.idempotencyKey, {
+        requestId: request.requestId,
+        taskId: request.taskId,
+        reason: input.reason?.trim() || undefined,
+      }, current.lifecycle)],
+      processedCommands: [...current.processedCommands, input.idempotencyKey],
+      updatedAt: now,
+    }, current.revision);
   }
 
   async listActivities(userId: string): Promise<UserEventActivities> {
@@ -1985,6 +2554,108 @@ export class EventCoordinator {
     result.suggested.sort((left, right) => (suggestedScores.get(right.runId) ?? 0) - (suggestedScores.get(left.runId) ?? 0));
     result.notifications.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
     return result;
+  }
+
+  private latestTaskPlan(state: EventCoordinationState): EventTaskPlan | null {
+    return [...(state.taskPlans ?? [])].reverse().find((plan) => plan.status !== "superseded") ?? null;
+  }
+
+  private isActiveMember(state: EventCoordinationState, userId: string): boolean {
+    return state.memberships.some((membership) => membership.userId === userId && this.isActiveMembership(membership));
+  }
+
+  private taskPlanInput(
+    state: EventCoordinationState,
+    venueName: string,
+    activeUserIds: string[],
+  ): EventTaskPlanAgentInput {
+    return {
+      organizerId: state.initiatorId,
+      quest: {
+        title: state.proposal.quest.title,
+        goal: state.proposal.quest.sharedGoal,
+        description: state.proposal.quest.description,
+        durationMinutes: state.proposal.quest.durationMinutes,
+      },
+      appointment: { venueName },
+      participants: activeUserIds.map((userId) => {
+        const roster = state.roster.find((member) => member.userId === userId);
+        const proposal = state.proposal.proposedParticipants.find((member) => member.candidateId === userId);
+        const requirements = state.threads.find((thread) => thread.userId === userId)?.confirmedRequirements;
+        return {
+          userId,
+          proposedRole: roster?.proposedRole ?? proposal?.proposedRole ?? "supporting participant",
+          contributions: proposal?.contributionsUsed ?? [],
+          requirements: requirements ? [
+            ...requirements.accessibility,
+            ...requirements.travel,
+            ...requirements.environmental,
+            ...requirements.venuePreferences,
+          ] : [],
+        };
+      }),
+    };
+  }
+
+  private materializeTaskPlan(
+    pending: EventTaskPlan,
+    output: EventTaskPlanAgentOutput,
+    now: string,
+    organizerId: string,
+    activeUserIds: string[],
+  ): EventTaskPlan {
+    return {
+      ...pending,
+      status: "awaiting_acknowledgement",
+      roles: output.roles.map((role) => ({
+        userId: role.userId,
+        name: role.name,
+        responsibility: role.responsibility,
+        mainContribution: role.mainContribution ?? role.responsibility,
+        status: "pending",
+        concern: null,
+        acknowledgedAt: null,
+        updatedAt: now,
+      })),
+      tasks: output.tasks.map((task) => ({
+        taskId: `task_${randomUUID()}`,
+        title: task.title,
+        instruction: task.instruction,
+        roleUserId: task.roleUserId ?? task.assigneeIds[0],
+        reviewerId: task.assigneeIds.includes(organizerId)
+          ? activeUserIds.find((userId) => userId !== organizerId && !task.assigneeIds.includes(userId)) ?? organizerId
+          : organizerId,
+        difficulty: task.difficulty,
+        points: pointsForDifficulty(task.difficulty),
+        status: "assigned",
+        assignees: task.assigneeIds.map((userId) => ({ userId, acknowledgedAt: null })),
+        submittedAt: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewReason: null,
+        createdAt: now,
+        updatedAt: now,
+      })),
+      generationError: null,
+      updatedAt: now,
+    };
+  }
+
+  private recalculateTaskAcknowledgements(plan: EventTaskPlan): EventTaskPlan {
+    const acknowledgedUsers = new Set(plan.roles.filter((role) => role.status === "acknowledged").map((role) => role.userId));
+    const tasks = plan.tasks.map((task) => ({
+      ...task,
+      assignees: task.assignees.map((assignee) => ({
+        ...assignee,
+        acknowledgedAt: acknowledgedUsers.has(assignee.userId) ? assignee.acknowledgedAt ?? new Date().toISOString() : null,
+      })),
+      status: task.status === "assigned" && task.assignees.every((assignee) => acknowledgedUsers.has(assignee.userId))
+        ? "acknowledged" as const
+        : task.status,
+    }));
+    const active = plan.roles.every((role) => role.status === "acknowledged")
+      && tasks.every((task) => ["acknowledged", "submitted", "approved"].includes(task.status));
+    return { ...plan, tasks, status: active ? "active" : "awaiting_acknowledgement" };
   }
 
   async listCoordinationConversations(userId: string): Promise<Array<{
@@ -2114,6 +2785,8 @@ export class EventCoordinator {
         ...thread,
         visibleAppointmentVersion: thread.visibleAppointmentVersion ?? null,
       })),
+      taskPlans: state.taskPlans ?? [],
+      rewardEntries: state.rewardEntries ?? [],
       appointmentSuggestions: state.appointmentSuggestions ?? [],
       recruitment: state.recruitment ?? {
         status: "closed",
@@ -2681,4 +3354,43 @@ function formatAppointmentInstant(instant: string, timeZone: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(instant));
+}
+
+function fallbackTaskPlan(input: EventTaskPlanAgentInput): EventTaskPlanAgentOutput {
+  const humanize = (role: string) => {
+    const text = role.replaceAll("_", " ").trim();
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Quest helper";
+  };
+  const roles = input.participants.map((participant) => {
+    const contribution = participant.contributions.find((item) => item.trim())?.trim();
+    return {
+      userId: participant.userId,
+      name: humanize(participant.proposedRole).slice(0, 40),
+      responsibility: `${humanize(participant.proposedRole)}: ${contribution ?? "help the group"}`.slice(0, 120),
+      mainContribution: (contribution ?? "Help welcome and support the group").slice(0, 120),
+    };
+  });
+  const tasks = input.participants.map((participant, index) => ({
+    title: `Participant task ${index + 1}`,
+    instruction: "Complete your assigned event responsibility at the event venue and tell the group when it is done.",
+    roleUserId: participant.userId,
+    difficulty: index === 0 ? "medium" as const : "easy" as const,
+    assigneeIds: [participant.userId],
+  }));
+  while (tasks.length < 3) {
+    tasks.push({
+      title: `Group support task ${tasks.length + 1}`,
+      instruction: "Complete this event support step at the event venue and tell the group when it is done.",
+      roleUserId: input.participants[0].userId,
+      difficulty: "easy",
+      assigneeIds: [input.participants[0].userId],
+    });
+  }
+  return eventTaskPlanAgentOutputSchema.parse({ roles, tasks: tasks.slice(0, 5) });
+}
+
+function stateParticipant(state: EventCoordinationState, userId: string): { contributions: string[] } {
+  return {
+    contributions: state.proposal.proposedParticipants.find((participant) => participant.candidateId === userId)?.contributionsUsed ?? [],
+  };
 }

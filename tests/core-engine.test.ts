@@ -913,8 +913,8 @@ describe("KampungQuestEngine memory", () => {
     const futureConstraints = {
       ...profile("candidate_001").constraints,
       availableWindows: [{
-        start: "2026-08-06T03:00:00.000Z",
-        end: "2026-08-06T06:00:00.000Z",
+        start: "2030-08-06T03:00:00.000Z",
+        end: "2030-08-06T06:00:00.000Z",
       }],
     };
     const shared = {
@@ -948,8 +948,8 @@ describe("KampungQuestEngine memory", () => {
           groupSize: 2,
           venueRequirements: ["approved_public_location", "indoor", "no_stairs"],
           proposedTimeWindow: {
-            start: "2026-08-06T03:00:00.000Z",
-            end: "2026-08-06T04:30:00.000Z",
+            start: "2030-08-06T03:00:00.000Z",
+            end: "2030-08-06T04:30:00.000Z",
           },
         },
         proposedParticipants: [
