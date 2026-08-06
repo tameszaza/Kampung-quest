@@ -8,7 +8,6 @@ import { Icon } from "@/components/icons";
 import { MobileMoreButton } from "@/components/mobile-more-menu";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useUser } from "@/components/user-context";
-import { getQuestRun } from "@/features/assistant/client";
 import {
   confirmEventRoster,
   decideEventArrangement,
@@ -32,11 +31,11 @@ export function EventQuestDetail({ runId, showActivityActions = true, backHref =
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void Promise.all([getEventQuest(runId), getQuestRun(runId).catch(() => null)])
-      .then(([value, run]) => {
+    void getEventQuest(runId)
+      .then((value) => {
         if (!active) return;
         setState(value);
-        setImageUrl(run?.imageUrl ?? null);
+        setImageUrl(value?.imageUrl ?? null);
       }).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : "This activity could not be loaded");
     });
@@ -61,6 +60,7 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
   const [query, setQuery] = useState("");
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const organizer = state.initiatorId === user.id;
+  const editingRoster = organizer && state.lifecycle === "forming";
   const ownInvitation = latestInvitationForUser(state.invitations, user.id);
   const ownMembership = latestMembershipForUser(state.memberships, user.id);
   const hasActiveMembership = ownMembership
@@ -120,58 +120,50 @@ function EventQuestWorkspace({ state, imageUrl, backHref, onChange }: {
           <div className="detail-fact"><Icon name="calendar" /><span><small>{finalized ? "Confirmed date and time" : "Provisional availability"}</small><strong>{schedule}</strong>{!finalized ? <em>Not scheduled yet</em> : null}</span></div>
           <div className="detail-fact"><Icon name="clock" /><span><small>Duration</small><strong>About {state.proposal.quest.durationMinutes} minutes</strong></span></div>
           <div className="detail-fact"><Icon name="pin" /><span><small>Venue</small><strong>{finalized?.venueName ?? latestArrangement?.venueName ?? "To be coordinated"}</strong></span></div>
-          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.recruitment.status === "open" ? `${participants.length} of ${targetGroupSize} selected` : participantCountLabel(participants.length)}</strong></span></div>
+          <div className="detail-fact"><Icon name="people" /><span><small>Group</small><strong>{state.recruitment.status === "open" || editingRoster ? `${editingRoster ? state.roster.length : participants.length} of ${targetGroupSize} selected` : participantCountLabel(participants.length)}</strong></span></div>
         </div>
       </div>
     </section>
     <article className="detail-content quest-detail-content">
         {error ? <div className="form-alert" role="alert">{error}</div> : null}
 
-        <section className="event-panel participant-summary quest-participants" id="participants">
+        <section className={`event-panel participant-summary quest-participants${editingRoster ? " participant-editing" : ""}`} id="participants">
           <span className="section-kicker">Everyone has a role</span>
-          <h2>{participantCountLabel(participants.length)}</h2>
-          <div className="event-roster">{participants.map((member) => {
+          <h2>{editingRoster ? `${state.roster.length} of ${targetGroupSize} people selected` : participantCountLabel(participants.length)}</h2>
+          {editingRoster ? <p>Change the guest list before invitations are sent. Every change is checked against availability, consent, group limits, and safety rules.</p> : null}
+          <div className="event-roster">{(editingRoster ? state.roster : participants).map((member) => {
             const invitation = latestInvitationForUser(state.invitations, member.userId);
             const membership = latestMembershipForUser(state.memberships, member.userId);
             const status = participantDisplayStatus({
               organizer: member.userId === state.initiatorId,
               invitationStatus: invitation?.status,
               membershipStatus: membership?.status,
-              fallback: member.source === "recommended" ? "suggested" : "pending",
+              fallback: member.source === "recommended" ? "suggested" : editingRoster ? "selected" : "pending",
             });
             const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
             const displayName = member.userId === user.id ? "You" : profile?.displayName ?? "Community member";
+            const subtitle = editingRoster
+              ? member.userId === state.initiatorId
+                ? "Organizer · You started this quest"
+                : `${member.source === "recommended" ? "Recommended match" : "Selected by you"} · ${member.proposedRole.replaceAll("_", " ")}`
+              : member.proposedRole.replaceAll("_", " ");
             return <div key={member.userId}>
               <ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} />
-              <p><strong>{displayName}</strong><small>{member.proposedRole.replaceAll("_", " ")}</small></p>
-              {organizer && state.lifecycle !== "forming" && invitation && ["pending", "accepted"].includes(invitation.status) ? <button type="button" className="quiet-button participant-management" disabled={Boolean(busy)} aria-label={`Replace ${displayName}`} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button> : null}
+              <p><strong>{displayName}</strong><small>{subtitle}</small></p>
+              {editingRoster && member.userId !== state.initiatorId ? <button type="button" className="quiet-button participant-management" disabled={Boolean(busy)} aria-label={`Remove ${displayName}`} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}
+              {!editingRoster && organizer && state.lifecycle !== "forming" && invitation && ["pending", "accepted"].includes(invitation.status) ? <button type="button" className="quiet-button participant-management" disabled={Boolean(busy)} aria-label={`Replace ${displayName}`} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button> : null}
               <span className={`participant-status participant-status-${status.key}`}>{status.label}</span>
             </div>;
           })}</div>
-        </section>
-
-        {organizer && state.lifecycle === "forming" ? <section className="event-panel">
-          <span className="section-kicker">Step 1 · Review your group</span>
-          <h2>{state.roster.length} of {targetGroupSize} people selected</h2>
-          <p>Change the guest list before any invitations are sent. Every change is checked against availability, consent, group limits, and safety rules.</p>
-          <div className="event-roster">{state.roster.map((member) => {
-            const profile = state.participantProgress.find((candidate) => candidate.userId === member.userId);
-            const displayName = member.userId === user.id ? "You" : profile?.displayName ?? "Community member";
-            return <div key={member.userId}><ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} /><p><strong>{displayName}</strong><small>{member.source === "recommended" ? "Recommended match" : member.source === "manual" ? "Selected by you" : "Organizer"} · {member.explanation.join(" · ")}</small></p>{member.source !== "initiator" ? <button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`remove-${member.userId}`, () => updateEventRoster({ runId: state.runId, action: "remove", userId: member.userId, expectedRevision: state.revision }))}>Remove</button> : null}</div>;
-          })}</div>
-          {!state.rosterValidation.valid ? <ul className="validation-errors">{state.rosterValidation.errors.map((item) => <li key={`${item.field}-${item.message}`}>{item.message}</li>)}</ul> : null}
+          {editingRoster ? <>
+            {!state.rosterValidation.valid ? <ul className="validation-errors">{state.rosterValidation.errors.map((item) => <li key={`${item.field}-${item.message}`}>{item.message}</li>)}</ul> : null}
           <form className="event-person-search" onSubmit={search}><label><span>Invite people you know</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search an existing member" /></label><button className="secondary-button" disabled={busy === "search"}>{busy === "search" ? "Searching…" : "Search"}</button></form>
           {contacts.length ? <div className="contact-picker event-contact-results">{contacts.map((contact) => <button type="button" key={contact.id} disabled={Boolean(busy)} onClick={() => void act(`add-${contact.id}`, () => updateEventRoster({ runId: state.runId, action: "add", userId: contact.id, expectedRevision: state.revision }))}><ProfileAvatar name={contact.fullName} photoUrl={contact.photoUrl} size={44} /><span><strong>{contact.fullName}</strong><small>{contact.username ? `@${contact.username}` : "Community member"}</small></span><b>+</b></button>)}</div> : null}
           <button className="primary-button event-confirm-roster" type="button" disabled={Boolean(busy) || !state.rosterValidation.valid} onClick={() => void act("confirm-roster", () => confirmEventRoster(state.runId, state.revision))}>{busy === "confirm-roster" ? "Preparing invitations…" : "Confirm group & send invitations"}</button>
-        </section> : null}
+          </> : null}
+        </section>
 
         {ownInvitation?.status === "pending" ? <section className="event-panel invitation-decision-panel"><span className="section-kicker">Invitation</span><h2>Would you like to join coordination?</h2><p>Accepting does not confirm this provisional time. Everyone will confirm the final arrangement later.</p><div className="split-actions"><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void act("decline", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "decline", expectedRevision: state.revision }))}>Decline</button><button className="primary-button" disabled={Boolean(busy)} onClick={() => void act("accept", () => respondToEventInvitation({ runId: state.runId, invitationId: ownInvitation.invitationId, response: "accept", expectedRevision: state.revision }))}>Accept & coordinate</button></div></section> : null}
-
-        {organizer && state.lifecycle !== "forming" && state.invitations.some((invitation) => ["pending", "accepted"].includes(invitation.status)) ? <section className="event-panel"><span className="section-kicker">Invitation status</span><h2>Current guest responses</h2><div className="event-roster">{state.invitations.filter((invitation) => ["pending", "accepted"].includes(invitation.status)).map((invitation) => {
-          const profile = state.participantProgress.find((candidate) => candidate.userId === invitation.guestId);
-          const displayName = profile?.displayName ?? "Community member";
-          return <div key={invitation.invitationId}><ProfileAvatar name={displayName} photoUrl={profile?.photoUrl} size={44} /><p><strong>{displayName}</strong><small>{invitation.status}</small></p><button type="button" className="quiet-button" disabled={Boolean(busy)} onClick={() => void act(`replace-${invitation.invitationId}`, () => transitionEventInvitation({ runId: state.runId, invitationId: invitation.invitationId, action: "replace", expectedRevision: state.revision }))}>Replace</button></div>;
-        })}</div><p className="assistant-note">Replacing preserves the invitation history and returns the quest to group selection. Choose and validate the new guest before sending another invitation.</p></section> : null}
 
         {hasActiveMembership ? <Link className="primary-button quest-group-chat-link" href={`/messages?quest=${encodeURIComponent(state.runId)}`}>Open quest group chat</Link> : null}
 

@@ -33,6 +33,7 @@ export interface EventCoordinationStore {
   listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]>;
   listHiddenEventSuggestionIds(userId: string): Promise<string[]>;
   hideEventSuggestion(userId: string, runId: string): Promise<void>;
+  findQuestRun?(runId: string): Promise<QuestRun | null>;
   saveQuestRunWithFormation(
     run: QuestRun,
     state: EventCoordinationState,
@@ -193,6 +194,8 @@ export class EventCoordinator {
       throw new Error("Event coordination state was not found");
     }
     const safe = structuredClone(current) as EventQuestView;
+    const imageUrl = (await this.dependencies.store.findQuestRun?.(runId))?.imageUrl;
+    if (imageUrl) safe.imageUrl = imageUrl;
     if (organizer && current.lifecycle === "forming") {
       safe.rosterValidation = this.dependencies.validateRoster
         ? await this.dependencies.validateRoster(current.proposal)
@@ -1904,6 +1907,12 @@ export class EventCoordinator {
     ]);
     const hiddenSuggestions = new Set(hiddenSuggestionIds);
     const states = [...new Map([...relatedStates, ...recruitingStates].map((state) => [state.runId, this.withRecruitmentDefaults(state)])).values()];
+    const imageUrls = new Map(
+      await Promise.all(states.map(async (state) => {
+        const run = await this.dependencies.store.findQuestRun?.(state.runId);
+        return [state.runId, run?.imageUrl ?? null] as const;
+      })),
+    );
     const result: UserEventActivities = {
       unreadCount: 0,
       notifications: [],
@@ -1927,7 +1936,8 @@ export class EventCoordinator {
         runId: state.runId,
       })));
       const ownJoinRequest = [...state.joinRequests].reverse().find((request) => request.applicantId === userId);
-      let activity = this.activityCard(state, ownJoinRequest?.status ?? null);
+      const imageUrl = imageUrls.get(state.runId) ?? null;
+      let activity = this.activityCard(state, ownJoinRequest?.status ?? null, null, imageUrl);
       if (state.lifecycle === "forming"
         && state.memberships.length === 0
         && (state.initiatorId === userId
@@ -1950,7 +1960,7 @@ export class EventCoordinator {
             : assessment.discoverable
               ? { canRequest: false, notices: assessment.notices }
               : null;
-        activity = this.activityCard(state, ownJoinRequest?.status ?? null, viewerEligibility);
+        activity = this.activityCard(state, ownJoinRequest?.status ?? null, viewerEligibility, imageUrl);
         suggestedScores.set(
           state.runId,
           related ? 2 : assessment?.eligible ? 1 + (assessment.candidate.score ?? 0) : 0,
@@ -2031,11 +2041,13 @@ export class EventCoordinator {
     state: EventCoordinationState,
     viewerRequestStatus: EventJoinRequest["status"] | null = null,
     viewerEligibility: EventRecruitmentViewerEligibility | null = null,
+    imageUrl: string | null = null,
   ): EventActivityCard {
     const finalized = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "finalized");
     const working = [...state.arrangements].reverse().find((arrangement) => arrangement.status === "awaiting_participant_confirmation");
     return {
       runId: state.runId,
+      ...(imageUrl ? { imageUrl } : {}),
       title: state.proposal.quest.title,
       description: state.proposal.quest.description,
       lifecycle: state.lifecycle,

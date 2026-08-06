@@ -129,7 +129,7 @@ export class AssistantConversationService {
       }, pending.revision);
       throw error;
     }
-    const patchedBrief = questBriefDraftSchema.parse(this.applySafePatch(brief, turn.briefPatch));
+    const patchedBrief = questBriefDraftSchema.parse(this.applySafePatch(brief, turn.briefPatch, answer.field));
     const remaining = this.missingFields(patchedBrief);
     const ready = remaining.length === 0;
     const updated: AssistantConversationSnapshot = {
@@ -343,12 +343,19 @@ export class AssistantConversationService {
     return { ...brief, invitationConsent: answer.value };
   }
 
-  private applySafePatch(brief: QuestBriefDraft, patch: QuestBriefDraft): QuestBriefDraft {
+  private applySafePatch(
+    brief: QuestBriefDraft,
+    patch: QuestBriefDraft,
+    answeredField: AssistantAnswer["field"],
+  ): QuestBriefDraft {
     return {
       ...brief,
-      currentGoal: brief.currentGoal ?? patch.currentGoal,
-      interests: brief.interests ?? patch.interests,
-      offers: brief.offers ?? patch.offers,
+      // Only accept a model-extracted soft fact when that same field was the
+      // user's explicit answer. A consent reply such as "not yet" must never
+      // be reinterpreted as a new goal or other request detail.
+      currentGoal: answeredField === "goal" ? (brief.currentGoal ?? patch.currentGoal) : brief.currentGoal,
+      interests: answeredField === "interests" ? (brief.interests ?? patch.interests) : brief.interests,
+      offers: answeredField === "offers" ? (brief.offers ?? patch.offers) : brief.offers,
     };
   }
 

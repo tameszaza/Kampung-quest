@@ -1306,6 +1306,7 @@
 
 /* Keep all fill images stable in both Next.js and static QA renders. */
 .quest-card-image > img,
+.event-activity-card-image > img,
 .desktop-avatar > img,
 .home-avatar > img,
 .invite-image > img,
@@ -1326,10 +1327,73 @@
   gap: 13px;
 }
 
+.event-activity-card-link {
+  min-height: 224px;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+}
+
+.event-activity-card-image {
+  position: relative;
+  min-height: 224px;
+  overflow: hidden;
+  background: #e8efec;
+}
+
+.event-activity-card-image img {
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
+  transition: transform 180ms ease;
+}
+
+.event-activity-card:hover .event-activity-card-image img {
+  transform: scale(1.02);
+}
+
+.event-activity-status {
+  top: 12px;
+  left: 12px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .92);
+  color: var(--green-800);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
 .event-activity-card .quest-card-body {
-  min-height: 310px;
+  min-width: 0;
+  min-height: 224px;
   align-content: start;
-  padding: 24px;
+  padding: 18px 17px 16px;
+  gap: 9px;
+}
+
+.event-activity-card .quest-card-body h2 {
+  max-width: none;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.24;
+}
+
+.event-invitation-summary {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--green-700);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.event-invitation-summary svg {
+  flex: 0 0 auto;
 }
 
 .event-activity-card p,
@@ -1340,10 +1404,67 @@
   line-height: 1.55;
 }
 
+.event-activity-card .event-activity-description {
+  color: var(--ink-soft);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.event-activity-facts {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.event-activity-facts > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.event-activity-facts svg {
+  flex: 0 0 auto;
+  color: var(--green-700);
+}
+
 .event-card-action {
   align-self: end;
   margin-top: auto;
+  min-height: 42px;
+  padding: 0 13px;
+  font-size: 12px;
+  justify-content: space-between;
   text-align: center;
+}
+
+.event-card-action svg {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 379px) {
+  .event-activity-card-link {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .event-activity-card .quest-card-body {
+    padding: 14px 12px 13px;
+  }
+
+  .event-activity-card .quest-card-body h2 {
+    font-size: 15px;
+  }
+
+  .event-activity-facts {
+    font-size: 10px;
+  }
 }
 
 .provisional-time {

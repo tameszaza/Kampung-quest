@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
@@ -83,6 +84,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
 
   const received = activities?.invitations ?? [];
   const sent = activities?.sentInvitations ?? [];
+  const sentGroups = groupSentInvitations(sent);
   const suggestedCount = activities?.suggested.length ?? 0;
   const invitedCount = received.length;
   const notificationCount = activities?.unreadCount ?? 0;
@@ -102,7 +104,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
       {error ? <div className="connected-state error" role="alert"><Icon name="shield" />{error}<button className="text-button" type="button" onClick={() => void load()}>Try again</button></div> : null}
       {!activities && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading activities…</div> : null}
       {activities && tab === "Suggested" ? <>
-        <p className="matched-copy">Safely matched for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>
+        <p className="matched-copy">Matched for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>
         {activities.suggested.length ? (
           <section className="quest-grid" aria-label="Your suggested activities">
             {activities.suggested.map((activity) => <EventActivityCardView activity={activity} key={activity.runId} action="Review group" />)}
@@ -125,13 +127,13 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
               </div>
             </article>)}
           </section> : <EmptyActivities title="No pending invitations" body="New invitations that need your response will appear here." />
-        ) : sent.length ? <section className="invite-list" aria-label="Sent activity invitations">
-          {sent.map((invitation) => <article className="invite-card event-invite-card" key={invitation.invitationId}>
-            <span className={`image-badge quest-status-${invitation.status}`}>{invitation.status.replaceAll("_", " ")}</span>
-            <h2>{invitation.activity.title}</h2>
-            <p>Guest invitation sent</p>
-            <AvailabilityLabel activity={invitation.activity} />
-          </article>)}
+        ) : sentGroups.length ? <section className="quest-grid sent-invitation-grid" aria-label="Sent activity invitations">
+          {sentGroups.map(({ activity, invitations }) => <EventActivityCardView
+            activity={activity}
+            action="View activity"
+            invitationSummary={summarizeSentInvitations(invitations)}
+            key={activity.runId}
+          />)}
         </section> : <EmptyActivities title="No sent invitations" body="Invitations are created after you confirm a suggested group." />}
       </> : null}
       {activities && tab === "Notifications" ? <ActivityNotifications /> : null}
@@ -139,18 +141,84 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
   );
 }
 
-export function EventActivityCardView({ activity, action = "View activity" }: { activity: EventActivityCard; action?: string }) {
+export function EventActivityCardView({
+  activity,
+  action = "View activity",
+  invitationSummary,
+}: {
+  activity: EventActivityCard;
+  action?: string;
+  invitationSummary?: string;
+}) {
+  const status = activityStatusLabel(activity.lifecycle);
+  const window = activity.finalArrangement ?? activity.provisionalAvailability;
+  const matchedGroup = activity.recruitment?.currentApprovedCount
+    ? `${activity.recruitment.currentApprovedCount} matched`
+    : null;
+
   return <article className="quest-card event-activity-card">
-    <Link className="quest-card-link" href={`/quests/${activity.runId}`}>
+    <Link className="quest-card-link event-activity-card-link" href={`/quests/${activity.runId}`}>
+      <div className="event-activity-card-image">
+        <Image src={activity.imageUrl ?? "/assets/quest-placeholder.svg"} alt="" fill sizes="(max-width: 767px) 34vw, 140px" />
+        <span className="image-badge event-activity-status"><Icon name={activity.lifecycle === "scheduled" ? "check" : "people"} size={14} /> {status}</span>
+      </div>
       <div className="quest-card-body">
-        <span className="result-kicker"><Icon name={activity.lifecycle === "scheduled" ? "check" : "people"} size={17} /> {activity.lifecycle === "forming" ? "Group ready to review" : activity.lifecycle.replaceAll("_", " ")}</span>
+        {invitationSummary ? <span className="event-invitation-summary"><Icon name="invite" size={14} />{invitationSummary}</span> : null}
         <h2>{activity.title}</h2>
-        <p>{activity.description}</p>
-        <AvailabilityLabel activity={activity} />
-        <span className="primary-button event-card-action">{action}</span>
+        <p className="event-activity-description">{activity.description}</p>
+        <div className="event-activity-facts" aria-label="Activity summary">
+          <span><Icon name="calendar" size={16} />{window ? formatCompactWindow(window.start, window.end) : "Time to coordinate"}</span>
+          {matchedGroup ? <span><Icon name="people" size={16} />{matchedGroup}</span> : null}
+        </div>
+        <span className="primary-button event-card-action"><span>{action}</span><Icon name="chevron" size={17} /></span>
       </div>
     </Link>
   </article>;
+}
+
+function groupSentInvitations(invitations: EventInvitationView[]) {
+  const groups = new Map<string, { activity: EventActivityCard; invitations: EventInvitationView[] }>();
+  for (const invitation of invitations) {
+    const existing = groups.get(invitation.activity.runId);
+    if (existing) existing.invitations.push(invitation);
+    else groups.set(invitation.activity.runId, { activity: invitation.activity, invitations: [invitation] });
+  }
+  return [...groups.values()];
+}
+
+function summarizeSentInvitations(invitations: EventInvitationView[]) {
+  const counts = new Map<EventInvitationView["status"], number>();
+  for (const invitation of invitations) counts.set(invitation.status, (counts.get(invitation.status) ?? 0) + 1);
+
+  const total = invitations.length;
+  if (counts.size === 1) {
+    const status = invitations[0].status;
+    if (status === "pending") return `${total} invitation${total === 1 ? "" : "s"} sent`;
+    return `${total} invitation${total === 1 ? "" : "s"} ${formatInvitationStatus(status)}`;
+  }
+
+  return [...counts.entries()]
+    .map(([status, count]) => `${count} ${formatInvitationStatus(status)}`)
+    .join(" · ");
+}
+
+function formatInvitationStatus(status: EventInvitationView["status"]) {
+  if (status === "accepted") return "accepted";
+  if (status === "declined") return "declined";
+  if (status === "expired") return "expired";
+  if (status === "withdrawn") return "withdrawn";
+  if (status === "replaced") return "replaced";
+  if (status === "cancelled") return "cancelled";
+  return "pending";
+}
+
+function activityStatusLabel(lifecycle: EventActivityCard["lifecycle"]) {
+  if (lifecycle === "forming") return "Group ready";
+  if (lifecycle === "recruiting") return "Open group";
+  if (lifecycle === "awaiting_confirmation") return "Confirm time";
+  if (lifecycle === "scheduled") return "Scheduled";
+  if (lifecycle === "human_review") return "Needs review";
+  return "Activity";
 }
 
 function AvailabilityLabel({ activity }: { activity: EventActivityCard }) {
@@ -167,4 +235,10 @@ function formatWindow(start: string, end: string) {
   const from = new Date(start);
   const until = new Date(end);
   return `${from.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function formatCompactWindow(start: string, end: string) {
+  const from = new Date(start);
+  const until = new Date(end);
+  return `${from.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${from.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }

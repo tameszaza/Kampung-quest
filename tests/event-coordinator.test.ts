@@ -64,6 +64,23 @@ function approvedRun(): QuestRun {
 }
 
 describe("EventCoordinator", () => {
+  it("shares the generated thumbnail with participant activity cards", async () => {
+    const run = approvedRun();
+    run.imageUrl = "/api/quest-images/generated-thumbnail";
+    const store = new InMemoryKampungStore();
+    await store.createQuestRun(run);
+    const coordinator = new EventCoordinator({ store });
+
+    await coordinator.createFormation(run);
+
+    expect((await coordinator.listActivities("anne")).suggested).toEqual([
+      expect.objectContaining({
+        runId: run.runId,
+        imageUrl: run.imageUrl,
+      }),
+    ]);
+  });
+
   it("chooses the compatible appointment nearest to the requested time", () => {
     const windows = [
       [

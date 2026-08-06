@@ -282,6 +282,8 @@ export interface EventCoordinationState {
 }
 
 export interface EventQuestView extends EventCoordinationState {
+  /** Generated once for the quest and available to every authorized viewer. */
+  imageUrl?: string | null;
   viewer: {
     role: "organizer" | "pending_invitee" | "participant" | "selected" | "applicant";
     canChat: boolean;
@@ -417,6 +419,8 @@ export const arrangementDecisionRequestSchema = z.object({
 
 export interface EventActivityCard {
   runId: string;
+  /** Generated once for the quest and shared by organizer and participant views. */
+  imageUrl?: string | null;
   title: string;
   description: string;
   lifecycle: EventQuestLifecycle;

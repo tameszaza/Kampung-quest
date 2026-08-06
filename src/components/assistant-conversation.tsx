@@ -28,6 +28,7 @@ import { expandAvailability } from "@/server/features/availability-service";
 
 const CONVERSATION_KEY = "senior-quest-ai-conversation-id";
 const LEGACY_DRAFT_KEY = "senior-quest-assistant-draft";
+const DEFAULT_AVAILABILITY_DURATION_MS = 3 * 60 * 60 * 1000;
 
 function localDateTime(date: Date) {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -39,6 +40,41 @@ function tomorrowAt(hour: number) {
   value.setDate(value.getDate() + 1);
   value.setHours(hour, 0, 0, 0);
   return localDateTime(value);
+}
+
+function combineLocalDateTime(current: string, part: "date" | "time", value: string) {
+  const date = part === "date" ? value : current.slice(0, 10);
+  const time = part === "time" ? value : current.slice(11, 16);
+  return `${date}T${time}`;
+}
+
+function formatLocalDateTime(timestamp: number) {
+  const value = new Date(timestamp);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
+
+function strictlyAfterTime(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  const totalMinutes = Math.min(hour * 60 + minute + 1, 23 * 60 + 59);
+  return `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
+}
+
+export function isAvailabilityRangeValid(start: string, end: string) {
+  const startTime = Date.parse(start);
+  const endTime = Date.parse(end);
+  return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime;
+}
+
+export function shiftAvailabilityEnd(currentStart: string, currentEnd: string, nextStart: string) {
+  const startTime = Date.parse(currentStart);
+  const endTime = Date.parse(currentEnd);
+  const nextStartTime = Date.parse(nextStart);
+  const duration = Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime
+    ? endTime - startTime
+    : DEFAULT_AVAILABILITY_DURATION_MS;
+  return Number.isFinite(nextStartTime) ? formatLocalDateTime(nextStartTime + duration) : currentEnd;
 }
 
 function displayDate(start?: string, end?: string) {
@@ -406,6 +442,7 @@ function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnsw
   const [patternError, setPatternError] = useState("");
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Singapore";
   const specificSelection = specificAvailabilityWindows(windows, start, end, timeZone);
+  const specificRangeValid = isAvailabilityRangeValid(start, end);
 
   function addWindow() {
     if (Date.parse(end) <= Date.parse(start)) return;
@@ -437,7 +474,20 @@ function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnsw
     setPatternError("");
   }
 
-  return <form className="assistant-choice-panel availability-panel" onSubmit={(event) => {
+  function updateStartDateTime(part: "date" | "time", value: string) {
+    const nextStart = combineLocalDateTime(start, part, value);
+    setStart(nextStart);
+    setEnd(shiftAvailabilityEnd(start, end, nextStart));
+  }
+
+  function updateEndDateTime(part: "date" | "time", value: string) {
+    setEnd(combineLocalDateTime(end, part, value));
+  }
+
+  const dayLabels = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const selectedDays = days.map((day) => dayLabels[day]).join(", ");
+
+  return <form className={`assistant-choice-panel availability-panel availability-${mode}`} onSubmit={(event) => {
     event.preventDefault();
     if (mode === "specific") {
       if (!specificSelection.length) return;
@@ -460,27 +510,39 @@ function AvailabilityControl({ disabled, onAnswer }: { disabled: boolean; onAnsw
     });
     onAnswer({ field: "availability", value: { availableWindows, recurringAvailabilityRules: [rule] } });
   }}>
-    <div className="availability-mode" role="group" aria-label="Availability type"><button type="button" className={mode === "specific" ? "active" : ""} onClick={() => setMode("specific")}>Specific times</button><button type="button" className={mode === "weekly" ? "active" : ""} onClick={() => setMode("weekly")}>Weekly pattern</button></div>
-    <div className="availability-heading"><strong>When are you available?</strong><small>These times help us find a match. They are not the activity schedule.</small></div>
+    <div className="availability-panel-header">
+      <div className="availability-heading"><span className="availability-heading-icon"><Icon name="calendar" size={27} /></span><span><strong>When are you available?</strong><small>These times help us find a match. They are not the activity schedule.</small></span></div>
+      <div className="availability-mode" role="group" aria-label="Availability type"><button type="button" className={mode === "specific" ? "active" : ""} onClick={() => setMode("specific")}><Icon name="clock" size={17} /> Specific times</button><button type="button" className={mode === "weekly" ? "active" : ""} onClick={() => setMode("weekly")}><Icon name="calendar" size={17} /> Weekly pattern</button></div>
+    </div>
     {mode === "specific" ? <>
-      <label>Available from<input type="datetime-local" required value={start} onChange={(event) => setStart(event.target.value)} /></label>
-      <label>Available until<input type="datetime-local" required value={end} onChange={(event) => setEnd(event.target.value)} /></label>
-      <button className="secondary-button" type="button" disabled={disabled || Date.parse(end) <= Date.parse(start)} onClick={addWindow}>Add available time</button>
+      <div className={`availability-specific-fields${specificRangeValid ? "" : " is-invalid"}`}>
+        <label className="availability-date-time-field"><span>Available from</span><span className="availability-date-time-controls"><span className="availability-input-with-icon"><Icon name="calendar" size={17} /><input type="date" required aria-label="Available from date" value={start.slice(0, 10)} onChange={(event) => updateStartDateTime("date", event.target.value)} /></span><span className="availability-input-with-icon"><Icon name="clock" size={17} /><input type="time" required aria-label="Available from time" value={start.slice(11, 16)} onChange={(event) => updateStartDateTime("time", event.target.value)} /></span></span></label>
+        <span className="availability-range-arrow" aria-hidden="true">→</span>
+        <label className="availability-date-time-field"><span>Available until</span><span className="availability-date-time-controls"><span className="availability-input-with-icon"><Icon name="calendar" size={17} /><input type="date" required aria-label="Available until date" min={start.slice(0, 10)} aria-invalid={!specificRangeValid} value={end.slice(0, 10)} onChange={(event) => updateEndDateTime("date", event.target.value)} /></span><span className="availability-input-with-icon"><Icon name="clock" size={17} /><input type="time" required aria-label="Available until time" min={end.slice(0, 10) === start.slice(0, 10) ? strictlyAfterTime(start.slice(11, 16)) : undefined} aria-invalid={!specificRangeValid} value={end.slice(11, 16)} onChange={(event) => updateEndDateTime("time", event.target.value)} /></span></span></label>
+      </div>
+      {!specificRangeValid ? <p className="field-error availability-range-error" role="alert">End time must be after the start time.</p> : null}
+      <button className="availability-add-button" type="button" disabled={disabled || !specificRangeValid} onClick={addWindow}><Icon name="plus" size={18} /> Add another time</button>
       {windows.length ? <ul className="availability-list">{windows.map((window, index) => <li key={`${window.start}-${window.end}`}><span>{displayDate(window.start, window.end)}</span><button type="button" onClick={() => setWindows((items) => items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></li>)}</ul> : null}
       <button className="primary-button" type="submit" disabled={disabled || specificSelection.length === 0}>Confirm {specificSelection.length || ""} available time{specificSelection.length === 1 ? "" : "s"}</button>
     </> : <>
-      <div className="availability-natural-entry"><label>Describe a weekly pattern (optional)<input type="text" value={patternText} onChange={(event) => setPatternText(event.target.value)} placeholder="For example, weekday mornings" /></label><button className="secondary-button" type="button" disabled={!patternText.trim()} onClick={interpretPattern}>Interpret</button></div>
-      {patternError ? <p className="field-error" role="alert">{patternError}</p> : null}
-      <div className="assistant-suggestions availability-presets"><button type="button" onClick={() => applyPreset("weekday_mornings")}>Weekday mornings</button><button type="button" onClick={() => applyPreset("tuesday_evening")}>Tuesday evening</button></div>
-      <fieldset className="weekday-picker"><legend>Available days</legend>{[[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"]].map(([day, label]) => <label key={day}><input type="checkbox" checked={days.includes(day as number)} onChange={() => setDays((items) => items.includes(day as number) ? items.filter((item) => item !== day) : [...items, day as number].sort())} /><span>{label}</span></label>)}</fieldset>
-      <label>From<input type="time" value={weeklyStart} required onChange={(event) => setWeeklyStart(event.target.value)} /></label>
-      <label>Until<input type="time" value={weeklyEnd} required onChange={(event) => setWeeklyEnd(event.target.value)} /></label>
-      <label>Starting on<input type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} /></label>
-      <label>Ending on<input type="date" value={validUntil} required onChange={(event) => setValidUntil(event.target.value)} /></label>
-      {days.length && validFrom && validUntil ? <div className="availability-interpretation"><strong>Please confirm this interpretation</strong><p>Every {days.map((day) => ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][day]).join(", ")} from {weeklyStart} to {weeklyEnd}, {validFrom} through {validUntil} ({timeZone}).</p></div> : null}
+      <details className="availability-pattern-tools"><summary>Use a written pattern instead</summary><div className="availability-natural-entry"><label>Describe a weekly pattern (optional)<input type="text" value={patternText} onChange={(event) => setPatternText(event.target.value)} placeholder="For example, weekday mornings" /></label><button className="secondary-button" type="button" disabled={!patternText.trim()} onClick={interpretPattern}>Interpret</button></div>{patternError ? <p className="field-error" role="alert">{patternError}</p> : null}<div className="assistant-suggestions availability-presets"><button type="button" onClick={() => applyPreset("weekday_mornings")}>Weekday mornings</button><button type="button" onClick={() => applyPreset("tuesday_evening")}>Tuesday evening</button></div></details>
+      <fieldset className="weekday-picker"><legend>1. Choose your available days</legend>{[[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"]].map(([day, label]) => <label key={day}><input type="checkbox" checked={days.includes(day as number)} onChange={() => setDays((items) => items.includes(day as number) ? items.filter((item) => item !== day) : [...items, day as number].sort())} /><span>{label}</span></label>)}</fieldset>
+      <div className="availability-weekly-fields"><div><span className="availability-step-label">2. Time range</span><label>From<span className="availability-input-with-icon"><Icon name="clock" size={17} /><input type="time" value={weeklyStart} required onChange={(event) => setWeeklyStart(event.target.value)} /></span></label><label>To<span className="availability-input-with-icon"><Icon name="clock" size={17} /><input type="time" value={weeklyEnd} required onChange={(event) => setWeeklyEnd(event.target.value)} /></span></label></div><div><span className="availability-step-label">3. Date range <small>(optional)</small></span><label>Starting from<span className="availability-input-with-icon"><Icon name="calendar" size={17} /><input type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} /></span></label><label>Ending on<span className="availability-input-with-icon"><Icon name="calendar" size={17} /><input type="date" value={validUntil} required onChange={(event) => setValidUntil(event.target.value)} /></span></label></div><aside className="availability-interpretation"><strong>Examples of your availability</strong>{days.length && validFrom && validUntil ? <><p><Icon name="check" size={17} /> {selectedDays} · {formatClock(weeklyStart)}–{formatClock(weeklyEnd)}</p><p><Icon name="check" size={17} /> Recurring until {formatDateLabel(validUntil)}</p></> : <p>Select days and a date range to preview your availability.</p>}</aside></div>
+      <div className="availability-add-button availability-add-button-static" aria-hidden="true"><Icon name="plus" size={18} /> Add another time block</div>
       <button className="primary-button" type="submit" disabled={disabled || !days.length || !validFrom || !validUntil || validUntil < validFrom || weeklyEnd <= weeklyStart}>Confirm weekly availability</button>
     </>}
   </form>;
+}
+
+function formatClock(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  return new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function formatDateLabel(value: string) {
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 function parseWeeklyPattern(value: string): { days: number[]; start: string; end: string } | null {
@@ -542,7 +604,14 @@ function ReviewCard({ conversation, onEdit, onConfirm }: {
     <h2>Review the quest brief</h2>
     <p>This current request—not older goals—will guide matchmaking.</p>
     <dl>{rows.map(([label, value, field]) => <div key={field}><dt>{label}</dt><dd>{value}</dd><button type="button" onClick={() => onEdit(field)}>Edit</button></div>)}</dl>
-    <button className="primary-button" type="button" disabled={!brief.invitationConsent} onClick={onConfirm}>{brief.invitationConsent ? "Confirm and find my quest" : "Grant consent before matchmaking"}</button>
+    <button
+      className="primary-button"
+      type="button"
+      onClick={() => brief.invitationConsent ? onConfirm() : onEdit("consent")}
+    >
+      {brief.invitationConsent ? "Confirm and find my quest" : "Grant consent to continue"}
+    </button>
+    {!brief.invitationConsent ? <p className="assistant-note">Your preferences are saved. Matching and invitations will wait until you grant consent.</p> : null}
   </section>;
 }
 

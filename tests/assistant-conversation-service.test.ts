@@ -219,6 +219,32 @@ describe("Senior Quest AI conversation", () => {
     expect(conversation.status).toBe("ready_for_review");
   });
 
+  it("does not treat a consent reply as a new current request", async () => {
+    class MislabelingRuntime extends DeterministicAgentRuntime {
+      override async conductConversation(
+        input: Parameters<DeterministicAgentRuntime["conductConversation"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["conductConversation"]> {
+        const output = await super.conductConversation(input);
+        return { ...output, briefPatch: { currentGoal: "yes" } };
+      }
+    }
+
+    const service = new AssistantConversationService({
+      store: new InMemoryKampungStore(),
+      agents: new MislabelingRuntime(),
+    });
+    const opened = await service.create({ candidateId: "maria" });
+    const answered = await service.addTurn(opened.conversationId, {
+      clientTurnId: "consent-before-goal",
+      revision: opened.revision,
+      answer: { field: "consent", value: false },
+    });
+
+    expect(answered.brief.currentGoal).toBeUndefined();
+    expect(answered.brief.invitationConsent).toBe(false);
+    expect(answered.nextField).toBe("goal");
+  });
+
   it("persists truthful workflow stages while preparing a quest", async () => {
     const service = orchestrated(true);
     const ready = await readyConversation(service);
