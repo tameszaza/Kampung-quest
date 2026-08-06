@@ -1,5 +1,9 @@
 # Open quest recruitment requirements
 
+> Status: implemented reference. The current owners are [`EventCoordinator`](../src/server/features/event-coordinator.ts), [`recruitment-eligibility-service.ts`](../src/server/features/recruitment-eligibility-service.ts), the event quest routes, and [`src/components/event-quest-detail.tsx`](../src/components/event-quest-detail.tsx). See the [current web state](current-web-state.md) for the behavior that is actually exposed today.
+
+This document records the recruitment contract. It is not a checklist of unimplemented work; any remaining product choices are listed under [Deferred decisions](#deferred-decisions).
+
 ## Purpose
 
 Allow an organizer to create an understaffed quest and recruit people through **Activities → Suggested**. Recruiting quests are broadly discoverable, while hard eligibility still controls who may request to join.
@@ -179,4 +183,4 @@ The grilling session intentionally did not decide:
 - organizer cancellation and republication behavior; and
 - moderation, reporting, rate-limit, and abuse-handling rules.
 
-These decisions must be resolved before implementation and should not be inferred from this document.
+These remain product decisions for a future iteration. The implemented behavior must not be expanded by inference; resolve one of these decisions explicitly before changing the current recruitment contract.

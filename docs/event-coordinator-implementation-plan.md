@@ -1,5 +1,11 @@
 # Event Coordinator implementation plan
 
+> Status: historical delivery plan updated with current-state context. The implementation now includes server-backed rosters, invitations, memberships, open recruitment, private/group coordination, arrangement confirmation, lifecycle recovery, tasks, and rewards. Use [`current-web-state.md`](current-web-state.md) and the [developer file map](developer-guide.md#where-to-edit) as the editing guide; this document preserves the original decisions and phased plan.
+
+## Current implementation snapshot
+
+The original “replace demo authority” work has landed in the current codebase. Start edits in [`src/server/features/event-coordinator.ts`](../src/server/features/event-coordinator.ts), [`src/server/domain/event-coordination.ts`](../src/server/domain/event-coordination.ts), [`src/features/events/client.ts`](../src/features/events/client.ts), and the event route handlers under [`src/app/api/v1/event-quests`](../src/app/api/v1/event-quests). Current Activities and My Activities are server-backed; the browser does not own invitations or memberships. Use [`api-reference.md`](api-reference.md) for exact implemented endpoint names because the route names in the historical plan sections below are design-era names.
+
 ## Purpose
 
 Replace the current demo-only invitation and activity-decision behavior with one durable, authorization-protected quest lifecycle. The result must treat times as availability until coordination is complete, support recommended and manually selected participants, deliver real invitations, provide private quest-scoped coordination conversations, finalize schedules and venues through explicit confirmation, and show each member the correct server-backed Activities and My Activities state.
@@ -25,17 +31,16 @@ This plan is based on the current implementation in the Senior Quest assistant, 
 
 ## Current-state findings that shape the implementation
 
-- `constraints.availableWindows` supports one or more concrete timestamp ranges, but the assistant replaces the array with one selected range.
-- Synthesis intersects participant availability and writes the result to `quest.proposedTimeWindow`; UI components present that range as a date and time even though coordination has not happened.
-- An approved proposal immediately calls `MockInvitationAdapter` for every proposed participant, including the initiator.
-- Invitation status is nested in the `QuestRun` JSON payload. There are no durable invitation, membership, notification, arrangement, or confirmation records.
-- Quest list and detail APIs authorize only `initiatingCandidateId`; invited participants cannot see or act on a quest.
-- Coordination supports only accept, decline, timeout, complete, and cancel events. A mock venue adapter confirms the quest after all nested invitations are accepted.
-- Activities recommendations can come from the engine, but action buttons use `localStorage`. Invitations and My Activities use mock data.
-- Chat is server-backed, membership-authorized, privacy-aware, and available in both in-memory and PostgreSQL stores. It has only plain text messages and no quest-linked message/card type.
-- `quest.coordination_events` already provides an immutable event mechanism, and PostgreSQL state-plus-event writes already use a transaction and optimistic concurrency.
-- The quest store and identity/chat store are separate interfaces and separate in-memory instances. PostgreSQL shares one database, but application-level cross-store transactions do not currently exist.
-- Existing tests cover core synthesis, validation, safety, basic coordination recovery, assistant idempotency, chat privacy, and PostgreSQL persistence. They do not cover the requested end-to-end invitation/membership/coordination lifecycle.
+- Availability is represented as one or more concrete timestamp windows. Recurring rules and a recurrence expansion horizon are not part of the current schema.
+- Proposals retain provisional availability separately from finalized arrangements; UI labels use “availability being coordinated” until an arrangement is finalized.
+- Formation creates a durable event coordination state. Roster confirmation creates the organizer membership and guest invitations through the event coordinator; the initiator is not invited to themself.
+- Invitation, membership, recruitment, join-request, coordination-thread, arrangement, notification, audit, outbox, task-plan, and reward data are persisted in the event state and mirrored by the PostgreSQL event tables.
+- Quest list/detail/activity APIs return role-safe views to organizers, selected participants, invitees, accepted members, and eligible recruiting applicants.
+- Activities and My Activities are server-backed. The client owns tab selection and transient loading/error state, not invitation or membership decisions.
+- Private and group quest coordination threads are event-owned and are merged into the Messages view as quest conversation summaries.
+- The coordination agent emits structured intents. `EventCoordinator` applies deterministic requirement, appointment, lifecycle, role, and task mutations with optimistic revisions.
+- PostgreSQL state, audit, outbox, and reward writes are transactional within the event repository; the in-memory repository mirrors the same contract for tests and no-database development.
+- Existing tests cover core synthesis, validation, safety, recruitment, access, coordination, chat, rewards, and PostgreSQL persistence. Browser/e2e coverage should still expand with new UI behavior.
 
 ## Architectural direction
 

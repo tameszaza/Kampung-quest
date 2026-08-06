@@ -1,5 +1,15 @@
 # Agentic Event Coordination Implementation Plan
 
+> Status: historical delivery plan. Most of the durable private/group coordination, structured intents, arrangement versions, confirmation flow, lifecycle commands, and task/reward hooks described here now exist. Use [`current-web-state.md`](current-web-state.md), [`developer-guide.md`](developer-guide.md), and [`api-reference.md`](api-reference.md) before changing code. The plan below is retained for design rationale and remaining extensions.
+
+## Current implementation snapshot
+
+- The implemented private and group message routes are `GET/POST /api/v1/event-quests/[questId]/coordination` and `GET/POST /api/v1/event-quests/[questId]/coordination/group`.
+- [`EventCoordinator`](../src/server/features/event-coordinator.ts) owns authorization, structured intent handling, requirements, arrangements, confirmations, lifecycle, audit, notifications, task plans, and reward entries.
+- [`event-coordination.ts`](../src/server/domain/event-coordination.ts) already contains the discriminated `CoordinationIntent` contract proposed below.
+- [`event-coordination-conversation.tsx`](../src/components/event-coordination-conversation.tsx) and [`chat-center.tsx`](../src/components/chat-center.tsx) expose the event threads in the web UI.
+- Remaining work is integration/product scope: recurring availability, external venue/delivery adapters, partner redemption, and broader browser coverage. The [API reference](api-reference.md) is the implemented route list.
+
 ## Objective
 
 Implement the behavior defined in [Agentic Event Coordination Requirements](./agentic-event-coordination-requirements.md): private and group coordination chats must share one activity state and one action engine; authorized natural-language requests must make real appointment changes; incompatible requests must produce privacy-safe compromises; and the appointment becomes final only after every active participant confirms the same version.
@@ -495,4 +505,3 @@ Exit: all acceptance criteria pass with the feature flag on, and no legacy event
 - The activity hub and Messages UI show the same server-backed coordination state.
 - Mutations are authorized, schema-validated, idempotent, optimistic-concurrency-safe, transactional, auditable, and equivalent in the in-memory and PostgreSQL stores.
 - Typecheck, lint, unit, integration, component, end-to-end, migration, production-build, privacy, and accessibility checks pass under Node 22+.
-

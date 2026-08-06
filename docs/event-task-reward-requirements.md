@@ -1,5 +1,7 @@
 # Event Task Rewards Requirements
 
+> Status: implemented reference. The current owners are [`event-tasks.ts`](../src/server/domain/event-tasks.ts), [`EventCoordinator`](../src/server/features/event-coordinator.ts), [`event-task-board.tsx`](../src/components/event-task-board.tsx), and [`reward-service.ts`](../src/server/features/reward-service.ts). `/rewards` shows real balances and approved task history; partner redemption remains preview-only.
+
 ## 1. Purpose
 
 After an event's participants, venue, and appointment time are finalised, Senior Quest must turn the event into a small, clear quest.

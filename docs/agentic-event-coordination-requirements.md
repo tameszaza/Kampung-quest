@@ -1,5 +1,7 @@
 # Agentic Event Coordination Requirements
 
+> Status: current product contract with implementation notes. The event-owned state and command boundary are in [`event-coordination.ts`](../src/server/domain/event-coordination.ts) and [`event-coordinator.ts`](../src/server/features/event-coordinator.ts); the browser surfaces are [`event-coordination-conversation.tsx`](../src/components/event-coordination-conversation.tsx) and [`chat-center.tsx`](../src/components/chat-center.tsx).
+
 ## 1. Purpose
 
 Senior Quest must provide two complementary spaces for coordinating an activity:
@@ -245,18 +247,24 @@ Given a non-organizer requests cancellation or a roster change, the system makes
 
 Given a private constraint blocks a group request, neither the group response, change card, logs exposed to participants, nor notifications reveal whose constraint it was or its sensitive details.
 
-## 12. Current implementation gaps
+## 12. Current implementation status and remaining gaps
 
-The present implementation already provides private participant threads, structured pending requirements, appointment versions, confirmation records, authorization checks, audit events, and quest-linked group conversation infrastructure. The following gaps must be closed:
+The current implementation covers the core contract:
 
-- expose the quest group chat inside the coordination experience;
-- connect group messages to the coordination agent and activity command pipeline;
-- expand the agent output contract from `reply + requirementPatch` to structured coordination intents;
-- replace the current manual “suggest arrangement” dependency with message-triggered compatibility evaluation and appointment mutation;
-- allow authorized participant-driven time, venue, and duration changes;
-- publish committed mutations and status changes into both chat surfaces;
-- make confirmation possible through natural language in either chat;
-- ensure appointment changes invalidate confirmations and finalization requires every active participant, including the organizer;
-- add privacy-safe compromise generation when requests conflict; and
-- make agent intervention selective in ordinary group conversation.
+- private participant threads and an accepted-member group thread are stored on the event coordination state;
+- both scopes call the structured coordination agent output and the same deterministic mutation helpers;
+- `CoordinationIntent` supports requirement updates, appointment changes, confirmations, rejection, questions, organizer actions, and unsupported requests;
+- appointment proposals are versioned, validated, approval-gated, and confirmation-gated;
+- material changes supersede active arrangements and reset the relevant task plan;
+- public group messages use privacy-safe conflict replies and structured system updates;
+- activity membership and role checks control access to private and group coordination;
+- lifecycle commands, audit events, notifications, optimistic revisions, and idempotency keys are persisted; and
+- scheduled activities can generate roles and tasks, which feed the verified reward ledger.
 
+Remaining boundaries are product/integration work rather than missing core state:
+
+- availability is currently represented as concrete timestamp windows; recurring availability and its expansion horizon are not implemented;
+- venue validation is local/deterministic and does not book or verify an external venue;
+- the outbox records internal delivery work, but push/email delivery adapters are not included;
+- partner reward redemption and admin-facing task moderation are not connected to an external product; and
+- broader end-to-end browser coverage should continue to grow as new coordination UI is added.
