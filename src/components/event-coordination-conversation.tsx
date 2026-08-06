@@ -28,12 +28,15 @@ import { createClientRequestId } from "@/lib/client-request-id";
 
 const REFRESH_INTERVAL_MS = 1_500;
 
-export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle }: {
+export function EventCoordinationConversation({ runId, embedded = false, showHeader = true, onBack, onTitle, scope: controlledScope, onScopeChange, onGroupAvailabilityChange }: {
   runId: string;
   embedded?: boolean;
   showHeader?: boolean;
   onBack?: () => void;
   onTitle?: (title: string, memberCount: number) => void;
+  scope?: "private" | "group";
+  onScopeChange?: (scope: "private" | "group") => void;
+  onGroupAvailabilityChange?: (available: boolean) => void;
 }) {
   const [thread, setThread] = useState<EventCoordinationThread | null>(null);
   const [groupThread, setGroupThread] = useState<EventGroupCoordinationThread | null>(null);
@@ -48,6 +51,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const bottomRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const acknowledgedNotificationsRef = useRef("");
+  const activeScope = controlledScope ?? scope;
 
   const scrollToLatest = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -66,7 +70,11 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
         : null;
       setThread(nextThread);
       setGroupThread(nextGroupThread);
-      if (!nextGroupThread) setScope("private");
+      onGroupAvailabilityChange?.(Boolean(nextGroupThread));
+      if (!nextGroupThread) {
+        setScope("private");
+        onScopeChange?.("private");
+      }
       setQuest(nextQuest);
       onTitle?.(nextQuest.proposal.quest.title, nextQuest.participantProgress.length);
       setError("");
@@ -84,7 +92,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [onTitle, runId, scrollToLatest]);
+  }, [onGroupAvailabilityChange, onScopeChange, onTitle, runId, scrollToLatest]);
 
   useEffect(() => {
     let active = true;
@@ -110,12 +118,12 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     event.preventDefault();
     const body = draft.trim();
     if (!thread || !quest?.viewer.canChat || !body || busy || sending) return;
-    const activeThread = scope === "group" ? groupThread : thread;
+    const activeThread = activeScope === "group" ? groupThread : thread;
     if (!activeThread) return;
     const clientMessageId = createClientRequestId();
     const optimisticMessage = {
       messageId: clientMessageId,
-      senderId: scope === "group" ? thread.userId : undefined,
+      senderId: activeScope === "group" ? thread.userId : undefined,
       role: "participant" as const,
       body,
       kind: "text" as const,
@@ -127,14 +135,14 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     setPendingMessageId(clientMessageId);
     setError("");
     setDraft("");
-    if (scope === "group") {
+    if (activeScope === "group") {
       setGroupThread({ ...activeThread as EventGroupCoordinationThread, messages: [...activeThread.messages, optimisticMessage] });
     } else {
       setThread({ ...activeThread as EventCoordinationThread, messages: [...activeThread.messages, optimisticMessage] });
     }
     scrollToLatest();
     try {
-      if (scope === "group") {
+      if (activeScope === "group") {
         setGroupThread(await sendEventGroupCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
       } else {
         setThread(await sendEventCoordinationMessage({ runId, body, expectedRevision: activeThread.revision, clientMessageId }));
@@ -147,11 +155,11 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     } catch (reason) {
       const messageError = reason instanceof Error ? reason.message : "Message could not be sent";
       try {
-        const reconciled = scope === "group"
+        const reconciled = activeScope === "group"
           ? await getEventGroupCoordinationThread(runId)
           : await getEventCoordinationThread(runId);
         const delivered = reconciled.messages.some((message) => message.messageId === clientMessageId);
-        if (scope === "group") {
+        if (activeScope === "group") {
           setGroupThread(reconciled as EventGroupCoordinationThread);
         } else {
           setThread(reconciled as EventCoordinationThread);
@@ -165,7 +173,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       } catch {
         setDraft(body);
         setError(messageError);
-        if (scope === "group") {
+        if (activeScope === "group") {
           setGroupThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
         } else {
           setThread((value) => value ? { ...value, messages: value.messages.filter((message) => message.messageId !== clientMessageId) } : value);
@@ -262,7 +270,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const joinedCount = quest.participantProgress.filter((participant) =>
     participant.invitationStatus === "organizer" || isActiveMembershipStatus(participant.membershipStatus)).length;
   const title = quest.proposal.quest.title;
-  const activeMessages = scope === "group" ? groupThread?.messages ?? [] : thread.messages;
+  const activeMessages = activeScope === "group" ? groupThread?.messages ?? [] : thread.messages;
 
   const overviewDetails = <>
     <dl className="coordination-facts">
@@ -296,15 +304,15 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
         <details className="coordination-mobile-details"><summary>Schedule, venue &amp; group</summary><div>{overviewDetails}</div></details>
       </aside>
 
-      <section className="coordination-conversation" aria-label={`${scope === "private" ? "Private coordination" : "Group chat"} for ${title}`}>
+      <section className="coordination-conversation" aria-label={`${activeScope === "private" ? "Private coordination" : "Group chat"} for ${title}`}>
         <header className="coordination-conversation-header">
-          <div><span className="coordination-online" aria-hidden="true" /><h2>{scope === "private" ? "Private coordination" : "Group chat"}</h2></div>
-          <p>{scope === "private"
+          <div><span className="coordination-online" aria-hidden="true" /><h2>{activeScope === "private" ? "Private coordination" : "Group chat"}</h2></div>
+          <p>{activeScope === "private"
             ? quest.viewer.role === "organizer" ? "Plan the activity with Senior Quest" : "Only you and Senior Quest can see your details"
             : `${joinedCount} members · Senior Quest helps when coordination comes up`}</p>
-          {groupThread ? <div className="coordination-scope-tabs" role="tablist" aria-label="Coordination conversations">
-            <button type="button" role="tab" aria-selected={scope === "private"} onClick={() => setScope("private")}>Private coordination</button>
-            <button type="button" role="tab" aria-selected={scope === "group"} onClick={() => setScope("group")}>Group chat</button>
+          {groupThread && !embedded ? <div className="coordination-scope-tabs" role="tablist" aria-label="Coordination conversations">
+            <button type="button" role="tab" aria-selected={activeScope === "private"} onClick={() => { setScope("private"); onScopeChange?.("private"); }}>Private coordination</button>
+            <button type="button" role="tab" aria-selected={activeScope === "group"} onClick={() => { setScope("group"); onScopeChange?.("group"); }}>Group chat</button>
           </div> : null}
         </header>
 
@@ -324,12 +332,12 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             return <ChatMessageBubble
               key={message.messageId}
               body={message.body}
-              mine={scope === "group" ? message.senderId === thread.userId : message.role === "participant"}
-              heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : scope === "group" && message.senderId !== thread.userId
+              mine={activeScope === "group" ? message.senderId === thread.userId : message.role === "participant"}
+              heading={message.role === "assistant" ? "Senior Quest" : message.role === "system" ? "Activity update" : activeScope === "group" && message.senderId !== thread.userId
                 ? quest.participantProgress.find((participant) => participant.userId === message.senderId)?.displayName ?? "Community member"
                 : undefined}
               time={new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              receipt={message.messageId !== pendingMessageId && message.role === "participant" && (scope === "private" || message.senderId === thread.userId)
+              receipt={message.messageId !== pendingMessageId && message.role === "participant" && (activeScope === "private" || message.senderId === thread.userId)
                 ? message.receipt ?? "delivered"
                 : undefined}
               actionLabel={message.messageId === pendingMessageId ? "Sending…" : undefined}
@@ -338,7 +346,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             />;
           })}
           {sending ? <div className="coordination-agent-working" role="status"><span aria-hidden="true" />Senior Quest is checking the group’s preferences…</div> : null}
-          {scope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
+          {activeScope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
             <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
             <h3>Start with what matters most</h3>
             <p>Senior Quest already knows this activity. Ask about timing, the venue, or what the group needs next.</p>
@@ -361,7 +369,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             }))}
           />
 
-          {scope === "private" && quest.viewer.canChat && thread.pendingRequirements ? <section className="pending-requirements coordination-save-card">
+          {activeScope === "private" && quest.viewer.canChat && thread.pendingRequirements ? <section className="pending-requirements coordination-save-card">
             <div><span><Icon name="check" size={18} /> Senior Quest understood</span><p>{requirementSummary(thread.pendingRequirements)}</p><small>Check this before it is used to coordinate the activity.</small></div>
             <button className="primary-button" disabled={busy === "requirements"} onClick={() => void confirmRequirements()}>{busy === "requirements" ? "Saving…" : saveLabel(thread.pendingRequirements)}</button>
           </section> : null}
@@ -374,7 +382,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             onSubmit={send}
             maxLength={2_000}
             disabled={Boolean(busy) || sending}
-            placeholder={scope === "group" ? "Message the group or ask Senior Quest…" : quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
+            placeholder={activeScope === "group" ? "Message the group or ask Senior Quest…" : quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
           /> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
         </div>
       </section>

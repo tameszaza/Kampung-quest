@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
@@ -45,6 +46,8 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
   const [messageLoading, setMessageLoading] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [activityScope, setActivityScope] = useState<"private" | "group">("private");
+  const [activityHasGroupThread, setActivityHasGroupThread] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [assistantResetToken, setAssistantResetToken] = useState(0);
   const [confirmAction, setConfirmAction] = useState<"leave" | "block" | "delete" | null>(null);
@@ -152,6 +155,10 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
   function openConversation(id: string) {
     setSelectedId(id);
     if (id === ASSISTANT_CONVERSATION_ID || id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) setMessages([]);
+    if (id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) {
+      setActivityScope("private");
+      setActivityHasGroupThread(false);
+    }
     setMenuOpen(false);
     setConfirmAction(null);
     setActivitySummaries((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
@@ -275,11 +282,17 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
       <section className="chat-panel" aria-label={activeConversation ? `Conversation with ${activeConversation.title}` : "Selected conversation"}>
         {activitySelected && activityRunId && activeConversation ? <>
           <div className="chat-header-stack">
-            <header className="chat-header">
+            <header className="chat-header activity-chat-header">
               <button className="icon-button chat-back" type="button" onClick={() => setSelectedId(null)} aria-label="Back to conversations"><Icon name="back" /></button>
-              <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />
-              <span><h2>{activeConversation.title}</h2><p>{memberLabel(activeConversation.memberCount)} · Activity planning</p></span>
+              <Link className="chat-header-identity" href={`/quests/${encodeURIComponent(activityRunId)}`} aria-label={`Open ${activeConversation.title} quest details`}>
+                <Avatar src={activeConversation.imageUrl} name={activeConversation.title} size={48} group />
+                <span><h2>{activeConversation.title}</h2><p>{memberLabel(activeConversation.memberCount)} · Activity planning</p></span>
+              </Link>
               <div className="chat-header-actions">
+                {activityHasGroupThread ? <div className="chat-scope-tabs" role="tablist" aria-label="Activity chat type">
+                  <button type="button" role="tab" aria-selected={activityScope === "private"} onClick={() => setActivityScope("private")}>Private</button>
+                  <button type="button" role="tab" aria-selected={activityScope === "group"} onClick={() => setActivityScope("group")}>Group</button>
+                </div> : null}
                 <button
                   className="chat-more-button"
                   type="button"
@@ -300,6 +313,9 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
             runId={activityRunId}
             embedded
             showHeader={false}
+            scope={activityScope}
+            onScopeChange={setActivityScope}
+            onGroupAvailabilityChange={setActivityHasGroupThread}
             onBack={() => setSelectedId(null)}
             onTitle={(title, memberCount) => handleActivityTitle(activityRunId, title, memberCount)}
           />
