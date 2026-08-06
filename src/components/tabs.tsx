@@ -4,6 +4,7 @@ export interface TabOption {
   label: string;
   count?: number;
   showZero?: boolean;
+  countStyle?: "badge" | "parentheses";
 }
 
 export function Tabs({
@@ -23,7 +24,7 @@ export function Tabs({
       role="tablist"
       style={{ gridTemplateColumns: `repeat(${Math.max(1, options.length)}, minmax(0, 1fr))` }}
     >
-      {options.map(({ label, count, showZero }) => {
+      {options.map(({ label, count, showZero, countStyle = "badge" }) => {
         const showBadge = count !== undefined && (showZero || count > 0);
         return (
           <button
@@ -36,7 +37,8 @@ export function Tabs({
             onClick={() => onChange(label)}
           >
             <span>{label}</span>
-            {showBadge ? <span className="tab-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span> : null}
+            {showBadge && countStyle === "badge" ? <span className="tab-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span> : null}
+            {showBadge && countStyle === "parentheses" ? <span className="tab-count-parentheses" aria-hidden="true"> ({count > 99 ? "99+" : count})</span> : null}
           </button>
         );
       })}

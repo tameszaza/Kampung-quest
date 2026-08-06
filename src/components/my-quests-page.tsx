@@ -15,7 +15,7 @@ export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
   const router = useRouter();
   const [tab, setTab] = useState<ActivityGroup>(initialTab);
   const readGroup = useRef<ActivityGroup | null>(null);
-  const { activities, counts, loading, error, refresh, markCategoryRead } = useActivityBadges();
+  const { activities, loading, error, refresh, markCategoryRead } = useActivityBadges();
 
   useEffect(() => {
     if (!activities || readGroup.current === tab) return;
@@ -40,7 +40,8 @@ export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
   const visible = activities ? groupActivities(activities, tab) : [];
   const tabOptions = activityGroups.map((group) => ({
     label: group,
-    count: activities ? counts.myByGroup[group] : undefined,
+    count: activities ? groupActivities(activities, group).length : undefined,
+    countStyle: "parentheses" as const,
   }));
   return (
     <div className="page-container narrow-page my-activities-ref">

@@ -33,6 +33,12 @@
   vertical-align: middle;
 }
 
+.tab-count-parentheses {
+  color: var(--danger);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .tabs button::after {
   content: "";
   position: absolute;

@@ -97,8 +97,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
                 className={isActive(pathname, item.match) ? "active" : ""}
               >
                 <Icon name={item.icon} size={21} />
-                <span className="nav-label">{item.label}{item.href === "/quests" && activityCounts.activities ? <span className="nav-count"> ({formatCount(activityCounts.activities)})</span> : null}</span>
-                {item.href === "/quests" && activityCounts.activities ? <b className="nav-badge nav-activity-compact" aria-hidden="true">{formatCount(activityCounts.activities)}</b> : null}
+                <span className="nav-label">{item.label}</span>
+                {item.href === "/quests" && activityCounts.activities ? <b className="nav-badge nav-activity-badge" aria-hidden="true">{formatCount(activityCounts.activities)}</b> : null}
                 {item.href === "/my-quests" && activityCounts.my ? <b className="nav-badge" aria-label={`${activityCounts.my} new activities`}>{formatCount(activityCounts.my)}</b> : null}
                 {item.href === "/messages" && unreadMessages ? <span className="nav-badge" aria-hidden="true">{unreadMessages > 99 ? "99+" : unreadMessages}</span> : null}
               </Link>
@@ -127,7 +127,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
             aria-label={navAriaLabel(item, activityCounts.activities, activityCounts.my, unreadMessages)}
           >
             <Icon name={item.icon} size={23} />
-            <span className="nav-label">{item.label}{item.href === "/quests" && activityCounts.activities ? <span className="nav-count"> ({formatCount(activityCounts.activities)})</span> : null}</span>
+            <span className="nav-label">{item.label}</span>
+            {item.href === "/quests" && activityCounts.activities ? <b className="nav-badge" aria-hidden="true">{formatCount(activityCounts.activities)}</b> : null}
           </Link>
         ))}
         <button className="mobile-create" type="button" onClick={() => router.push("/messages?assistant=1")} aria-label="Talk to Senior Quest">
