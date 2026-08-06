@@ -92,9 +92,9 @@ describe("SafetyGuardianService", () => {
       profiles,
     ).status).toBe("human_review");
     expect(guardian.review(
-      proposal("Borrow supplies", "Borrow from another participant."),
+      proposal("Borrow supplies", "Borrow craft supplies from another participant."),
       profiles,
-    ).status).toBe("human_review");
+    ).status).toBe("approved");
   });
 
   it("still requires review for private-home plans and unknown participants", () => {
@@ -129,6 +129,28 @@ describe("SafetyGuardianService", () => {
         contributionsUsed: [],
       }],
     }, profiles).status).toBe("human_review");
+  });
+
+  it("requires review only when other high-risk categories are explicitly evidenced", () => {
+    const guardian = new SafetyGuardianService();
+
+    expect(guardian.review(
+      proposal("Forced attendance", "Pressure a participant to attend against their will."),
+      profiles,
+    ).status).toBe("human_review");
+    expect(guardian.review(
+      proposal("Account setup", "Collect each participant's banking PIN during the session."),
+      profiles,
+    ).status).toBe("human_review");
+    expect(guardian.review(
+      proposal("Risky meetup", "Meet inside an abandoned building after dark."),
+      profiles,
+    ).status).toBe("human_review");
+
+    expect(guardian.review(
+      proposal("Confident cooking", "Encourage participants to try an ordinary public cooking class."),
+      profiles,
+    ).status).toBe("approved");
   });
 
   it("explains each trigger so a coordinator knows what must be reviewed", () => {

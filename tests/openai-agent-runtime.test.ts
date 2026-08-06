@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Usage, type Model, type ModelProvider } from "@openai/agents";
 import { AGENT_INSTRUCTIONS } from "@/server/agents/agent-instructions";
 import { HostedAgentRuntime, restoreProposalReferences } from "@/server/agents/openai-agent-runtime";
 import { stableFactRef } from "@/server/agents/provider-privacy";
@@ -59,6 +60,30 @@ function proposal(contribution: string): QuestProposal {
   };
 }
 
+class SafetyModelProvider implements ModelProvider {
+  calls = 0;
+
+  constructor(private readonly output: unknown) {}
+
+  getModel(): Model {
+    return {
+      getResponse: async () => {
+        this.calls += 1;
+        return {
+          usage: new Usage(),
+          output: [{
+            type: "message" as const,
+            role: "assistant" as const,
+            status: "completed" as const,
+            content: [{ type: "output_text" as const, text: JSON.stringify(this.output) }],
+          }],
+        };
+      },
+      getStreamedResponse: async function* () {},
+    };
+  }
+}
+
 describe("matchmaking output contract", () => {
   it("defines an explicit contract for every hosted agent role", () => {
     expect(Object.keys(AGENT_INSTRUCTIONS)).toEqual([
@@ -71,7 +96,9 @@ describe("matchmaking output contract", () => {
       "taskReassignment",
       "coordination",
     ]);
+    expect(AGENT_INSTRUCTIONS.conversation).toContain("zero-padded 24-hour HH:mm");
     expect(AGENT_INSTRUCTIONS.synthesis).toContain("Copy the exact ref string character-for-character");
+    expect(AGENT_INSTRUCTIONS.safety).toContain("directly supported");
     expect(AGENT_INSTRUCTIONS.synthesis).toContain("return no_match");
     expect(AGENT_INSTRUCTIONS.coordination).toContain("Do not reveal or speculate about any other participant");
     expect(AGENT_INSTRUCTIONS.taskPlan).toContain("independent verifier");
@@ -120,5 +147,41 @@ describe("matchmaking output contract", () => {
 
     expect(review.status).toBe("human_review");
     expect(review.requiresHumanReview).toBe(true);
+  });
+
+  it("does not let a hosted safeguard invent a risk that is absent from a safe proposal", async () => {
+    const provider = new SafetyModelProvider({
+      status: "rejected",
+      riskLevel: "high",
+      conditions: ["The participants will exchange money at a private residence."],
+      requiresHumanReview: true,
+    });
+    const runtime = new HostedAgentRuntime({
+      provider: "gemini",
+      models: {
+        memory: "test-model",
+        synthesis: "test-model",
+        safety: "test-model",
+        recovery: "test-model",
+      },
+      modelProvider: provider,
+    });
+    const maria = profile("p_1", "I can bring fruit");
+    const anne = profile("p_2", "I can teach a recipe");
+
+    const review = await runtime.reviewSafety({
+      proposal: proposal("I can bring fruit"),
+      profiles: new Map([[maria.candidateId, maria], [anne.candidateId, anne]]),
+    });
+
+    expect(review).toMatchObject({
+      status: "approved",
+      riskLevel: "low",
+      requiresHumanReview: false,
+    });
+    expect(review.conditions).not.toContain(
+      "The participants will exchange money at a private residence.",
+    );
+    expect(provider.calls).toBe(0);
   });
 });

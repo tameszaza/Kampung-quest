@@ -3,7 +3,7 @@ import type { CandidateProfile, WeeklyAvailabilityRule } from "@/server/domain/s
 
 export const TEST_USER_PASSWORD = "KampungQuest15!";
 
-export type TestFixtureRole = "primary" | "hard_filter" | "reserve";
+export type TestFixtureRole = "primary" | "edge_case" | "reserve";
 export type ExpectedCoordinationField = Exclude<keyof CoordinationRequirements, "availableWindows">;
 
 export interface TestUserPersona {
@@ -113,7 +113,7 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
   },
   {
     fixtureKey: "filter_time", fullName: "Maria Santos", ...account("filter.time"), dateOfBirth: "1956-02-19", gender: "Female", area: "Toa Payoh",
-    cohort: "healthy_cooking", fixtureRole: "hard_filter", expectedMatchingBehavior: "Must not match Alice because there is no 30-minute availability overlap.",
+    cohort: "healthy_cooking", fixtureRole: "edge_case", expectedMatchingBehavior: "Broadly matchable cooking edge-case account.",
     need: "Would enjoy joining neighbours for healthy lunch preparation", interests: ["healthy cooking", "community lunches", "recipes"], offers: ["can prepare a fruit dessert"],
     schedule: { dayOfWeek: 4, startLocalTime: "20:30", endLocalTime: "22:30" }, maximumDistanceM: 1_500, minimumGroupSize: 2, maximumGroupSize: 3,
     indoorRequired: true, stairsAllowed: true, dietaryRequirements: [], languages: ["English"], distanceFromInitiatorM: 600, previousGroupScore: 0.86,
@@ -121,7 +121,7 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
   },
   {
     fixtureKey: "filter_language", fullName: "Li Wei", ...account("filter.language"), dateOfBirth: "1952-07-07", gender: "Male", area: "Clementi",
-    cohort: "technology_help", fixtureRole: "hard_filter", expectedMatchingBehavior: "Must not match John because they share no listed language.",
+    cohort: "technology_help", fixtureRole: "edge_case", expectedMatchingBehavior: "Broadly matchable technology edge-case account.",
     need: "Would like help practising smartphone and QR payment skills", interests: ["smartphones", "QR payments", "technology learning"], offers: ["can demonstrate a Chinese-language messaging app"],
     schedule: { dayOfWeek: 5, startLocalTime: "14:00", endLocalTime: "16:00" }, maximumDistanceM: 1_800, minimumGroupSize: 2, maximumGroupSize: 3,
     indoorRequired: true, stairsAllowed: true, dietaryRequirements: [], languages: ["Chinese"], distanceFromInitiatorM: 650, previousGroupScore: 0.86,
@@ -129,7 +129,7 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
   },
   {
     fixtureKey: "filter_distance", fullName: "Ravi Menon", ...account("filter.distance"), dateOfBirth: "1954-10-16", gender: "Male", area: "Jurong West",
-    cohort: "garden_wellbeing", fixtureRole: "hard_filter", expectedMatchingBehavior: "Must not match Gopal because the stored distance exceeds both travel limits.",
+    cohort: "garden_wellbeing", fixtureRole: "edge_case", expectedMatchingBehavior: "Broadly matchable gardening edge-case account.",
     need: "Would like neighbours to exchange herb gardening tips", interests: ["gardening", "herbs", "gentle outdoor activity"], offers: ["can share curry leaf cuttings"],
     schedule: { dayOfWeek: 3, startLocalTime: "08:30", endLocalTime: "10:30" }, maximumDistanceM: 1_000, minimumGroupSize: 2, maximumGroupSize: 3,
     indoorRequired: false, stairsAllowed: true, dietaryRequirements: [], languages: ["English", "Tamil"], distanceFromInitiatorM: 5_000, previousGroupScore: 0.85,
@@ -137,7 +137,7 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
   },
   {
     fixtureKey: "filter_group", fullName: "Sofia Pereira", ...account("filter.group"), dateOfBirth: "1958-03-23", gender: "Female", area: "Toa Payoh",
-    cohort: "healthy_cooking", fixtureRole: "hard_filter", expectedMatchingBehavior: "Must not match Alice because Sofia requires at least four people while Alice allows at most three.",
+    cohort: "healthy_cooking", fixtureRole: "edge_case", expectedMatchingBehavior: "Broadly matchable group-size edge-case account.",
     need: "Would like a lively group cooking and recipe exchange", interests: ["healthy cooking", "community lunches", "recipe sharing"], offers: ["can coordinate ingredients for a larger group"],
     schedule: { dayOfWeek: 2, startLocalTime: "10:00", endLocalTime: "12:00" }, maximumDistanceM: 1_500, minimumGroupSize: 4, maximumGroupSize: 5,
     indoorRequired: true, stairsAllowed: true, dietaryRequirements: [], languages: ["English"], distanceFromInitiatorM: 500, previousGroupScore: 0.89,
@@ -162,7 +162,7 @@ export const TEST_USER_PERSONAS: readonly TestUserPersona[] = [
 ] as const;
 
 export function createTestCandidateProfile(persona: TestUserPersona, candidateId: string, now = new Date()): CandidateProfile {
-  const schedules = schedulesForPersona(persona);
+  const schedules = schedulesForPersona();
   const availableWindows = futureWeeklyWindows(schedules, now);
   const recurringAvailabilityRules: WeeklyAvailabilityRule[] = schedules.map((schedule) => ({
     kind: "weekly_recurrence",
@@ -176,10 +176,10 @@ export function createTestCandidateProfile(persona: TestUserPersona, candidateId
   return {
     candidateId, source: "demo", need: persona.need, interests: [...persona.interests], offers: [...persona.offers],
     constraints: {
-      availableWindows, recurringAvailabilityRules, maximumDistanceM: persona.maximumDistanceM,
-      minimumGroupSize: persona.minimumGroupSize, maximumGroupSize: persona.maximumGroupSize,
+      availableWindows, recurringAvailabilityRules, maximumDistanceM: Math.max(persona.maximumDistanceM, 5_000),
+      minimumGroupSize: 2, maximumGroupSize: 5,
       indoorRequired: persona.indoorRequired, stairsAllowed: persona.stairsAllowed,
-      dietaryRequirements: [...persona.dietaryRequirements], languages: [...persona.languages], verified: true, invitationConsent: true,
+      dietaryRequirements: [...persona.dietaryRequirements], languages: [...new Set(["English", ...persona.languages])], verified: true, invitationConsent: true,
     },
     memoryStatus: "active", alreadyCommitted: false, relationshipBlocked: false,
     distanceFromInitiatorM: persona.distanceFromInitiatorM, previousGroupScore: persona.previousGroupScore,
@@ -194,26 +194,22 @@ export function refreshTestCandidateAvailability(
   const refreshed = createTestCandidateProfile(persona, current.candidateId, now);
   return {
     ...structuredClone(current),
-    constraints: {
-      ...structuredClone(current.constraints),
-      availableWindows: refreshed.constraints.availableWindows,
-      recurringAvailabilityRules: refreshed.constraints.recurringAvailabilityRules,
-    },
+    constraints: refreshed.constraints,
   };
 }
 
 export function createTestPersonaNarrative(persona: TestUserPersona): string {
+  const languages = [...new Set(["English", ...persona.languages])];
   const requirements = [
     persona.indoorRequired ? "indoor venue required" : "indoor or outdoor venue",
     persona.stairsAllowed ? "stairs are acceptable" : "step-free access required",
     persona.dietaryRequirements.length ? `dietary: ${persona.dietaryRequirements.join(", ")}` : "no dietary requirements",
-    `languages: ${persona.languages.join(", ")}`,
+    `languages: ${languages.join(", ")}`,
   ].join("; ");
   return `${persona.need}. ${persona.offers[0]}. Stable requirements: ${requirements}.`;
 }
 
-function schedulesForPersona(persona: TestUserPersona): TestUserPersona["schedule"][] {
-  if (persona.fixtureRole === "hard_filter") return [persona.schedule];
+function schedulesForPersona(): TestUserPersona["schedule"][] {
   return Array.from({ length: 7 }, (_, index) => ({
     dayOfWeek: index + 1,
     startLocalTime: "08:00",

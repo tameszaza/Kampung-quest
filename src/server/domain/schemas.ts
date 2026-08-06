@@ -145,6 +145,8 @@ export type AssistantTurnAgentOutput = z.infer<typeof assistantTurnAgentOutputSc
 const hostedWeeklyAvailabilityRuleSchema = z.object({
   ...weeklyAvailabilityRuleSchema.shape,
   kind: z.string().min(1),
+  startLocalTime: z.string().min(1),
+  endLocalTime: z.string().min(1),
 }).refine((rule) => Date.parse(rule.validUntil) >= Date.parse(rule.validFrom), {
   message: "Recurring availability end must not precede its start",
   path: ["validUntil"],
@@ -178,6 +180,26 @@ export function normalizeWeeklyAvailabilityRuleKind(kind: string): "weekly_recur
   throw new Error(`Unsupported recurring availability rule kind: ${kind}`);
 }
 
+export function normalizeHostedLocalTime(value: string): string {
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([ap]m)?$/i);
+  if (!match?.[1]) throw new Error(`Unsupported local time format: ${value}`);
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "00");
+  const meridiem = match[3]?.toLowerCase();
+  if (minute > 59) throw new Error(`Unsupported local time format: ${value}`);
+
+  if (meridiem) {
+    if (hour < 1 || hour > 12) throw new Error(`Unsupported local time format: ${value}`);
+    hour %= 12;
+    if (meridiem === "pm") hour += 12;
+  } else if (hour > 23) {
+    throw new Error(`Unsupported local time format: ${value}`);
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 export function normalizeHostedAssistantTurnOutput(
   output: z.infer<typeof hostedAssistantTurnAgentOutputSchema>,
 ): AssistantTurnAgentOutput {
@@ -188,6 +210,8 @@ export function normalizeHostedAssistantTurnOutput(
       recurringAvailabilityRules: output.briefPatch.recurringAvailabilityRules?.map((rule) => ({
         ...rule,
         kind: normalizeWeeklyAvailabilityRuleKind(rule.kind),
+        startLocalTime: normalizeHostedLocalTime(rule.startLocalTime),
+        endLocalTime: normalizeHostedLocalTime(rule.endLocalTime),
       })),
     },
   });

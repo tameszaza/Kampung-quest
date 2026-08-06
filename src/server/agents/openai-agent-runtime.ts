@@ -31,6 +31,8 @@ import {
   type CandidateProfile,
   type QuestProposal,
 } from "@/server/domain/schemas";
+import { SafetyGuardianService } from "@/server/features/safety-service";
+export { normalizeHostedLocalTime } from "@/server/domain/schemas";
 
 export function hostedRetrySettings(
   provider: Exclude<AgentProviderName, "deterministic">,
@@ -142,7 +144,7 @@ export class HostedAgentRuntime implements AgentRuntime {
   private readonly conversationAgent: Agent<unknown, typeof hostedAssistantTurnAgentOutputSchema>;
   private readonly memoryAgent: Agent<unknown, typeof memoryAgentOutputSchema>;
   private readonly synthesisAgent: Agent<unknown, typeof questSynthesisOutputSchema>;
-  private readonly safetyAgent: Agent<unknown, typeof safetyReviewSchema>;
+  private readonly safetyGuardian = new SafetyGuardianService();
   private readonly recoveryAgent: Agent<unknown, typeof recoveryActionSchema>;
   private readonly coordinationAgent: Agent<unknown, typeof coordinationProviderOutputSchema>;
   private readonly taskPlanAgent: Agent<unknown, typeof eventTaskPlanAgentOutputSchema>;
@@ -174,13 +176,6 @@ export class HostedAgentRuntime implements AgentRuntime {
       instructions: AGENT_INSTRUCTIONS.synthesis,
       outputType: questSynthesisOutputSchema,
       modelSettings: { reasoning: { effort: "medium" }, retry: retrySettings, ...persistenceSetting },
-    });
-    this.safetyAgent = new Agent({
-      name: "Kampung safety guardian",
-      model: options.models.safety,
-      instructions: AGENT_INSTRUCTIONS.safety,
-      outputType: safetyReviewSchema,
-      modelSettings: { reasoning: { effort: "low" }, retry: retrySettings, ...persistenceSetting },
     });
     this.recoveryAgent = new Agent({
       name: "Kampung event recovery",
@@ -312,32 +307,10 @@ export class HostedAgentRuntime implements AgentRuntime {
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
-    const hasUnknownParticipant = input.proposal.proposedParticipants.some(
-      (participant) => !input.profiles.has(participant.candidateId),
-    );
-    if (hasUnknownParticipant) {
-      return safetyReviewSchema.parse({
-        status: "human_review",
-        riskLevel: "medium",
-        conditions: ["A proposed participant could not be verified; confirm their eligibility and consent."],
-        requiresHumanReview: true,
-      });
-    }
-    const profiles = [...input.profiles.values()];
-    const aliases = this.aliases(profiles);
-    return safetyReviewSchema.parse(await this.runStructured(this.safetyAgent, {
-      proposal: this.aliasProposalIds(input.proposal, aliases),
-      participants: input.proposal.proposedParticipants.map((participant) =>
-        this.safeProfile(input.profiles.get(participant.candidateId)!, aliases),
-      ),
-      policy: {
-        publicVenueRequired: true,
-        explicitConsentRequired: true,
-        contactDetailsMustRemainPrivate: true,
-        peerToPeerMoneyAllowed: false,
-        paymentEducationAllowed: true,
-      },
-    }, input.auditContext));
+    // Quest validation has already checked the structured constraints. Keep
+    // the final safety decision evidence-based and deterministic so a hosted
+    // model cannot invent a condition that blocks an otherwise valid quest.
+    return safetyReviewSchema.parse(this.safetyGuardian.review(input.proposal, input.profiles));
   }
 
   async recoverQuest(input: Parameters<AgentRuntime["recoverQuest"]>[0]) {
