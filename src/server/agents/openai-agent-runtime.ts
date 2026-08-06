@@ -306,6 +306,17 @@ export class HostedAgentRuntime implements AgentRuntime {
   }
 
   async reviewSafety(input: Parameters<AgentRuntime["reviewSafety"]>[0]) {
+    const hasUnknownParticipant = input.proposal.proposedParticipants.some(
+      (participant) => !input.profiles.has(participant.candidateId),
+    );
+    if (hasUnknownParticipant) {
+      return safetyReviewSchema.parse({
+        status: "human_review",
+        riskLevel: "medium",
+        conditions: ["A human coordinator must review the unsupported participant."],
+        requiresHumanReview: true,
+      });
+    }
     const profiles = [...input.profiles.values()];
     const aliases = this.aliases(profiles);
     return safetyReviewSchema.parse(await this.runStructured(this.safetyAgent, {
@@ -318,6 +329,7 @@ export class HostedAgentRuntime implements AgentRuntime {
         explicitConsentRequired: true,
         contactDetailsMustRemainPrivate: true,
         peerToPeerMoneyAllowed: false,
+        paymentEducationAllowed: true,
       },
     }, input.auditContext));
   }

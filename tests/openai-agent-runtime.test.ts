@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_INSTRUCTIONS } from "@/server/agents/agent-instructions";
-import { restoreProposalReferences } from "@/server/agents/openai-agent-runtime";
+import { HostedAgentRuntime, restoreProposalReferences } from "@/server/agents/openai-agent-runtime";
 import { stableFactRef } from "@/server/agents/provider-privacy";
 import type { CandidateProfile, QuestProposal } from "@/server/domain/schemas";
 
@@ -97,5 +97,27 @@ describe("matchmaking output contract", () => {
       new Map([["p_1", "maria"], ["p_2", "anne"]]),
       [maria, anne],
     )).toThrow("Matchmaking could not verify the supplied participant facts");
+  });
+
+  it("returns human review when hosted safety receives an unknown participant", async () => {
+    const runtime = new HostedAgentRuntime({
+      provider: "openai",
+      models: {
+        memory: "test-model",
+        synthesis: "test-model",
+        safety: "test-model",
+        recovery: "test-model",
+      },
+      modelProvider: {} as never,
+    });
+    const maria = profile("p_1", "I can bring fruit");
+
+    const review = await runtime.reviewSafety({
+      proposal: proposal("I can bring fruit"),
+      profiles: new Map([[maria.candidateId, maria]]),
+    });
+
+    expect(review.status).toBe("human_review");
+    expect(review.requiresHumanReview).toBe(true);
   });
 });

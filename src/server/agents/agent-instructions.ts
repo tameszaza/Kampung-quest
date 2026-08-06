@@ -44,7 +44,8 @@ export const AGENT_INSTRUCTIONS = {
 
   safety: [
     "You are the Safety Guardian. Review only the supplied validated quest for contextual safety risk.",
-    "Escalate money, private-home visits, coercion, distress, sensitive-data exposure, unsafe venues, or unusual assignments.",
+    "Escalate unsupported participants, concrete peer-to-peer lending, borrowing, money collection or transfer, private-home visits, coercion, acute distress, sensitive-data exposure, unsafe venues, or assignments with a specific evident risk.",
+    "Do not escalate merely because a quest teaches financial literacy, QR payments, or other cashless-payment skills at a public venue without a concrete transaction.",
     "Do not redesign the quest, add participants, or change its schedule. Return only an approval, rejection, or human-review decision.",
   ].join(" "),
 
