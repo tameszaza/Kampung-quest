@@ -5,6 +5,7 @@ import { ActivityActions } from "@/components/activity-actions";
 import { isQuestRunPast } from "@/lib/activity-time";
 import type { QuestRun } from "@/server/domain/schemas";
 import { useUser } from "@/components/user-context";
+import { questReviewPresentation } from "@/features/events/presentation";
 
 export function questImage(run: QuestRun) {
   return run.imageUrl || "/assets/quest-placeholder.svg";
@@ -29,20 +30,21 @@ export function EngineQuestCard({ run, compact = false }: { run: QuestRun; compa
   const participantCount = run.proposal?.proposedParticipants.length ?? quest.groupSize;
   const canRespond = run.status === "awaiting_acceptance" && invitationStatus === "pending";
   const hasDecision = invitationStatus === "accepted" || invitationStatus === "declined";
+  const review = questReviewPresentation(run);
   return (
     <article className={`quest-card engine-quest-card${compact ? " compact" : ""}`}>
       <Link className="quest-card-link" href={`/quests/${run.runId}`}>
         <div className="quest-card-image">
           <Image src={questImage(run)} alt="" fill sizes="(max-width: 767px) 100vw, 420px" />
           {run.status === "human_review" && (
-            <span className={`image-badge quest-status-${run.status}`}>Needs review</span>
+            <span className={`image-badge quest-status-${run.status}`}>{review?.badge ?? "Needs review"}</span>
           )}
         </div>
         <div className="quest-card-body">
           <h2>{quest.title}</h2>
           <div className="meta-row"><Icon name="people" size={19} /><span>{participantCount} people</span></div>
           <div className="meta-row"><Icon name="calendar" size={19} /><span>{questDate(run)}</span></div>
-          <div className="meta-row"><Icon name="shield" size={19} /><span>{run.safety?.status === "approved" ? "Safety checked" : "Human review required"}</span></div>
+          <div className="meta-row"><Icon name="shield" size={19} /><span>{review?.title ?? (run.safety?.status === "approved" ? "Safety checked" : "Checks pending")}</span></div>
         </div>
       </Link>
       {canRespond || hasDecision ? <ActivityActions

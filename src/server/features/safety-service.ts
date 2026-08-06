@@ -34,16 +34,22 @@ function requiresMoneyReview(content: string): boolean {
 export class SafetyGuardianService {
   review(proposal: QuestProposal, profiles: Map<string, CandidateProfile>): SafetyReview {
     const content = `${proposal.quest.title} ${proposal.quest.description}`;
-    const needsReview =
-      requiresMoneyReview(content) ||
-      PRIVATE_HOME_PATTERNS.some((pattern) => pattern.test(content)) ||
-      proposal.proposedParticipants.some((participant) => !profiles.has(participant.candidateId));
+    const conditions: string[] = [];
+    if (requiresMoneyReview(content)) {
+      conditions.push("The plan includes participant-to-participant money handling.");
+    }
+    if (PRIVATE_HOME_PATTERNS.some((pattern) => pattern.test(content))) {
+      conditions.push("The plan proposes meeting in a private home.");
+    }
+    if (proposal.proposedParticipants.some((participant) => !profiles.has(participant.candidateId))) {
+      conditions.push("A proposed participant could not be verified.");
+    }
 
-    if (needsReview) {
+    if (conditions.length > 0) {
       return {
         status: "human_review",
         riskLevel: "medium",
-        conditions: ["A human coordinator must review the flagged proposal."],
+        conditions,
         requiresHumanReview: true,
       };
     }

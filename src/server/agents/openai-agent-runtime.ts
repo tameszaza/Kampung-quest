@@ -319,7 +319,7 @@ export class HostedAgentRuntime implements AgentRuntime {
       return safetyReviewSchema.parse({
         status: "human_review",
         riskLevel: "medium",
-        conditions: ["A human coordinator must review the unsupported participant."],
+        conditions: ["A proposed participant could not be verified; confirm their eligibility and consent."],
         requiresHumanReview: true,
       });
     }

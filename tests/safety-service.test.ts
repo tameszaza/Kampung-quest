@@ -130,4 +130,22 @@ describe("SafetyGuardianService", () => {
       }],
     }, profiles).status).toBe("human_review");
   });
+
+  it("explains each trigger so a coordinator knows what must be reviewed", () => {
+    const review = new SafetyGuardianService().review({
+      ...proposal("Private payment", "Collect cash from each participant at Alice's house."),
+      proposedParticipants: [{
+        candidateId: "candidate_unknown",
+        proposedRole: "participant",
+        needsAddressed: [],
+        contributionsUsed: [],
+      }],
+    }, profiles);
+
+    expect(review.conditions).toEqual([
+      "The plan includes participant-to-participant money handling.",
+      "The plan proposes meeting in a private home.",
+      "A proposed participant could not be verified.",
+    ]);
+  });
 });

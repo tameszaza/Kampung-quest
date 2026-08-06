@@ -33,7 +33,7 @@ const assistantConversation: ConversationSummary = {
   memberCount: 1,
 };
 
-export function ChatCenter({ initialConversation, initialQuest }: { initialConversation?: "assistant"; initialQuest?: string }) {
+export function ChatCenter({ initialConversation, initialQuest, startNewAssistant = false }: { initialConversation?: "assistant"; initialQuest?: string; startNewAssistant?: boolean }) {
   const { showToast } = useAppState();
   const initialActivityId = initialQuest ? `${ACTIVITY_CONVERSATION_PREFIX}${initialQuest}` : null;
   const [activitySummaries, setActivitySummaries] = useState<ConversationSummary[]>(() => initialQuest ? [activitySummary(initialQuest)] : []);
@@ -380,7 +380,7 @@ export function ChatCenter({ initialConversation, initialQuest }: { initialConve
                 </div>
               ) : null}
             </div>
-            {assistantSelected ? <AssistantConversation embedded resetToken={assistantResetToken} /> : <>
+            {assistantSelected ? <AssistantConversation embedded resetToken={assistantResetToken} startFresh={startNewAssistant} /> : <>
             <div className="message-history" aria-live="polite" aria-busy={messageLoading}>
               <ChatDayLabel />
               {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}

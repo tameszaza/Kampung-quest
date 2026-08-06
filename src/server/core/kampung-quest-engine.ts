@@ -617,6 +617,7 @@ export class KampungQuestEngine {
       await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker proposed a quest", kind: "agent" });
       const cards = await this.dependencies.store.listMemories();
       const profiles = new Map(cards.map((card) => [card.profile.candidateId, card.profile]));
+      proposal = this.applyDeterministicConstraints(proposal, profiles);
       activeStage = "validation";
       await observe?.({ stage: "validation", status: "started", message: "Checking constraints and factual references", kind: "system" });
       let validation = this.validator.validate(proposal, profiles);
@@ -653,7 +654,7 @@ export class KampungQuestEngine {
             updatedAt: new Date().toISOString(),
           });
         }
-        proposal = synthesis.proposal;
+        proposal = this.applyDeterministicConstraints(synthesis.proposal, profiles);
         await observe?.({ stage: "synthesis", status: "completed", message: "Matchmaker corrected the proposal", kind: "agent" });
         activeStage = "validation";
         validation = this.validator.validate(proposal, profiles);
@@ -789,6 +790,80 @@ export class KampungQuestEngine {
       need: embeddings.find((embedding) => embedding.kind === "need")?.vector,
       interest: embeddings.find((embedding) => embedding.kind === "interest")?.vector,
       offer: embeddings.find((embedding) => embedding.kind === "offer")?.vector,
+    };
+  }
+
+  /**
+   * Accessibility requirements and the intersection of declared availability
+   * are facts, not judgement calls. Apply them deterministically so a harmless
+   * model omission does not create an unactionable human-review dead end.
+   */
+  private applyDeterministicConstraints(
+    proposal: QuestProposal,
+    profiles: Map<string, CandidateProfile>,
+  ): QuestProposal {
+    const participantProfiles = proposal.proposedParticipants
+      .map((participant) => profiles.get(participant.candidateId))
+      .filter((profile): profile is CandidateProfile => Boolean(profile));
+    if (participantProfiles.length !== proposal.proposedParticipants.length) return proposal;
+
+    const venueRequirements = new Set(proposal.quest.venueRequirements);
+    if (participantProfiles.some((profile) => profile.constraints.indoorRequired)) {
+      venueRequirements.add("indoor");
+    }
+    if (participantProfiles.some((profile) => !profile.constraints.stairsAllowed)) {
+      venueRequirements.add("no_stairs");
+    }
+
+    const proposedWindow = proposal.quest.proposedTimeWindow;
+    const fitsEveryone = participantProfiles.every((profile) =>
+      profile.constraints.availableWindows.some((window) =>
+        Date.parse(window.start) <= Date.parse(proposedWindow.start)
+        && Date.parse(proposedWindow.end) <= Date.parse(window.end)
+      )
+    );
+    const compatibleWindow = fitsEveryone
+      ? proposedWindow
+      : this.findCommonAvailability(participantProfiles, proposal.quest.durationMinutes);
+
+    return {
+      ...proposal,
+      quest: {
+        ...proposal.quest,
+        venueRequirements: [...venueRequirements],
+        proposedTimeWindow: compatibleWindow ?? proposedWindow,
+      },
+    };
+  }
+
+  private findCommonAvailability(
+    profiles: CandidateProfile[],
+    durationMinutes: number,
+  ): { start: string; end: string } | null {
+    let intersections = profiles[0]?.constraints.availableWindows.map((window) => ({
+      start: Date.parse(window.start),
+      end: Date.parse(window.end),
+    })) ?? [];
+
+    for (const profile of profiles.slice(1)) {
+      intersections = intersections.flatMap((current) =>
+        profile.constraints.availableWindows.flatMap((window) => {
+          const start = Math.max(current.start, Date.parse(window.start));
+          const end = Math.min(current.end, Date.parse(window.end));
+          return start < end ? [{ start, end }] : [];
+        })
+      );
+    }
+
+    const durationMs = durationMinutes * 60_000;
+    const match = intersections
+      .filter((window) => Number.isFinite(window.start) && Number.isFinite(window.end))
+      .filter((window) => window.end - window.start >= durationMs)
+      .sort((left, right) => left.start - right.start)[0];
+    if (!match) return null;
+    return {
+      start: new Date(match.start).toISOString(),
+      end: new Date(match.start + durationMs).toISOString(),
     };
   }
 

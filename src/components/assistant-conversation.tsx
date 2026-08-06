@@ -25,6 +25,7 @@ import type {
 } from "@/server/domain/schemas";
 import type { AvailabilityWindow, WeeklyAvailabilityRule } from "@/server/domain/schemas";
 import { expandAvailability } from "@/server/features/availability-service";
+import { questReviewPresentation } from "@/features/events/presentation";
 
 const CONVERSATION_KEY = "senior-quest-ai-conversation-id";
 const LEGACY_DRAFT_KEY = "senior-quest-assistant-draft";
@@ -93,9 +94,10 @@ const stageNames: Record<AssistantWorkflowEvent["stage"], string> = {
   safety: "Safety Guardian",
 };
 
-export function AssistantConversation({ embedded = false, resetToken = 0 }: {
+export function AssistantConversation({ embedded = false, resetToken = 0, startFresh = false }: {
   embedded?: boolean;
   resetToken?: number;
+  startFresh?: boolean;
 } = {}) {
   const { user } = useUser();
   const conversationKey = `${CONVERSATION_KEY}:${user.id}`;
@@ -119,7 +121,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
         window.localStorage.removeItem(LEGACY_DRAFT_KEY);
         window.localStorage.removeItem(CONVERSATION_KEY);
         const conversationId = window.localStorage.getItem(conversationKey);
-        const restored = conversationId ? await getAssistantConversation(conversationId) : null;
+        const restored = !startFresh && conversationId ? await getAssistantConversation(conversationId) : null;
         const next = restored ?? await createAssistantConversation(user.id);
         if (!active) return;
         window.localStorage.setItem(conversationKey, next.conversationId);
@@ -133,7 +135,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0 }: {
     }
     void restore();
     return () => { active = false; };
-  }, [conversationKey, user.id]);
+  }, [conversationKey, startFresh, user.id]);
 
   useEffect(() => {
     if (!reconnectConversationId || reconnectStatus !== "processing" || confirming) return;
@@ -633,9 +635,10 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
   const proposal = quest.proposal;
   if (!proposal) return null;
   const needsHumanReview = quest.status === "human_review";
+  const review = questReviewPresentation(quest);
   const includesDemoNeighbour = proposal.proposedParticipants.some((participant) => participant.candidateId.startsWith("demo_"));
   return <section className="assistant-result">
-    <span className="result-kicker"><Icon name={needsHumanReview ? "shield" : "check"} size={18} /> {needsHumanReview ? "Coordinator review required" : "Agent-checked quest ready"}</span>
+    <span className="result-kicker"><Icon name={needsHumanReview ? "shield" : "check"} size={18} /> {review?.badge ?? "Agent-checked quest ready"}</span>
     <h2>{proposal.quest.title}</h2>
     <p>{proposal.quest.description}</p>
     <div className="result-facts">
@@ -656,10 +659,10 @@ function QuestResult({ quest, ownCandidateId, onStartAgain }: {
         return <div className="result-person-row" key={participant.candidateId}><ProfileAvatar name={name} photoUrl={profile?.photoUrl} size={40} className="result-person-avatar" /><p><strong>{name}</strong><small>{friendlyRole(participant.proposedRole)}</small></p><span className={`participant-status participant-status-${status.key}`}>{status.label}</span></div>;
       })}
     </div>
-    {needsHumanReview ? <p className="assistant-note">No invitation was prepared. A human coordinator must review this proposal and its safety or constraint checks first.</p> : null}
+    {review ? <div className="assistant-note quest-review-summary"><strong>{review.title}</strong><p>{review.summary}</p><ul>{review.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div> : null}
     <div className="assistant-result-actions">
-      <Link className="primary-button" href={`/quests/${quest.runId}`}>{needsHumanReview ? "Review quest details" : "View quest details"}</Link>
-      <button className="text-button" type="button" onClick={() => void onStartAgain()}>Tell me something new</button>
+      {review ? <button className="primary-button" type="button" onClick={() => void onStartAgain()}>{review.actionLabel}</button> : <Link className="primary-button" href={`/quests/${quest.runId}`}>View quest details</Link>}
+      {review ? <Link className="text-button" href={`/quests/${quest.runId}`}>See what needs changing</Link> : <button className="text-button" type="button" onClick={() => void onStartAgain()}>Tell me something new</button>}
     </div>
     {includesDemoNeighbour ? <p className="demo-disclosure">Demo neighbours are clearly labeled data profiles; no real messages are sent.</p> : null}
   </section>;

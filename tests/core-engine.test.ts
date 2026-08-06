@@ -685,6 +685,44 @@ describe("KampungQuestEngine memory", () => {
     expect(agents.inputs[1].validationErrors?.length).toBeGreaterThan(0);
   });
 
+  it("repairs ordinary availability and accessibility omissions before escalating to human review", async () => {
+    class ConstraintDriftingRuntime extends DeterministicAgentRuntime {
+      override async synthesizeQuest(
+        input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        const output = await super.synthesizeQuest(input);
+        if (output.outcome === "proposal") {
+          output.proposal.quest.proposedTimeWindow = {
+            start: "2026-08-07T02:00:00.000Z",
+            end: "2026-08-07T03:00:00.000Z",
+          };
+          output.proposal.quest.venueRequirements = ["approved_public_location", "indoor"];
+        }
+        return output;
+      }
+    }
+
+    const engine = new KampungQuestEngine({
+      store: new InMemoryKampungStore(),
+      agents: new ConstraintDriftingRuntime(),
+      embeddings: new DeterministicEmbeddingProvider(),
+    });
+    await engine.recordMemory({ profile: profile("candidate_001"), narrative: "Lunch company" });
+    await engine.recordMemory({ profile: profile("candidate_002"), narrative: "Healthy cooking" });
+
+    const run = await engine.proposeQuest({ initiatingCandidateId: "candidate_001" });
+
+    expect(run.status).toBe("awaiting_acceptance");
+    expect(run.validation).toEqual({ valid: true, errors: [] });
+    expect(run.proposal?.quest.proposedTimeWindow).toEqual({
+      start: "2026-08-03T03:00:00.000Z",
+      end: "2026-08-03T04:30:00.000Z",
+    });
+    expect(run.proposal?.quest.venueRequirements).toEqual(
+      expect.arrayContaining(["approved_public_location", "indoor", "no_stairs"]),
+    );
+  });
+
   it("returns no_match when a corrected proposal drops the confirmed active intent", async () => {
     class DriftingCorrectionRuntime extends DeterministicAgentRuntime {
       override async synthesizeQuest(

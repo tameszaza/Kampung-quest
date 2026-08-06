@@ -4087,6 +4087,15 @@
   color: #72520b;
 }
 
+.quest-review-summary p {
+  margin: 5px 0 0;
+}
+
+.quest-review-summary ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
 .assistant-progress {
   display: grid;
   gap: 12px;
@@ -4901,6 +4910,36 @@
   margin: 0 0 5px;
   padding-left: 20px;
   font-size: 12px;
+}
+
+.quest-review-panel {
+  max-width: 780px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #ead79e;
+  border-radius: var(--radius-sm);
+  background: #fff7df;
+  color: #5f470d;
+}
+
+.quest-review-panel h2 {
+  margin: 0;
+  color: #5f470d;
+  font-size: 17px;
+}
+
+.quest-review-panel p {
+  margin: 5px 0 0;
+  line-height: 1.5;
+}
+
+.quest-review-panel ul {
+  margin: 12px 0 16px;
+  padding-left: 20px;
+}
+
+.quest-review-panel .primary-button {
+  width: fit-content;
 }
 
 .demo-page-note {

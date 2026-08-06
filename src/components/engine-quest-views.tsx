@@ -18,6 +18,7 @@ import { isQuestPast, isQuestRunPast } from "@/lib/activity-time";
 import { questParticipantStatus } from "@/lib/quest-participant-status";
 import { canSeeDemoContent } from "@/lib/demo-access";
 import { activityLabel, participantCountLabel } from "@/lib/activity-label";
+import { questReviewPresentation } from "@/features/events/presentation";
 
 type LoadState<T> =
   | { status: "loading"; value: T }
@@ -106,6 +107,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true, backHref 
   const participantCount = participants.length;
   const canRespond = showActivityActions && run.status === "awaiting_acceptance" && invitationStatus === "pending";
   const hasDecision = invitationStatus === "accepted" || invitationStatus === "declined";
+  const review = questReviewPresentation(run);
 
   return (
     <div className={`detail-page engine-detail-page quest-detail-ref${showActivityActions ? "" : " without-action"}`}>
@@ -113,7 +115,7 @@ export function EngineQuestDetail({ runId, showActivityActions = true, backHref 
       <section className="quest-detail-hero">
         <div className="quest-detail-hero-image"><Image src={questImage(run)} alt="" fill priority sizes="(max-width: 767px) 100vw, 55vw" /><span className="quest-image-label"><Icon name="home" size={15} /> {activityLabel(proposal.quest.questType)}</span></div>
         <div className="quest-detail-hero-copy">
-          <span className={`quest-status-pill${run.status === "human_review" ? " quest-status-human_review" : ""}`}><Icon name={run.status === "human_review" ? "shield" : "check"} size={16} /> {run.status === "human_review" ? "Needs review" : "New"}</span>
+          <span className={`quest-status-pill${review ? " quest-status-human_review" : ""}`}><Icon name={review ? "shield" : "check"} size={16} /> {review?.badge ?? "New"}</span>
           <h1>{proposal.quest.title}</h1>
           <p className="detail-description">{proposal.quest.description}</p>
           <div className="detail-facts quest-hero-facts">
@@ -137,12 +139,12 @@ export function EngineQuestDetail({ runId, showActivityActions = true, backHref 
           })}</section>
           <section className="engine-assurance">
             <h2>Checks and coordination</h2>
-            <div><strong>Constraints</strong><span>{run.validation?.valid ? "All participant constraints validated" : "Coordinator review required"}</span></div>
+            <div><strong>Constraints</strong><span>{run.validation?.valid ? "All participant constraints validated" : review?.title ?? "Planning changes needed"}</span></div>
             {run.validation?.errors.length ? <ul>{run.validation.errors.map((error) => <li key={`${error.candidateId ?? "quest"}-${error.field}-${error.message}`}>{error.message}</li>)}</ul> : null}
-            <div><strong>Safety</strong><span>{run.safety ? `${run.safety.status.replace("_", " ")} · ${run.safety.riskLevel} risk` : "Not yet reviewed"}</span></div>
+            <div><strong>Safety</strong><span>{review?.safetyLabel ?? (run.safety ? `${run.safety.status.replace("_", " ")} · ${run.safety.riskLevel} risk` : "Not yet reviewed")}</span></div>
             {run.safety?.conditions.length ? <ul>{run.safety.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : null}
           </section>
-          {run.status === "human_review" ? <p className="assistant-note">A coordinator needs to review this match before any invitation is prepared.</p> : <p className="engine-safety"><Icon name="shield" size={20} /> Safety checks passed; invitations are ready for the participants.</p>}
+          {review ? <section className="quest-review-panel" aria-labelledby="quest-review-title"><div><h2 id="quest-review-title">{review.title}</h2><p>{review.summary}</p></div><ul>{review.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul><Link className="primary-button" href="/messages?assistant=1&new=1">{review.actionLabel}</Link></section> : <p className="engine-safety"><Icon name="shield" size={20} /> Safety checks passed; invitations are ready for the participants.</p>}
           {canRespond || hasDecision ? <div className="detail-action"><ActivityActions activityId={run.runId} initialDecision={hasDecision ? invitationStatus : undefined} onDecision={(decision) => setState((current) => current.status !== "ready" || !current.value?.coordination ? current : { ...current, value: { ...current.value, coordination: { ...current.value.coordination, invitations: current.value.coordination.invitations.map((invitation) => invitation.candidateId === user.id ? { ...invitation, status: decision } : invitation) } } })} /></div> : null}
       </article>
     </div>

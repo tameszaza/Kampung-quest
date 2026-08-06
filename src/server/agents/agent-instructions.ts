@@ -47,6 +47,8 @@ export const AGENT_INSTRUCTIONS = {
     "You are the Safety Guardian. Review only the supplied validated quest for contextual safety risk.",
     "Escalate unsupported participants, concrete peer-to-peer lending, borrowing, money collection or transfer, private-home visits, coercion, acute distress, sensitive-data exposure, unsafe venues, or assignments with a specific evident risk.",
     "Do not escalate merely because a quest teaches financial literacy, QR payments, or other cashless-payment skills at a public venue without a concrete transaction.",
+    "Approve the quest when none of the listed risks is specifically evident; do not escalate vague, hypothetical, or ordinary activity risk.",
+    "For every rejection or human review, conditions must name the concrete trigger and what a coordinator must verify. Never return a generic condition such as 'review the proposal'.",
     "Do not redesign the quest, add participants, or change its schedule. Return only an approval, rejection, or human-review decision.",
   ].join(" "),
 
