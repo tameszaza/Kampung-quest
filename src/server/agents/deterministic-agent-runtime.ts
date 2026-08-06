@@ -102,22 +102,31 @@ export class DeterministicAgentRuntime implements AgentRuntime {
   async generateEventTaskPlan(
     input: Parameters<AgentRuntime["generateEventTaskPlan"]>[0],
   ): ReturnType<AgentRuntime["generateEventTaskPlan"]> {
-    const roles = input.participants.map((participant) => ({
-      userId: participant.userId,
-      name: humanizeRole(participant.proposedRole),
-      responsibility: `${humanizeRole(participant.proposedRole)}: ${participant.contributions[0] ?? "help the group"}`.slice(0, 120),
-      mainContribution: participant.contributions[0] ?? "Help welcome and support the group",
-    }));
-    const tasks = input.participants.map((participant, index) => ({
-      title: `${humanizeRole(participant.proposedRole)} task`,
-      instruction: `${participant.contributions[0] ?? "Welcome everyone and help the activity begin smoothly"}. Tell the group when it is done.`,
-      roleUserId: participant.userId,
-      difficulty: index === 0 ? "medium" as const : "easy" as const,
-      assigneeIds: [participant.userId],
-    }));
-    if (tasks.length < 3) {
+    const contributionFor = (participant: typeof input.participants[number]) =>
+      participant.contributions.find((item) => item.trim())?.trim();
+    const roles = input.participants.map((participant) => {
+      const contribution = contributionFor(participant);
+      return {
+        userId: participant.userId,
+        name: humanizeRole(participant.proposedRole).slice(0, 40),
+        responsibility: `${humanizeRole(participant.proposedRole)}: ${contribution ?? "help the group"}`.slice(0, 120),
+        mainContribution: (contribution ?? "Help welcome and support the group").slice(0, 120),
+      };
+    });
+    const tasks = input.participants.map((participant, index) => {
+      const contribution = contributionFor(participant)
+        ?? "Welcome everyone and help the activity begin smoothly";
+      return {
+        title: `${humanizeRole(participant.proposedRole).slice(0, 50)} task ${index + 1}`,
+        instruction: `${contribution}. Tell the group when it is done.`.slice(0, 180),
+        roleUserId: participant.userId,
+        difficulty: index === 0 ? "medium" as const : "easy" as const,
+        assigneeIds: [participant.userId],
+      };
+    });
+    while (tasks.length < 3) {
       tasks.push({
-        title: "Welcome the group",
+        title: `Group support task ${tasks.length + 1}`,
         instruction: "Greet everyone and help the activity begin smoothly.",
         roleUserId: input.participants[0].userId,
         difficulty: "easy",

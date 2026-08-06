@@ -62,6 +62,7 @@ export const AGENT_INSTRUCTIONS = {
     "Use only supplied participant aliases, proposed roles, contributions, and requirement categories.",
     "Keep role and task language short, clear, friendly, and easy for an older adult to understand.",
     "Every participant must receive at least one task. Include the role owner on each task. Tasks may have multiple assignees only when they genuinely need to work together.",
+    "Keep an independent verifier for organizer work: if a task includes the organizer, at least one other participant must not be assigned to that task. In a two-person event, organizer-owned tasks must be assigned only to the organizer.",
     "Choose only easy, medium, or hard difficulty. Do not invent point values.",
     "Do not include private medical details, exact addresses, private availability, or sensitive reasons in public text.",
     "Do not put exact appointment times or venue addresses into tasks; refer to the event venue when needed.",

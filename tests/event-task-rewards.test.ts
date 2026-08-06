@@ -3,7 +3,7 @@ import { DeterministicAgentRuntime } from "@/server/agents/deterministic-agent-r
 import type { QuestRun } from "@/server/domain/schemas";
 import { EventCoordinator } from "@/server/features/event-coordinator";
 import { InMemoryKampungStore } from "@/server/repositories/kampung-store";
-import { validateEventTaskPlan } from "@/server/domain/event-tasks";
+import { normalizeEventTaskPlanReviewers, validateEventTaskPlan } from "@/server/domain/event-tasks";
 
 function run(): QuestRun {
   const now = "2026-08-03T00:00:00.000Z";
@@ -44,12 +44,17 @@ function run(): QuestRun {
   };
 }
 
-async function scheduledCoordinator() {
+async function scheduledCoordinator(options: {
+  questRun?: QuestRun;
+  guestIds?: string[];
+  generateTaskPlan?: ConstructorParameters<typeof EventCoordinator>[0]["generateTaskPlan"];
+} = {}) {
   const store = new InMemoryKampungStore();
-  const coordinator = new EventCoordinator({ store });
-  let state = await coordinator.createFormation(run());
+  const coordinator = new EventCoordinator({ store, generateTaskPlan: options.generateTaskPlan });
+  const guestIds = options.guestIds ?? ["anne", "david"];
+  let state = await coordinator.createFormation(options.questRun ?? run());
   state = await coordinator.confirmRoster({ runId: state.runId, actorId: "maria", expectedRevision: state.revision, idempotencyKey: "confirm-roster" });
-  for (const userId of ["anne", "david"]) {
+  for (const userId of guestIds) {
     const invitation = state.invitations.find((candidate) => candidate.guestId === userId)!;
     state = await coordinator.respondToInvitation({
       runId: state.runId,
@@ -79,7 +84,7 @@ async function scheduledCoordinator() {
     expectedRevision: state.revision,
     idempotencyKey: "approve-arrangement",
   });
-  for (const userId of ["anne", "david"]) {
+  for (const userId of guestIds) {
     state = await coordinator.decideArrangement({
       runId: state.runId,
       arrangementId: arrangement.arrangementId,
@@ -93,6 +98,93 @@ async function scheduledCoordinator() {
 }
 
 describe("event task rewards", () => {
+  it("keeps an independent verifier when a two-person plan contains a joint organizer task", async () => {
+    const questRun = run();
+    if (!questRun.proposal) throw new Error("Test quest needs a proposal");
+    questRun.proposal.quest.groupSize = 2;
+    questRun.proposal.proposedParticipants = questRun.proposal.proposedParticipants.slice(0, 2);
+    questRun.proposal.proposedParticipants = questRun.proposal.proposedParticipants.map((participant) => ({
+      ...participant,
+      proposedRole: "supporting_participant",
+      contributionsUsed: ["   "],
+    }));
+    const { state } = await scheduledCoordinator({
+      questRun,
+      guestIds: ["anne"],
+      generateTaskPlan: async () => ({
+        roles: [
+          { userId: "maria", name: "Host", responsibility: "Prepare the meal", mainContribution: "Bring fruit" },
+          { userId: "anne", name: "Recipe guide", responsibility: "Guide the recipe", mainContribution: "Teach a recipe" },
+        ],
+        tasks: [
+          { title: "Set up", instruction: "Prepare the event table.", roleUserId: "maria", difficulty: "easy", assigneeIds: ["maria", "anne"] },
+          { title: "Guide recipe", instruction: "Explain the recipe steps.", roleUserId: "maria", difficulty: "medium", assigneeIds: ["maria", "anne"] },
+          { title: "Cook together", instruction: "Prepare the meal together.", roleUserId: "maria", difficulty: "medium", assigneeIds: ["maria", "anne"] },
+        ],
+      }),
+    });
+
+    const plan = state.taskPlans.at(-1)!;
+
+    expect(plan.status).toBe("awaiting_acknowledgement");
+    expect(plan.tasks.every((task) => task.reviewerId !== task.roleUserId)).toBe(true);
+    expect(["maria", "anne"].every((userId) => plan.tasks.some((task) =>
+      task.assignees.some((assignee) => assignee.userId === userId)))).toBe(true);
+  });
+
+  it("uses a deterministic fallback when the task agent violates its output schema", async () => {
+    const questRun = run();
+    if (!questRun.proposal) throw new Error("Test quest needs a proposal");
+    questRun.proposal.quest.groupSize = 2;
+    questRun.proposal.proposedParticipants = questRun.proposal.proposedParticipants.slice(0, 2);
+
+    const { state } = await scheduledCoordinator({
+      questRun,
+      guestIds: ["anne"],
+      generateTaskPlan: async () => ({ roles: [], tasks: [] }) as never,
+    });
+
+    const plan = state.taskPlans.at(-1)!;
+
+    expect(plan.status).toBe("awaiting_acknowledgement");
+    expect(plan.roles).toHaveLength(2);
+    expect(plan.tasks).toHaveLength(3);
+  });
+
+  it("normalizes organizer assignments while preserving each task's role owner", () => {
+    const normalized = normalizeEventTaskPlanReviewers({
+      roles: [
+        { userId: "maria", name: "Host", responsibility: "Host the event" },
+        { userId: "anne", name: "Guide", responsibility: "Guide the recipe" },
+        { userId: "david", name: "Welcomer", responsibility: "Welcome everyone" },
+      ],
+      tasks: [
+        { title: "Organizer task", instruction: "Set up together.", roleUserId: "maria", difficulty: "easy", assigneeIds: ["maria", "anne", "david"] },
+        { title: "Guest task", instruction: "Cook together.", roleUserId: "anne", difficulty: "medium", assigneeIds: ["maria", "anne"] },
+        { title: "Welcome", instruction: "Welcome the group.", roleUserId: "david", difficulty: "easy", assigneeIds: ["david"] },
+      ],
+    }, ["maria", "anne", "david"], "maria");
+
+    expect(normalized.tasks[0]?.assigneeIds).toEqual(["maria", "david"]);
+    expect(normalized.tasks[1]?.assigneeIds).toEqual(["maria", "anne"]);
+    expect(validateEventTaskPlan(normalized, ["maria", "anne", "david"], "maria")).toEqual([]);
+  });
+
+  it("uses useful default task text for whitespace-only contributions", async () => {
+    const output = await new DeterministicAgentRuntime().generateEventTaskPlan({
+      organizerId: "maria",
+      quest: { title: "Lunch", goal: "Share lunch", description: "Prepare lunch", durationMinutes: 60 },
+      participants: [
+        { userId: "maria", proposedRole: "host", contributions: ["   "], requirements: [] },
+        { userId: "anne", proposedRole: "helper", contributions: ["   "], requirements: [] },
+      ],
+      appointment: { venueName: "Community centre" },
+    });
+
+    expect(output.tasks[0]?.instruction).toContain("Welcome everyone");
+    expect(output.tasks[0]?.instruction).not.toMatch(/^\s*\./);
+  });
+
   it("persists a generated task plan after a concurrent quest update", async () => {
     const { store, state } = await scheduledCoordinator();
     const superseded = await store.saveEventCoordinationState({
@@ -151,7 +243,7 @@ describe("event task rewards", () => {
     expect(injectedConflicts).toBe(6);
   });
 
-  it("persists task generation failure after a concurrent quest update", async () => {
+  it("persists a deterministic fallback after task generation failure and a concurrent update", async () => {
     const { store, state } = await scheduledCoordinator();
     const superseded = await store.saveEventCoordinationState({
       ...state,
@@ -182,11 +274,12 @@ describe("event task rewards", () => {
     }, pending.revision);
     releaseGeneration();
 
-    const failed = await generating;
+    const recovered = await generating;
 
-    expect(failed.taskPlans.at(-1)?.status).toBe("generation_failed");
-    expect(failed.taskPlans.at(-1)?.generationError).toContain("Task provider failed");
-    expect(failed.processedCommands).toContain("concurrent-failure-update");
+    expect(recovered.taskPlans.at(-1)?.status).toBe("awaiting_acknowledgement");
+    expect(recovered.taskPlans.at(-1)?.generationError).toBeNull();
+    expect(recovered.processedCommands).toContain("concurrent-failure-update");
+    expect(recovered.auditEvents.at(-1)?.safeDiff).toEqual(expect.objectContaining({ fallbackUsed: true }));
   });
 
   it("marks an abandoned pending task plan as failed so it can be retried", async () => {
@@ -214,7 +307,7 @@ describe("event task rewards", () => {
     expect(recovered.taskPlans.at(-1)?.generationError).toContain("interrupted");
   });
 
-  it("times out task generation before pending-plan recovery can supersede it", async () => {
+  it("uses a deterministic fallback when task generation times out", async () => {
     const { store, state } = await scheduledCoordinator();
     const superseded = await store.saveEventCoordinationState({
       ...state,
@@ -232,8 +325,8 @@ describe("event task rewards", () => {
 
       const recovered = await generating;
 
-      expect(recovered.taskPlans.at(-1)?.status).toBe("generation_failed");
-      expect(recovered.taskPlans.at(-1)?.generationError).toContain("timed out");
+      expect(recovered.taskPlans.at(-1)?.status).toBe("awaiting_acknowledgement");
+      expect(recovered.taskPlans.at(-1)?.generationError).toBeNull();
     } finally {
       vi.useRealTimers();
     }

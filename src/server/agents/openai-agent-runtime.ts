@@ -365,10 +365,12 @@ export class HostedAgentRuntime implements AgentRuntime {
       participants: input.participants.map((participant) => ({
         ...participant,
         userId: aliases.get(participant.userId),
+        isOrganizer: participant.userId === input.organizerId,
       })),
       rules: {
         taskCount: "3-5 total",
         points: { easy: 10, medium: 20, hard: 30 },
+        independentOrganizerReview: "A task assigned to the organizer must leave at least one other participant unassigned as its verifier.",
         noDirectStateMutation: true,
       },
     }, { questTitle: input.quest.title }));

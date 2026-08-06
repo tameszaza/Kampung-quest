@@ -125,6 +125,7 @@ export const eventTaskReassignmentAgentOutputSchema = z.object({
 });
 
 export interface EventTaskPlanAgentInput {
+  organizerId: string;
   quest: {
     title: string;
     goal: string;
@@ -183,6 +184,37 @@ export const eventTaskReassignmentDecisionSchema = z.object({
 
 export function pointsForDifficulty(difficulty: EventTaskDifficulty): number {
   return EVENT_TASK_POINTS[difficulty];
+}
+
+export function normalizeEventTaskPlanReviewers(
+  output: EventTaskPlanAgentOutput,
+  activeUserIds: string[],
+  organizerId: string,
+): EventTaskPlanAgentOutput {
+  const tasks = output.tasks.map((task, taskIndex) => {
+    if (!task.assigneeIds.includes(organizerId)) return task;
+    const independentReviewer = activeUserIds.find((userId) =>
+      userId !== organizerId && !task.assigneeIds.includes(userId));
+    if (independentReviewer) return task;
+
+    const roleUserId = task.roleUserId ?? task.assigneeIds[0];
+    const reviewerCandidates = activeUserIds.filter((userId) =>
+      userId !== organizerId && task.assigneeIds.includes(userId));
+    const reviewerId = reviewerCandidates[taskIndex % reviewerCandidates.length];
+    if (!reviewerId) return task;
+
+    return {
+      ...task,
+      assigneeIds: roleUserId === organizerId
+        ? task.assigneeIds.filter((userId) => userId !== reviewerId)
+        : task.assigneeIds.filter((userId) => userId !== organizerId),
+    };
+  });
+
+  return {
+    ...output,
+    tasks,
+  };
 }
 
 export function validateEventTaskPlan(

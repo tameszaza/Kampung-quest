@@ -74,6 +74,7 @@ describe("matchmaking output contract", () => {
     expect(AGENT_INSTRUCTIONS.synthesis).toContain("Copy the exact ref string character-for-character");
     expect(AGENT_INSTRUCTIONS.synthesis).toContain("return no_match");
     expect(AGENT_INSTRUCTIONS.coordination).toContain("Do not reveal or speculate about any other participant");
+    expect(AGENT_INSTRUCTIONS.taskPlan).toContain("independent verifier");
   });
 
   it("accepts an exact supplied fact if a provider returns the text instead of its opaque ref", () => {

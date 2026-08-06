@@ -21,6 +21,7 @@ import type {
 } from "@/server/domain/event-coordination";
 import {
   eventTaskPlanAgentOutputSchema,
+  normalizeEventTaskPlanReviewers,
   pointsForDifficulty,
   validateEventTaskPlan,
   type EventTask,
@@ -2009,14 +2010,29 @@ export class EventCoordinator {
     let generated: EventTaskPlan;
     let taskAnnouncement: string;
     let completedAt: string;
+    let fallbackUsed = false;
+    let normalized: EventTaskPlanAgentOutput | null = null;
+    const taskInput = this.taskPlanInput(started, finalized.venueName, activeUserIds);
     try {
-      const taskInput = this.taskPlanInput(started, finalized.venueName, activeUserIds);
       const output = await this.generateTaskPlanWithTimeout(taskInput);
       const parsed = eventTaskPlanAgentOutputSchema.parse(output);
-      const errors = validateEventTaskPlan(parsed, taskInput.participants, state.initiatorId);
+      normalized = normalizeEventTaskPlanReviewers(parsed, activeUserIds, state.initiatorId);
+      fallbackUsed = validateEventTaskPlan(normalized, taskInput.participants, state.initiatorId).length > 0;
+    } catch {
+      fallbackUsed = true;
+    }
+    try {
+      if (fallbackUsed || !normalized) {
+        normalized = normalizeEventTaskPlanReviewers(
+          fallbackTaskPlan(taskInput),
+          activeUserIds,
+          state.initiatorId,
+        );
+      }
+      const errors = validateEventTaskPlan(normalized, taskInput.participants, state.initiatorId);
       if (errors.length) throw new Error(errors.join("; "));
       completedAt = new Date().toISOString();
-      generated = this.materializeTaskPlan(pending, parsed, completedAt, state.initiatorId, activeUserIds);
+      generated = this.materializeTaskPlan(pending, normalized, completedAt, state.initiatorId, activeUserIds);
       taskAnnouncement = `Senior Quest prepared ${generated.tasks.length} event tasks. Please review your role and task.`;
     } catch (error) {
       return this.saveFailedTaskPlan(started.runId, pending.planId, safeErrorMessage(error));
@@ -2026,6 +2042,7 @@ export class EventCoordinator {
       pending.planId,
       generated,
       taskAnnouncement,
+      fallbackUsed,
     );
   }
 
@@ -2055,6 +2072,7 @@ export class EventCoordinator {
     planId: string,
     generated: EventTaskPlan,
     taskAnnouncement: string,
+    fallbackUsed: boolean,
   ): Promise<EventCoordinationState> {
     while (true) {
       const current = await this.requireState(runId);
@@ -2094,6 +2112,7 @@ export class EventCoordinator {
           auditEvents: [...current.auditEvents, this.auditEvent(current, "task_plan_generated", null, null, {
             planId: generated.planId,
             taskCount: generated.tasks.length,
+            fallbackUsed,
           }, current.lifecycle)],
           updatedAt: persistedAt,
         }, current.revision);
@@ -2542,6 +2561,7 @@ export class EventCoordinator {
     activeUserIds: string[],
   ): EventTaskPlanAgentInput {
     return {
+      organizerId: state.initiatorId,
       quest: {
         title: state.proposal.quest.title,
         goal: state.proposal.quest.sharedGoal,
@@ -3330,23 +3350,26 @@ function fallbackTaskPlan(input: EventTaskPlanAgentInput): EventTaskPlanAgentOut
     const text = role.replaceAll("_", " ").trim();
     return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Quest helper";
   };
-  const roles = input.participants.map((participant) => ({
-    userId: participant.userId,
-    name: humanize(participant.proposedRole),
-    responsibility: `${humanize(participant.proposedRole)}: ${participant.contributions[0] ?? "help the group"}`.slice(0, 120),
-    mainContribution: participant.contributions[0] ?? "Help welcome and support the group",
-  }));
+  const roles = input.participants.map((participant) => {
+    const contribution = participant.contributions.find((item) => item.trim())?.trim();
+    return {
+      userId: participant.userId,
+      name: humanize(participant.proposedRole).slice(0, 40),
+      responsibility: `${humanize(participant.proposedRole)}: ${contribution ?? "help the group"}`.slice(0, 120),
+      mainContribution: (contribution ?? "Help welcome and support the group").slice(0, 120),
+    };
+  });
   const tasks = input.participants.map((participant, index) => ({
-    title: `${humanize(participant.proposedRole)} task`.slice(0, 60),
-    instruction: `${participant.contributions[0] ?? "Welcome everyone and help the activity begin smoothly"}. Tell the group when it is done.`.slice(0, 180),
+    title: `Participant task ${index + 1}`,
+    instruction: "Complete your assigned event responsibility at the event venue and tell the group when it is done.",
     roleUserId: participant.userId,
     difficulty: index === 0 ? "medium" as const : "easy" as const,
     assigneeIds: [participant.userId],
   }));
   while (tasks.length < 3) {
     tasks.push({
-      title: "Welcome the group",
-      instruction: "Greet everyone and help the activity begin smoothly.",
+      title: `Group support task ${tasks.length + 1}`,
+      instruction: "Complete this event support step at the event venue and tell the group when it is done.",
       roleUserId: input.participants[0].userId,
       difficulty: "easy",
       assigneeIds: [input.participants[0].userId],
