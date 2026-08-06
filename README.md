@@ -194,6 +194,23 @@ One PostgreSQL instance contains five logical schemas:
 | `rewards` | Append-only verified task awards and reversals used to calculate member point balances and history |
 | `assistant` | AI conversation transcripts, authoritative brief drafts and replayable workflow events |
 
+### Reward codes
+
+Reward codes are encrypted at rest and stored as one-time inventory. Set
+`REWARD_CODE_ENCRYPTION_KEY` to a random 32-byte hex/base64 value and keep it in the deployment
+secret manager. Set a separate high-entropy `REWARD_CODE_FINGERPRINT_KEY` when possible. Import
+codes through stdin so bearer codes do not appear in shell history or process listings:
+
+```bash
+printf '%s\n' 'PARTNER-CODE-001' 'PARTNER-CODE-002' \
+  | DATABASE_URL=... REWARD_CODE_ENCRYPTION_KEY=... \
+    REWARD_CODE_FINGERPRINT_KEY=... npm run rewards:import-codes -- sunrise-cafe-set
+```
+
+The rewards API returns only masked codes in lists/history; the full code is shown to its owning
+member on the redemption detail page. Keep old `REWARD_CODE_ENCRYPTION_KEY_V<version>` values
+available during key rotation so previously imported inventory remains readable.
+
 The Personal Memory Micro-Agent is invoked only when new information arrives. It receives the active Markdown snapshot, current soft facts, authoritative constraints and the new narrative. A new snapshot becomes active only after all three embeddings are stored. Failed model or embedding work remains recorded while the previous active memory stays usable.
 
 Markdown is stored as versioned database text and can be exported as a `.md` file; container-local files are not authoritative. Structured constraints remain code-owned, and the vector index can be rebuilt from memory records.

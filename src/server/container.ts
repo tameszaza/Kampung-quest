@@ -17,6 +17,8 @@ import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { AssistantRecommendationService } from "@/server/features/assistant-recommendation-service";
 import { AssistantConversationService } from "@/server/features/assistant-conversation-service";
 import { EventCoordinator } from "@/server/features/event-coordinator";
+import { buildRewardSummaryWithTaskEntries } from "@/server/features/reward-service";
+import { RewardRedemptionService } from "@/server/features/reward-redemption-service";
 import { findClosestCommonAvailability, findCommonAvailability } from "@/server/features/availability-service";
 import { ConstraintValidator } from "@/server/features/validation-service";
 import { SafetyGuardianService } from "@/server/features/safety-service";
@@ -24,6 +26,10 @@ import { QuestChatNotifier } from "@/server/features/quest-chat-notifier";
 import { RecruitmentEligibilityService } from "@/server/features/recruitment-eligibility-service";
 import { InMemoryKampungStore, type KampungStore } from "@/server/repositories/kampung-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
+import { InMemoryRewardStore } from "@/server/repositories/reward-store";
+import { PostgresRewardStore } from "@/server/repositories/postgres-reward-store";
+import type { RewardStore } from "@/server/repositories/reward-store";
+import { rewardOffers } from "@/server/features/reward-service";
 import { createQuestImageStorage } from "@/server/quest/quest-image-storage";
 import { identityStore } from "@/server/identity/container";
 
@@ -251,6 +257,36 @@ export const eventCoordinator = new EventCoordinator({
   generateTaskPlan: (input) => agentDependencies.agents.generateEventTaskPlan(input),
   proposeTaskReassignment: (input) => agentDependencies.agents.proposeEventTaskReassignment(input),
 });
+
+const rewardGlobals = globalThis as typeof globalThis & {
+  rewardStore?: RewardStore;
+  rewardRedemptionService?: RewardRedemptionService;
+};
+
+function createRewardStore(): RewardStore {
+  if (process.env.DATABASE_URL) return new PostgresRewardStore(process.env.DATABASE_URL);
+  return new InMemoryRewardStore(rewardOffers);
+}
+
+export const rewardStore = rewardGlobals.rewardStore ?? createRewardStore();
+if (process.env.NODE_ENV !== "production") rewardGlobals.rewardStore = rewardStore;
+
+async function getBaseRewardSummary(userId: string) {
+  const durableSummary = await rewardStore.getLedgerSummary(userId);
+  if (durableSummary) return durableSummary;
+  const [activities, entries, taskPlanRunIds] = await Promise.all([
+    eventCoordinator.listActivities(userId),
+    eventCoordinator.listRewardEntries(userId),
+    eventCoordinator.listTaskRewardRunIds(userId),
+  ]);
+  return buildRewardSummaryWithTaskEntries(activities.my.completed, entries, taskPlanRunIds);
+}
+
+export const rewardRedemptionService = rewardGlobals.rewardRedemptionService ?? new RewardRedemptionService({
+  store: rewardStore,
+  getBaseSummary: getBaseRewardSummary,
+});
+if (process.env.NODE_ENV !== "production") rewardGlobals.rewardRedemptionService = rewardRedemptionService;
 
 export const kampungQuestEngine = new KampungQuestEngine({
   store: kampungStore,

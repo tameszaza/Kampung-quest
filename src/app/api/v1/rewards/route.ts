@@ -1,19 +1,47 @@
 import { NextResponse } from "next/server";
-import { eventCoordinator } from "@/server/container";
-import { buildRewardSummaryWithTaskEntries } from "@/server/features/reward-service";
+import { rewardRedemptionService } from "@/server/container";
 import { errorResponse } from "@/server/http/responses";
 import { requireUser } from "@/server/identity/session";
+import { RewardDomainError } from "@/server/repositories/reward-store";
+import { z } from "zod";
 
 export async function GET() {
   try {
     const user = await requireUser();
-    const [activities, entries, taskPlanRunIds] = await Promise.all([
-      eventCoordinator.listActivities(user.id),
-      eventCoordinator.listRewardEntries(user.id),
-      eventCoordinator.listTaskRewardRunIds(user.id),
-    ]);
-    return NextResponse.json(buildRewardSummaryWithTaskEntries(activities.my.completed, entries, taskPlanRunIds));
+    return NextResponse.json(await rewardRedemptionService.getRewards(user.id), {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+export async function handleRewardRedemptionPost(request: Request) {
+  try {
+    const user = await requireUser();
+    const idempotencyKey = request.headers.get("Idempotency-Key");
+    if (!idempotencyKey) throw new RewardDomainError("IDEMPOTENCY_KEY_REQUIRED", "An idempotency key is required.");
+    let payload: unknown;
+    try {
+      payload = await request.json();
+    } catch {
+      throw new RewardDomainError("INVALID_REQUEST", "Request body must be valid JSON.");
+    }
+    const body = z.object({ offerId: z.string().trim().min(1).max(120) }).parse(payload);
+    const result = await rewardRedemptionService.redeem({
+      userId: user.id,
+      offerId: body.offerId,
+      idempotencyKey,
+    });
+    return NextResponse.json(result, {
+      status: result.replayed ? 200 : 201,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function POST(request: Request) {
+  return handleRewardRedemptionPost(request);
 }
