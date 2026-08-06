@@ -58,7 +58,7 @@ interface LedgerRow {
   run_id: string | null;
   task_id: string | null;
   points: number;
-  kind: "activity_award" | "task_award" | "reversal";
+  kind: "activity_award" | "task_award" | "admin_award" | "reversal";
   created_at: Date | string;
   task_title: string | null;
   event_title: string | null;
@@ -117,7 +117,7 @@ export class PostgresRewardStore implements RewardStore {
            LEFT JOIN quest.event_tasks task ON task.task_id = l.task_id
            LEFT JOIN quest.event_coordination_states state ON state.run_id = l.run_id
           WHERE l.user_id = $1
-            AND l.kind IN ('activity_award', 'task_award', 'reversal')
+            AND l.kind IN ('activity_award', 'task_award', 'admin_award', 'reversal')
           ORDER BY l.created_at DESC, l.entry_id DESC`,
         [userId],
       ),
@@ -129,7 +129,7 @@ export class PostgresRewardStore implements RewardStore {
       runId: row.run_id ?? "",
       title: row.task_id
         ? `${row.event_title ?? "Event"} · ${row.task_title ?? "Event task"}`
-        : row.event_title ?? "Completed activity",
+        : row.kind === "admin_award" ? "Points added by Senior Quest" : row.event_title ?? "Completed activity",
       points: Number(row.points),
       taskId: row.task_id ?? undefined,
       difficulty: row.difficulty ?? undefined,
@@ -140,6 +140,8 @@ export class PostgresRewardStore implements RewardStore {
       kind: earning.points < 0 ? "reversal" as const : "earning" as const,
       subtitle: earning.points < 0
         ? "Points adjustment"
+        : ledger.rows.find((row) => row.entry_id === earning.earningId)?.kind === "admin_award"
+          ? "Manual points grant"
         : earning.difficulty ? `${earning.difficulty} task approved` : "Activity completed",
       occurredAt: earning.earnedAt ?? "",
     }));
