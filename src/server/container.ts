@@ -315,6 +315,7 @@ export const assistantConversationService = new AssistantConversationService({
   store: kampungStore,
   agents: agentDependencies.agents,
   recommendations: assistantRecommendationService,
+  resolveAccessibilityPreferences: async (candidateId) => (await identityStore.findUserById(candidateId))?.preferences.accessibilityPreferences ?? null,
   allowDemoNeighbors: async (candidateId) => (await identityStore.findUserById(candidateId))?.username === "test",
 });
 

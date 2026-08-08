@@ -1748,6 +1748,56 @@
   font-weight: 750;
 }
 
+.accessibility-preferences {
+  min-width: 0;
+  margin: 0;
+  padding: 15px;
+  border: 1px solid #d5e6df;
+  border-radius: var(--radius-sm);
+  background: #f6fbf8;
+  display: grid;
+  gap: 12px;
+}
+
+.accessibility-preferences legend {
+  padding: 0 4px;
+  color: var(--green-900);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.accessibility-preferences > p {
+  margin: -3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.accessibility-preferences > label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.accessibility-preferences > label > span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.accessibility-preferences-compact {
+  padding: 12px;
+  gap: 9px;
+}
+
+.accessibility-preferences-compact > p {
+  font-size: 11px;
+}
+
+.accessibility-preferences-compact > label > span {
+  font-size: 11px;
+}
+
 .choice-chips {
   display: flex;
   flex-wrap: wrap;
@@ -3107,6 +3157,16 @@
   .two-field-row {
     grid-template-columns: 1fr 1fr;
   }
+
+  .accessibility-preferences {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .accessibility-preferences legend,
+  .accessibility-preferences > p {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (min-width: 768px) {
@@ -3261,6 +3321,95 @@
   color: var(--green-800);
   font-size: 17px;
   font-weight: 700;
+}
+
+.assistant-retrieval {
+  width: min(620px, calc(100% - 44px));
+  margin: 14px 0 0 44px;
+  padding: 16px;
+  border: 1px solid #d5e6df;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #f8fcfa, #eef9f4);
+  box-shadow: var(--shadow-sm);
+}
+
+.assistant-retrieval-heading {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+}
+
+.assistant-retrieval-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  place-items: center;
+  grid-row: 1 / span 2;
+  animation: assistant-retrieval-pulse 1.4s ease-in-out infinite;
+}
+
+.assistant-retrieval-heading h2,
+.assistant-retrieval-heading p {
+  grid-column: 2;
+  margin: 0;
+}
+
+.assistant-retrieval-heading h2 {
+  color: var(--green-900);
+  font-size: 15px;
+}
+
+.assistant-retrieval-heading p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.assistant-retrieval-list {
+  margin: 13px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.assistant-retrieval-list li {
+  color: var(--green-800);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assistant-retrieval-list li::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green-500);
+  content: "";
+  animation: assistant-retrieval-step 1.2s ease-in-out infinite;
+}
+
+.assistant-retrieval-list li:nth-child(2)::before { animation-delay: 160ms; }
+.assistant-retrieval-list li:nth-child(3)::before { animation-delay: 320ms; }
+
+.assistant-retrieval-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@keyframes assistant-retrieval-pulse {
+  50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(16, 157, 112, 0.08); }
+}
+
+@keyframes assistant-retrieval-step {
+  50% { opacity: .35; transform: scale(.75); }
 }
 
 .assistant-page {
@@ -3430,7 +3579,8 @@
 .assistant-embedded .assistant-choices,
 .assistant-embedded .assistant-review,
 .assistant-embedded .assistant-progress,
-.assistant-embedded .assistant-result {
+.assistant-embedded .assistant-result,
+.assistant-embedded .assistant-retrieval {
   width: 100%;
   margin: 0 0 13px;
 }
@@ -3486,8 +3636,13 @@
 }
 
 .assistant-embedded .assistant-review,
-.assistant-embedded .assistant-result {
+.assistant-embedded .assistant-result,
+.assistant-embedded .assistant-retrieval {
   padding: 16px;
+}
+
+.assistant-embedded .assistant-retrieval {
+  margin-left: 0;
 }
 
 .assistant-welcome,
@@ -4227,6 +4382,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .thinking-dots i { animation: none; }
+  .assistant-retrieval-icon,
+  .assistant-retrieval-list li::before { animation: none; }
 }
 
 /* Activity coordination is a group conversation inside Messages. Keep the

@@ -26,6 +26,7 @@ import type {
 import type { AvailabilityWindow, WeeklyAvailabilityRule } from "@/server/domain/schemas";
 import { expandAvailability } from "@/server/features/availability-service";
 import { questReviewPresentation } from "@/features/events/presentation";
+import type { AccessibilityPreferences } from "@/server/identity/types";
 
 const CONVERSATION_KEY = "senior-quest-ai-conversation-id";
 const LEGACY_DRAFT_KEY = "senior-quest-assistant-draft";
@@ -106,6 +107,9 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
   const [loading, setLoading] = useState(true);
   const [thinking, setThinking] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const hasSavedAccessibility = Object.values(user.preferences.accessibilityPreferences).some((value) => value !== null);
+  const [showAccessibilityRetrieval, setShowAccessibilityRetrieval] = useState(false);
+  const [accessibilityRetrieving, setAccessibilityRetrieving] = useState(false);
   const [text, setText] = useState("");
   const [editingField, setEditingField] = useState<AssistantBriefField | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +130,10 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
         if (!active) return;
         window.localStorage.setItem(conversationKey, next.conversationId);
         setConversation(next);
+        if (hasSavedAccessibility && !restored) {
+          setShowAccessibilityRetrieval(true);
+          setAccessibilityRetrieving(true);
+        }
         if (next.questRunId) setQuest(await getQuestRun(next.questRunId));
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : "Senior Quest could not start");
@@ -135,7 +143,13 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
     }
     void restore();
     return () => { active = false; };
-  }, [conversationKey, startFresh, user.id]);
+  }, [conversationKey, hasSavedAccessibility, startFresh, user.id]);
+
+  useEffect(() => {
+    if (!reconnectConversationId || !showAccessibilityRetrieval) return;
+    const timer = window.setTimeout(() => setAccessibilityRetrieving(false), 1_600);
+    return () => window.clearTimeout(timer);
+  }, [reconnectConversationId, showAccessibilityRetrieval]);
 
   useEffect(() => {
     if (!reconnectConversationId || reconnectStatus !== "processing" || confirming) return;
@@ -259,6 +273,8 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
       setConversation(next);
       setQuest(null);
       setEditingField(null);
+      setShowAccessibilityRetrieval(hasSavedAccessibility);
+      setAccessibilityRetrieving(hasSavedAccessibility);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Senior Quest could not start");
     } finally {
@@ -289,6 +305,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
 
       <main className="assistant-thread" aria-live="polite">
         {embedded ? <ChatDayLabel /> : null}
+        {showAccessibilityRetrieval ? <AccessibilityRetrievalCard preferences={user.preferences.accessibilityPreferences} active={accessibilityRetrieving} /> : null}
         {conversation.messages.map((message) => embedded ? (
           <ChatMessageBubble
             key={message.messageId}
@@ -364,6 +381,28 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
       </main>
     </div>
   );
+}
+
+function AccessibilityRetrievalCard({ preferences, active }: { preferences: AccessibilityPreferences; active: boolean }) {
+  const saved = [
+    preferences.stairsAllowed !== null ? "Stairs and steps" : null,
+    preferences.maximumDistanceM !== null ? "Walking distance" : null,
+    preferences.language !== null ? "Quest language" : null,
+  ].filter((label): label is string => Boolean(label));
+  const phase = active ? "Retrieving your saved preferences" : "Saved preferences applied";
+  return <section className={`assistant-retrieval${active ? " is-active" : ""}`} role="status" aria-live="polite" aria-busy={active}>
+    <header className="assistant-retrieval-heading">
+      <span className="assistant-retrieval-icon" aria-hidden="true">♥</span>
+      <h2>{phase}</h2>
+      <p>Senior Quest is checking what you have already told us.</p>
+    </header>
+    <ol className="assistant-retrieval-list">
+      <li>Reading your saved accessibility choices</li>
+      <li>Applying {saved.join(", ")}</li>
+      <li>Skipping questions you have already answered</li>
+    </ol>
+    <p className="assistant-retrieval-note">You can change or unset these defaults in Settings at any time.</p>
+  </section>;
 }
 
 function AnswerControl({ embedded, field, text, setText, disabled, suggestedReplies, onText, onAnswer }: {

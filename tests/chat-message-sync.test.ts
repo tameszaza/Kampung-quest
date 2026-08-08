@@ -67,7 +67,7 @@ describe("chat message synchronization", () => {
       area: "Tampines",
       photoUrl: null,
       preferences: {
-        interests: [], groupSize: "small", activityLevel: "gentle", accessibilityNeeds: [], textSize: "large",
+        interests: [], groupSize: "small", activityLevel: "gentle", accessibilityNeeds: [], accessibilityPreferences: { stairsAllowed: null, maximumDistanceM: null, language: null }, textSize: "large",
         highContrast: false, messageNotifications: true, questNotifications: true, profileVisibility: "community",
         messagePrivacy: "everyone", showOnlineStatus: true,
       },
@@ -84,7 +84,7 @@ describe("chat message synchronization", () => {
       area: "Tampines",
       photoUrl: null,
       preferences: {
-        interests: [], groupSize: "small", activityLevel: "gentle", accessibilityNeeds: [], textSize: "large",
+        interests: [], groupSize: "small", activityLevel: "gentle", accessibilityNeeds: [], accessibilityPreferences: { stairsAllowed: null, maximumDistanceM: null, language: null }, textSize: "large",
         highContrast: false, messageNotifications: true, questNotifications: true, profileVisibility: "community",
         messagePrivacy: "everyone", showOnlineStatus: true,
       },

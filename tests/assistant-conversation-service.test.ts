@@ -143,6 +143,72 @@ describe("Senior Quest AI conversation", () => {
     expect(cookingFollowUp.brief.currentGoal).toContain("salad");
   });
 
+  it("retrieves saved accessibility defaults and skips those questions", async () => {
+    const service = new AssistantConversationService({
+      store: new InMemoryKampungStore(),
+      agents: new DeterministicAgentRuntime(),
+      resolveAccessibilityPreferences: async () => ({ stairsAllowed: false, maximumDistanceM: 1000, language: "English" }),
+    });
+    let conversation = await service.create({ candidateId: "maria" });
+    expect(conversation.brief).toMatchObject({ stairsAllowed: false, maximumDistanceM: 1000, language: "English" });
+
+    const answers: AssistantAnswer[] = [
+      { field: "goal", value: "I want to join a gentle book club" },
+      { field: "interests", value: null },
+      { field: "offers", value: null },
+      { field: "availability", value: { start: "2026-08-04T11:00:00.000Z", end: "2026-08-04T13:00:00.000Z" } },
+      { field: "group_size", value: { minimum: 2, maximum: 4 } },
+      { field: "indoor", value: true },
+      { field: "consent", value: true },
+    ];
+    for (const [index, answer] of answers.entries()) {
+      conversation = await service.addTurn(conversation.conversationId, {
+        clientTurnId: `saved-accessibility-${index}`,
+        revision: conversation.revision,
+        answer,
+      });
+    }
+
+    expect(conversation.status).toBe("ready_for_review");
+    expect(conversation.brief.stairsAllowed).toBe(false);
+    expect(conversation.brief.maximumDistanceM).toBe(1000);
+    expect(conversation.brief.language).toBe("English");
+    expect(conversation.messages.some((message) => /stairs|distance|language/i.test(message.content))).toBe(false);
+  });
+
+  it("keeps working when preference retrieval fails and asks again after defaults are unset", async () => {
+    const store = new InMemoryKampungStore();
+    const unavailable = new AssistantConversationService({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      resolveAccessibilityPreferences: async () => { throw new Error("preference store unavailable"); },
+    });
+    await expect(unavailable.create({ candidateId: "maria" })).resolves.toMatchObject({ nextField: "goal" });
+
+    const cleared = new AssistantConversationService({
+      store,
+      agents: new DeterministicAgentRuntime(),
+      resolveAccessibilityPreferences: async () => ({ stairsAllowed: null, maximumDistanceM: null, language: null }),
+    });
+    let conversation = await cleared.create({ candidateId: "maria" });
+    const answers: AssistantAnswer[] = [
+      { field: "goal", value: "I want to join a gentle book club" },
+      { field: "interests", value: null },
+      { field: "offers", value: null },
+      { field: "availability", value: { start: "2026-08-04T11:00:00.000Z", end: "2026-08-04T13:00:00.000Z" } },
+      { field: "group_size", value: { minimum: 2, maximum: 4 } },
+      { field: "indoor", value: true },
+    ];
+    for (const [index, answer] of answers.entries()) {
+      conversation = await cleared.addTurn(conversation.conversationId, {
+        clientTurnId: `cleared-accessibility-${index}`,
+        revision: conversation.revision,
+        answer,
+      });
+    }
+    expect(conversation.nextField).toBe("stairs");
+  });
+
   it("persists a failed hosted turn and safely retries the same client turn", async () => {
     class FailingTurnRuntime extends DeterministicAgentRuntime {
       calls = 0;

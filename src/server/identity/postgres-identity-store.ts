@@ -12,6 +12,7 @@ import type {
   EmergencyContact,
   StoredUser,
   UserPreferences,
+  UserPreferenceUpdate,
   UserProfile,
 } from "@/server/identity/types";
 import { defaultPreferences, publicUser } from "@/server/identity/types";
@@ -40,6 +41,9 @@ type UserRow = {
   group_size: UserPreferences["groupSize"] | null;
   activity_level: UserPreferences["activityLevel"] | null;
   accessibility_needs: string[] | null;
+  stairs_allowed: boolean | null;
+  maximum_distance_m: number | null;
+  quest_language: string | null;
   text_size: UserPreferences["textSize"] | null;
   high_contrast: boolean | null;
   message_notifications: boolean | null;
@@ -56,6 +60,7 @@ const userSelect = `
          u.emergency_contact_phone, u.emergency_contact_email,
          u.account_type, u.onboarding_complete,
          p.interests, p.group_size, p.activity_level, p.accessibility_needs,
+         p.stairs_allowed, p.maximum_distance_m, p.quest_language,
          p.text_size, p.high_contrast, p.message_notifications, p.quest_notifications,
          p.profile_visibility, p.message_privacy, p.show_online_status
   FROM identity.users u
@@ -96,12 +101,16 @@ export class PostgresIdentityStore implements IdentityStore {
       );
       await client.query(
         `INSERT INTO identity.user_preferences
-           (user_id, interests, group_size, activity_level, accessibility_needs, text_size,
+           (user_id, interests, group_size, activity_level, accessibility_needs,
+            stairs_allowed, maximum_distance_m, quest_language, text_size,
             high_contrast, message_notifications, quest_notifications)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           id, input.preferences.interests, input.preferences.groupSize,
           input.preferences.activityLevel, input.preferences.accessibilityNeeds,
+          input.preferences.accessibilityPreferences.stairsAllowed,
+          input.preferences.accessibilityPreferences.maximumDistanceM,
+          input.preferences.accessibilityPreferences.language,
           input.preferences.textSize, input.preferences.highContrast,
           input.preferences.messageNotifications, input.preferences.questNotifications,
         ],
@@ -182,8 +191,12 @@ export class PostgresIdentityStore implements IdentityStore {
       );
       await client.query(
         `UPDATE identity.user_preferences SET interests = $2, group_size = $3,
-           activity_level = $4, updated_at = now() WHERE user_id = $1`,
-        [userId, input.preferences.interests, input.preferences.groupSize, input.preferences.activityLevel],
+           activity_level = $4, stairs_allowed = $5, maximum_distance_m = $6,
+           quest_language = $7, updated_at = now() WHERE user_id = $1`,
+        [userId, input.preferences.interests, input.preferences.groupSize, input.preferences.activityLevel,
+          input.preferences.accessibilityPreferences.stairsAllowed,
+          input.preferences.accessibilityPreferences.maximumDistanceM,
+          input.preferences.accessibilityPreferences.language],
       );
       await this.seedWelcomeChatsIfNeeded(client, userId, username);
       const result = await client.query<UserRow>(`${userSelect} WHERE u.user_id = $1`, [userId]);
@@ -314,7 +327,7 @@ export class PostgresIdentityStore implements IdentityStore {
     return result.rows.map((row) => row.user_id);
   }
 
-  async updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile> {
+  async updatePreferences(userId: string, input: UserPreferenceUpdate & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -341,6 +354,9 @@ export class PostgresIdentityStore implements IdentityStore {
            profile_visibility = COALESCE($10, profile_visibility),
            message_privacy = COALESCE($11, message_privacy),
            show_online_status = COALESCE($12, show_online_status),
+           stairs_allowed = CASE WHEN $13::boolean THEN $14 ELSE stairs_allowed END,
+           maximum_distance_m = CASE WHEN $15::boolean THEN $16 ELSE maximum_distance_m END,
+           quest_language = CASE WHEN $17::boolean THEN $18 ELSE quest_language END,
            updated_at = now()
          WHERE user_id = $1`,
         [
@@ -348,6 +364,12 @@ export class PostgresIdentityStore implements IdentityStore {
           input.accessibilityNeeds ?? null, input.textSize ?? null, input.highContrast ?? null,
           input.messageNotifications ?? null, input.questNotifications ?? null,
           input.profileVisibility ?? null, input.messagePrivacy ?? null, input.showOnlineStatus ?? null,
+          input.accessibilityPreferences?.stairsAllowed !== undefined,
+          input.accessibilityPreferences?.stairsAllowed ?? null,
+          input.accessibilityPreferences?.maximumDistanceM !== undefined,
+          input.accessibilityPreferences?.maximumDistanceM ?? null,
+          input.accessibilityPreferences?.language !== undefined,
+          input.accessibilityPreferences?.language ?? null,
         ],
       );
       const result = await client.query<UserRow>(`${userSelect} WHERE u.user_id = $1`, [userId]);
@@ -915,6 +937,11 @@ export class PostgresIdentityStore implements IdentityStore {
         groupSize: row.group_size ?? defaultPreferences.groupSize,
         activityLevel: row.activity_level ?? defaultPreferences.activityLevel,
         accessibilityNeeds: row.accessibility_needs ?? [],
+        accessibilityPreferences: {
+          stairsAllowed: row.stairs_allowed ?? null,
+          maximumDistanceM: row.maximum_distance_m ?? null,
+          language: row.quest_language ?? null,
+        },
         textSize: row.text_size ?? defaultPreferences.textSize,
         highContrast: row.high_contrast ?? false,
         messageNotifications: row.message_notifications ?? true,

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { AccessibilityPreferenceFields } from "@/components/accessibility-preference-fields";
 import { ProfilePhotoPicker } from "@/components/auth-form";
 import { authClient } from "@/lib/auth-client";
 import type { UserProfile } from "@/server/identity/types";
@@ -11,6 +12,7 @@ const interests = ["Cooking", "Gentle exercise", "Learning", "Games", "Gardening
 export function ProfileCompletionForm({ user }: { user: UserProfile }) {
   const router = useRouter();
   const [selectedInterests, setSelectedInterests] = useState(user.preferences.interests);
+  const [accessibilityPreferences, setAccessibilityPreferences] = useState(user.preferences.accessibilityPreferences);
   const [photo, setPhoto] = useState<File | null>(null);
   const [keepProviderPhoto, setKeepProviderPhoto] = useState(Boolean(user.photoUrl));
   const [busy, setBusy] = useState(false);
@@ -65,7 +67,7 @@ export function ProfileCompletionForm({ user }: { user: UserProfile }) {
           dateOfBirth: form.get("dateOfBirth"), gender: form.get("gender"),
           preferredLanguage: form.get("preferredLanguage"), area: form.get("area"),
           interests: selectedInterests, groupSize: form.get("groupSize"),
-          activityLevel: form.get("activityLevel"), useProviderPhoto: !photo && keepProviderPhoto,
+          activityLevel: form.get("activityLevel"), accessibilityPreferences, useProviderPhoto: !photo && keepProviderPhoto,
         }),
       });
       const result = await response.json() as { error?: string; issues?: Array<{ message: string }> };
@@ -108,6 +110,7 @@ export function ProfileCompletionForm({ user }: { user: UserProfile }) {
       {(!user.photoUrl || !keepProviderPhoto || localPreview) ? <ProfilePhotoPicker preview={localPreview} onChange={(file) => { setPhoto(file); if (file) setKeepProviderPhoto(false); }} /> : null}
       <fieldset className="choice-field"><legend>Interests (optional)</legend><div className="choice-chips">{interests.map((interest) => <button className={selectedInterests.includes(interest) ? "selected" : ""} type="button" key={interest} onClick={() => setSelectedInterests((items) => items.includes(interest) ? items.filter((item) => item !== interest) : [...items, interest])}>{interest}</button>)}</div></fieldset>
       <div className="two-field-row"><label><span>Preferred group size</span><select name="groupSize" defaultValue={user.preferences.groupSize}><option value="one-to-one">One-to-one</option><option value="small">Small group (2–4)</option><option value="any">No preference</option></select></label><label><span>Activity level</span><select name="activityLevel" defaultValue={user.preferences.activityLevel}><option value="gentle">Gentle</option><option value="moderate">Moderate</option><option value="any">No preference</option></select></label></div>
+      <AccessibilityPreferenceFields value={accessibilityPreferences} onChange={setAccessibilityPreferences} />
       <button className="primary-button" disabled={busy}>{busy ? "Saving your profile…" : "Finish and Continue"}</button>
     </form>
   );

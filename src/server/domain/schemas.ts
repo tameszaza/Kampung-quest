@@ -155,9 +155,12 @@ const hostedWeeklyAvailabilityRuleSchema = z.object({
 });
 
 const hostedQuestBriefDraftSchema = z.object({
-  currentGoal: z.string().min(1).optional(),
-  interests: z.array(z.string().min(1)).optional(),
-  offers: z.array(z.string().min(1)).optional(),
+  // Hosted models sometimes emit empty optional patches while asking the next
+  // question. Accept them at the provider boundary and drop them during
+  // normalization; the user's structured answer remains authoritative.
+  currentGoal: z.string().optional(),
+  interests: z.array(z.string()).optional(),
+  offers: z.array(z.string()).optional(),
   recurringAvailabilityRules: z.array(hostedWeeklyAvailabilityRuleSchema).optional(),
 });
 

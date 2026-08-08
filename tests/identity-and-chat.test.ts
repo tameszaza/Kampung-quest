@@ -30,6 +30,15 @@ describe("member identity security", () => {
       preferredLanguage: "English",
     });
     expect(input.groupSize).toBe("small");
+    expect(input.accessibilityPreferences).toEqual({ stairsAllowed: null, maximumDistanceM: null, language: null });
+    expect(registerSchema.parse({
+      fullName: "Maria Santos",
+      username: "Maria Santos",
+      email: "maria@example.com",
+      password: "Friendly123",
+      preferredLanguage: "English",
+      accessibilityPreferences: { stairsAllowed: false, maximumDistanceM: 500, language: "Malay" },
+    }).accessibilityPreferences).toEqual({ stairsAllowed: false, maximumDistanceM: 500, language: "Malay" });
     expect(() => registerSchema.parse({ fullName: "Maria", password: "Friendly123" })).toThrow();
     expect(() => createConversationSchema.parse({ type: "direct", participantIds: ["a", "b"] })).toThrow();
   });
@@ -53,8 +62,12 @@ describe("member preferences and chat", () => {
       textSize: "extra-large",
       highContrast: true,
       interests: ["Cooking"],
+      accessibilityPreferences: { stairsAllowed: false, maximumDistanceM: 1000, language: "English" },
     });
     expect(updated.preferences).toMatchObject({ textSize: "extra-large", highContrast: true, interests: ["Cooking"] });
+    expect(updated.preferences.accessibilityPreferences).toEqual({ stairsAllowed: false, maximumDistanceM: 1000, language: "English" });
+    const cleared = await store.updatePreferences(user.id, { accessibilityPreferences: { stairsAllowed: null, maximumDistanceM: null, language: null } });
+    expect(cleared.preferences.accessibilityPreferences).toEqual({ stairsAllowed: null, maximumDistanceM: null, language: null });
     const matches = await store.listContacts(user.id, "anne");
     expect(matches.some((contact) => contact.username === "anne.lim")).toBe(true);
   });

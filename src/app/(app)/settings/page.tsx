@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AccessibilityPreferenceFields } from "@/components/accessibility-preference-fields";
 import { useAppState } from "@/components/app-state";
 import { Icon } from "@/components/icons";
 import { MenuRow } from "@/components/menu-row";
@@ -139,6 +140,7 @@ export default function SettingsPage() {
         <label><span>My area</span><input value={area} onChange={(event) => setArea(event.target.value)} placeholder="Area or postal code" /></label>
         <label><span>Preferred group size</span><select value={preferences.groupSize} onChange={(event) => update("groupSize", event.target.value as UserPreferences["groupSize"])}><option value="one-to-one">One-to-one</option><option value="small">Small group (2–4)</option><option value="any">No preference</option></select></label>
         <label><span>Activity level</span><select value={preferences.activityLevel} onChange={(event) => update("activityLevel", event.target.value as UserPreferences["activityLevel"])}><option value="gentle">Gentle</option><option value="moderate">Moderate</option><option value="any">No preference</option></select></label>
+        <AccessibilityPreferenceFields value={preferences.accessibilityPreferences} onChange={(value) => update("accessibilityPreferences", value)} />
         <SwitchSetting label="Extra-large text" help="Make text easier to read" checked={preferences.textSize === "extra-large"} onChange={(checked) => update("textSize", checked ? "extra-large" : "large")} />
         <SwitchSetting label="High contrast" help="Make controls and text stand out more" checked={preferences.highContrast} onChange={(checked) => update("highContrast", checked)} />
         <SwitchSetting label="Message notifications" help="Let me know when someone replies" checked={preferences.messageNotifications} onChange={(checked) => update("messageNotifications", checked)} />

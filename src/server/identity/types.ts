@@ -1,8 +1,15 @@
+export type AccessibilityPreferences = {
+  stairsAllowed: boolean | null;
+  maximumDistanceM: number | null;
+  language: string | null;
+};
+
 export type UserPreferences = {
   interests: string[];
   groupSize: "one-to-one" | "small" | "any";
   activityLevel: "gentle" | "moderate" | "any";
   accessibilityNeeds: string[];
+  accessibilityPreferences: AccessibilityPreferences;
   textSize: "large" | "extra-large";
   highContrast: boolean;
   messageNotifications: boolean;
@@ -10,6 +17,10 @@ export type UserPreferences = {
   profileVisibility: "community" | "connections" | "private";
   messagePrivacy: "everyone" | "connections" | "nobody";
   showOnlineStatus: boolean;
+};
+
+export type UserPreferenceUpdate = Omit<Partial<UserPreferences>, "accessibilityPreferences"> & {
+  accessibilityPreferences?: Partial<AccessibilityPreferences>;
 };
 
 export type EmergencyContact = {
@@ -112,6 +123,11 @@ export const defaultPreferences: UserPreferences = {
   groupSize: "small",
   activityLevel: "gentle",
   accessibilityNeeds: [],
+  accessibilityPreferences: {
+    stairsAllowed: null,
+    maximumDistanceM: null,
+    language: null,
+  },
   textSize: "large",
   highContrast: false,
   messageNotifications: true,

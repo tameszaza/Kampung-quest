@@ -51,6 +51,7 @@ export async function POST(request: Request) {
         interests: input.interests,
         groupSize: input.groupSize,
         activityLevel: input.activityLevel,
+        accessibilityPreferences: input.accessibilityPreferences,
       },
     });
     return Response.json({ user });

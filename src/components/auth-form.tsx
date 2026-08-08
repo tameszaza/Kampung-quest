@@ -4,8 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { AccessibilityPreferenceFields, emptyAccessibilityPreferences } from "@/components/accessibility-preference-fields";
 import { Icon } from "@/components/icons";
 import { authClient } from "@/lib/auth-client";
+import type { AccessibilityPreferences } from "@/server/identity/types";
 
 type FormMode = "login" | "register";
 type Availability = "idle" | "checking" | "available" | "taken";
@@ -20,6 +22,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(searchParams.get("error") === "google" ? "Google sign-in could not be completed. Please try again." : "");
   const [interests, setInterests] = useState<string[]>([]);
+  const [accessibilityPreferences, setAccessibilityPreferences] = useState<AccessibilityPreferences>(emptyAccessibilityPreferences);
   const [photo, setPhoto] = useState<File | null>(null);
   const [usernameAvailability, setUsernameAvailability] = useState<Availability>("idle");
   const photoPreview = useMemo(() => photo ? URL.createObjectURL(photo) : null, [photo]);
@@ -107,6 +110,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
         area: form.get("area"),
         groupSize: form.get("groupSize"),
         activityLevel: form.get("activityLevel"),
+        accessibilityPreferences,
         interests,
         useProviderPhoto: false,
       }),
@@ -202,6 +206,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
       <section className={step === 3 ? "form-step active" : "form-step"} aria-hidden={step !== 3}>
         <fieldset className="choice-field"><legend>Interests</legend><div className="choice-chips">{interestOptions.map((interest) => <button className={interests.includes(interest) ? "selected" : ""} type="button" key={interest} onClick={() => setInterests((items) => items.includes(interest) ? items.filter((item) => item !== interest) : [...items, interest])}>{interest}</button>)}</div></fieldset>
         <div className="two-field-row"><label><span>Preferred group size</span><select name="groupSize" defaultValue="small"><option value="one-to-one">One-to-one</option><option value="small">Small group (2–4)</option><option value="any">No preference</option></select></label><label><span>Activity level</span><select name="activityLevel" defaultValue="gentle"><option value="gentle">Gentle</option><option value="moderate">Moderate</option><option value="any">No preference</option></select></label></div>
+        <AccessibilityPreferenceFields compact value={accessibilityPreferences} onChange={setAccessibilityPreferences} />
       </section>
 
       <div className="register-actions">

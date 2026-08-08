@@ -6,6 +6,14 @@ const optionalEmail = z.union([z.string().trim().email("Enter a valid email addr
 const usernameSchema = z.string().trim().min(3, "Use at least 3 characters").max(40)
   .regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u, "Use letters, numbers, spaces, dots, dashes, or underscores");
 
+export const accessibilityPreferencesSchema = z.object({
+  stairsAllowed: z.boolean().nullable(),
+  maximumDistanceM: z.number().int().positive().nullable(),
+  language: z.string().trim().min(2).max(50).nullable(),
+});
+
+export const accessibilityPreferencesUpdateSchema = accessibilityPreferencesSchema.partial();
+
 export const passwordSchema = z.string()
   .min(8, "Use at least 8 characters")
   .max(128)
@@ -25,6 +33,7 @@ export const registerSchema = z.object({
   interests: z.array(z.string().trim().min(1).max(50)).max(12).default([]),
   groupSize: z.enum(["one-to-one", "small", "any"]).default("small"),
   activityLevel: z.enum(["gentle", "moderate", "any"]).default("gentle"),
+  accessibilityPreferences: accessibilityPreferencesSchema.default({ stairsAllowed: null, maximumDistanceM: null, language: null }),
 });
 
 export const preferenceUpdateSchema = z.object({
@@ -34,6 +43,7 @@ export const preferenceUpdateSchema = z.object({
   groupSize: z.enum(["one-to-one", "small", "any"]).optional(),
   activityLevel: z.enum(["gentle", "moderate", "any"]).optional(),
   accessibilityNeeds: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+  accessibilityPreferences: accessibilityPreferencesUpdateSchema.optional(),
   textSize: z.enum(["large", "extra-large"]).optional(),
   highContrast: z.boolean().optional(),
   messageNotifications: z.boolean().optional(),
@@ -67,6 +77,7 @@ export const profileCompletionSchema = z.object({
   interests: z.array(z.string().trim().min(1).max(50)).max(12).default([]),
   groupSize: z.enum(["one-to-one", "small", "any"]).default("small"),
   activityLevel: z.enum(["gentle", "moderate", "any"]).default("gentle"),
+  accessibilityPreferences: accessibilityPreferencesSchema.default({ stairsAllowed: null, maximumDistanceM: null, language: null }),
   useProviderPhoto: z.boolean().default(true),
 });
 

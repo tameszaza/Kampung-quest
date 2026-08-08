@@ -105,6 +105,11 @@ try {
         interests: [...persona.interests],
         groupSize: persona.maximumGroupSize === 2 ? "one-to-one" : persona.maximumGroupSize <= 4 ? "small" : "any",
         activityLevel: persona.activityLevel,
+        accessibilityPreferences: {
+          stairsAllowed: persona.stairsAllowed,
+          maximumDistanceM: persona.maximumDistanceM,
+          language: persona.languages[0] ?? null,
+        },
       },
     });
     await identityStore.updatePreferences(authUser.id, { accessibilityNeeds: [...persona.accessibilityNeeds] });

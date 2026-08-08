@@ -141,6 +141,28 @@ describe("Gemini agent output normalization", () => {
     expect(output.briefPatch.currentGoal).toBeUndefined();
   });
 
+  it("drops empty optional model patches instead of pausing the chat", async () => {
+    const provider = new ConversationModelProvider({
+      reply: "What would you like to do?",
+      briefPatch: { currentGoal: "", interests: [""], offers: [] },
+      requestedField: "goal",
+      suggestedReplies: [],
+      status: "collecting",
+    });
+    const runtime = new HostedAgentRuntime({
+      provider: "gemini",
+      models: { memory: "test", synthesis: "test", safety: "test", recovery: "test" },
+      modelProvider: provider,
+    });
+
+    await expect(runtime.conductConversation({
+      conversationId: "conversation-empty-optional-patch",
+      messages: [],
+      brief: {},
+      missingFields: ["goal"],
+    })).resolves.toMatchObject({ briefPatch: {} });
+  });
+
   it("normalizes 12-hour recurring times to the server's HH:mm contract", async () => {
     const provider = new ConversationModelProvider({
       reply: "Weekday mornings work.",

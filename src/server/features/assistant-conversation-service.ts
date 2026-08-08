@@ -14,6 +14,7 @@ import {
   type QuestBriefDraft,
 } from "@/server/domain/schemas";
 import type { KampungStore } from "@/server/repositories/kampung-store";
+import type { AccessibilityPreferences } from "@/server/identity/types";
 
 const REQUIRED_FIELDS: AssistantBriefField[] = [
   "goal",
@@ -33,6 +34,7 @@ interface AssistantConversationDependencies {
   agents: AgentRuntime;
   recommendations?: AssistantRecommendationService;
   allowDemoNeighbors?: (candidateId: string) => Promise<boolean>;
+  resolveAccessibilityPreferences?: (candidateId: string) => Promise<AccessibilityPreferences | null>;
 }
 
 export class AssistantConversationService {
@@ -41,7 +43,8 @@ export class AssistantConversationService {
   async create(input: { candidateId: string }): Promise<AssistantConversationSnapshot> {
     const conversationId = randomUUID();
     const createdAt = new Date().toISOString();
-    const brief: QuestBriefDraft = {};
+    const savedAccessibility = await this.savedAccessibilityPreferences(input.candidateId);
+    const brief: QuestBriefDraft = this.applySavedAccessibilityPreferences({}, savedAccessibility);
     const turn = await this.dependencies.agents.conductConversation({
       conversationId,
       messages: [],
@@ -310,6 +313,41 @@ export class AssistantConversationService {
       if (field === "language") return !brief.language;
       return brief.invitationConsent === undefined;
     });
+  }
+
+  private async savedAccessibilityPreferences(candidateId: string): Promise<AccessibilityPreferences | null> {
+    if (!this.dependencies.resolveAccessibilityPreferences) return null;
+    try {
+      return await this.dependencies.resolveAccessibilityPreferences(candidateId);
+    } catch {
+      // An optional preference lookup must never make Senior Quest unavailable.
+      return null;
+    }
+  }
+
+  private applySavedAccessibilityPreferences(
+    brief: QuestBriefDraft,
+    preferences: AccessibilityPreferences | null,
+  ): QuestBriefDraft {
+    if (!preferences) return brief;
+    const maximumDistanceM = typeof preferences.maximumDistanceM === "number"
+      && Number.isInteger(preferences.maximumDistanceM)
+      && preferences.maximumDistanceM > 0
+      ? preferences.maximumDistanceM
+      : null;
+    const language = preferences.language?.trim() || null;
+    return {
+      ...brief,
+      ...(brief.stairsAllowed === undefined && preferences.stairsAllowed !== null
+        ? { stairsAllowed: preferences.stairsAllowed }
+        : {}),
+      ...(brief.maximumDistanceM === undefined && maximumDistanceM !== null
+        ? { maximumDistanceM }
+        : {}),
+      ...(brief.language === undefined && language !== null
+        ? { language }
+        : {}),
+    };
   }
 
   private safeNextField(

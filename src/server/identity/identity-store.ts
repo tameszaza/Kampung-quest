@@ -7,6 +7,7 @@ import type {
   EmergencyContact,
   StoredUser,
   UserPreferences,
+  UserPreferenceUpdate,
   UserProfile,
   ChatMessageCursor,
   ChatMessagePage,
@@ -38,7 +39,7 @@ export type CompleteProfileInput = {
   preferredLanguage: string;
   area: string | null;
   photoUrl: string | null;
-  preferences: Pick<UserPreferences, "interests" | "groupSize" | "activityLevel">;
+  preferences: Pick<UserPreferences, "interests" | "groupSize" | "activityLevel" | "accessibilityPreferences">;
 };
 
 export type UpdateProfileInput = {
@@ -58,7 +59,7 @@ export interface IdentityStore {
   getChatProfile(viewerId: string, targetId: string, conversationId: string): Promise<ChatProfile>;
   /** Keep only login-enabled, onboarded recipients that can receive an invitation. */
   filterContactableUserIds(userIds: string[]): Promise<string[]>;
-  updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile>;
+  updatePreferences(userId: string, input: UserPreferenceUpdate & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile>;
   listContacts(userId: string, query?: string): Promise<ChatContact[]>;
   listBlockedUsers(userId: string): Promise<ChatContact[]>;
   listConversations(userId: string): Promise<ConversationSummary[]>;
@@ -151,7 +152,14 @@ export class InMemoryIdentityStore implements IdentityStore {
       username,
       onboardingComplete: input.onboardingComplete ?? true,
       accountType: "member",
-      preferences: { ...defaultPreferences, ...input.preferences },
+      preferences: {
+        ...defaultPreferences,
+        ...input.preferences,
+        accessibilityPreferences: {
+          ...defaultPreferences.accessibilityPreferences,
+          ...input.preferences.accessibilityPreferences,
+        },
+      },
     };
     this.users.set(user.id, user);
     if (user.username === "test") this.seedWelcomeChats(user.id);
@@ -206,7 +214,14 @@ export class InMemoryIdentityStore implements IdentityStore {
       username,
       phone: normalizePhone(input.phone),
       onboardingComplete: true,
-      preferences: { ...user.preferences, ...input.preferences },
+      preferences: {
+        ...user.preferences,
+        ...input.preferences,
+        accessibilityPreferences: {
+          ...user.preferences.accessibilityPreferences,
+          ...input.preferences.accessibilityPreferences,
+        },
+      },
     };
     this.users.set(userId, next);
     if (username === "test") this.seedWelcomeChats(userId);
@@ -266,14 +281,20 @@ export class InMemoryIdentityStore implements IdentityStore {
     return userIds.filter((userId) => this.users.get(userId)?.onboardingComplete === true);
   }
 
-  async updatePreferences(userId: string, input: Partial<UserPreferences> & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile> {
+  async updatePreferences(userId: string, input: UserPreferenceUpdate & { preferredLanguage?: string; area?: string | null }): Promise<UserProfile> {
     const user = this.requireUser(userId);
-    const { preferredLanguage, area, ...preferences } = input;
+    const { preferredLanguage, area, accessibilityPreferences, ...preferences } = input;
     const next = {
       ...user,
       preferredLanguage: preferredLanguage ?? user.preferredLanguage,
       area: area === undefined ? user.area : area,
-      preferences: { ...user.preferences, ...preferences },
+      preferences: {
+        ...user.preferences,
+        ...preferences,
+        accessibilityPreferences: accessibilityPreferences === undefined
+          ? user.preferences.accessibilityPreferences
+          : { ...user.preferences.accessibilityPreferences, ...accessibilityPreferences },
+      },
     };
     this.users.set(userId, next);
     return publicUser(next);

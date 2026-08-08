@@ -51,8 +51,17 @@ describe.skipIf(!store)("PostgreSQL member identity and chat", () => {
     expect(seededChats.some((conversation) => conversation.title === "Anne Lim")).toBe(false);
     expect(seededChats.some((conversation) => conversation.title === "Cooking Buddies")).toBe(false);
 
-    const updated = await store!.updatePreferences(maria.id, { highContrast: true, textSize: "extra-large" });
+    const updated = await store!.updatePreferences(maria.id, {
+      highContrast: true,
+      textSize: "extra-large",
+      accessibilityPreferences: { stairsAllowed: false, maximumDistanceM: 1000, language: "English" },
+    });
     expect(updated.preferences).toMatchObject({ highContrast: true, textSize: "extra-large" });
+    expect(updated.preferences.accessibilityPreferences).toEqual({ stairsAllowed: false, maximumDistanceM: 1000, language: "English" });
+    const cleared = await store!.updatePreferences(maria.id, {
+      accessibilityPreferences: { stairsAllowed: null, maximumDistanceM: null, language: null },
+    });
+    expect(cleared.preferences.accessibilityPreferences).toEqual({ stairsAllowed: null, maximumDistanceM: null, language: null });
 
     expect(await store!.isUsernameAvailable(`MARIA.${suffix}`)).toBe(false);
     expect((await store!.listContacts(lee.id, `maria.${suffix}`))[0]?.id).toBe(maria.id);
