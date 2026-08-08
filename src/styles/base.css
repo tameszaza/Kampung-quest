@@ -69,6 +69,11 @@ svg {
   display: block;
 }
 
+.kampung-logo {
+  display: block;
+  object-fit: contain;
+}
+
 h1,
 h2,
 h3,

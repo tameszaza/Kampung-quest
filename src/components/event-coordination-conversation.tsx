@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type Keyboard
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
 import { ProfileAvatar } from "@/components/profile-avatar";
+import { KampungLogo } from "@/components/kampung-logo";
 import {
   confirmEventRequirements,
   decideEventArrangement,
@@ -351,7 +352,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     {showHeader ? <header className="coordination-hub-header">
       {embedded ? <button className="icon-button coordination-back" type="button" onClick={onBack} aria-label="Back to messages"><Icon name="back" /></button> : <Link className="icon-button" href={backHref} aria-label="Back"><Icon name="back" /></Link>}
       <div className="coordination-hub-title">
-        <span className="coordination-mark" aria-hidden="true">♥</span>
+        <KampungLogo className="coordination-mark" size={38} />
         <span><strong>Senior Quest</strong><small>Activity coordinator</small></span>
       </div>
       <Link className="coordination-details-link" href={`/quests/${encodeURIComponent(runId)}`}>Activity details <Icon name="chevron" size={16} /></Link>

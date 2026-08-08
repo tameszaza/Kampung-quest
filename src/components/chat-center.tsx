@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
+import { KampungLogo } from "@/components/kampung-logo";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { ChatProfileDialog } from "@/components/chat-profile-dialog";
 import { EventCoordinationConversation } from "@/components/event-coordination-conversation";
@@ -582,7 +583,7 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
 }
 
 function AssistantAvatar({ size }: { size: number }) {
-  return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true">♥</span>;
+  return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true"><KampungLogo size={size} /></span>;
 }
 
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {

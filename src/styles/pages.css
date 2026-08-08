@@ -1428,16 +1428,8 @@
   height: 58px;
   margin-bottom: 7px;
   border-radius: 20px;
-  background: linear-gradient(145deg, var(--green-500), var(--green-700));
-  color: white;
-  display: grid;
-  place-items: center;
+  object-fit: contain;
   box-shadow: 0 12px 25px rgba(16, 157, 112, 0.2);
-}
-
-.auth-logo span {
-  font-size: 29px;
-  transform: translateY(1px);
 }
 
 .auth-brand-panel h1 {
@@ -3346,6 +3338,7 @@
   color: var(--green-700);
   display: grid;
   place-items: center;
+  object-fit: contain;
   animation: assistant-retrieval-pulse 1.4s ease-in-out infinite;
 }
 
@@ -3503,6 +3496,7 @@
   color: white;
   display: grid;
   place-items: center;
+  object-fit: contain;
 }
 
 .assistant-mark {
@@ -4820,7 +4814,7 @@
 }
 
 .assistant-home-callout > span,
-.home-assistant-empty > span {
+.home-assistant-empty > .home-assistant-empty-mark {
   width: 46px;
   height: 46px;
   border-radius: 50%;
@@ -4829,6 +4823,7 @@
   display: grid;
   place-items: center;
   font-size: 18px;
+  object-fit: contain;
 }
 
 .assistant-home-callout div {
@@ -4904,7 +4899,7 @@
   flex-direction: column;
 }
 
-.connected-state.empty > span {
+.connected-state.empty > .memory-empty-mark {
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -4913,6 +4908,7 @@
   display: grid;
   place-items: center;
   font-size: 22px;
+  object-fit: contain;
 }
 
 .connected-state h2,
@@ -6324,19 +6320,7 @@
 .login-brand-mark {
   width: 35px;
   height: 35px;
-  color: var(--green-600);
-  display: inline-grid;
-  place-items: center;
-}
-
-.login-brand-mark svg {
-  width: 100%;
-  height: 100%;
-  fill: currentColor;
-}
-
-.login-brand-mark .mark-cutout {
-  fill: #fff;
+  object-fit: contain;
 }
 
 .login-mobile-welcome {

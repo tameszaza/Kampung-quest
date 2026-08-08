@@ -1,10 +1,11 @@
 import Image from "next/image";
 import { Icon } from "@/components/icons";
+import { KampungLogo } from "@/components/kampung-logo";
 
 export function AuthBrand({ compact = false }: { compact?: boolean }) {
   return (
     <section className={`auth-brand-panel${compact ? " compact" : ""}`} aria-label="Senior Quest">
-      <div className="auth-logo" aria-hidden="true"><span>♥</span></div>
+      <KampungLogo className="auth-logo" size={58} priority />
       <div>
         <h1>Senior Quest</h1>
         <p>Share. Connect. Enjoy Together.</p>
@@ -56,5 +57,5 @@ export function LoginBrand() {
 }
 
 export function SeniorQuestMark() {
-  return <span className="login-brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" focusable="false"><circle cx="16" cy="7" r="3.5" /><circle cx="32" cy="7" r="3.5" /><path d="M11.5 20c0-5.5 3.6-9 8.2-9 1.8 0 3.4.7 4.3 2.1.9-1.4 2.5-2.1 4.3-2.1 4.6 0 8.2 3.5 8.2 9 0 7.6-6.2 13.7-12.5 18.8C17.7 33.7 11.5 27.6 11.5 20Z" /><path d="M24 34.5c-3-2.6-7-6.1-7-10.1 0-2.1 1.4-3.7 3.4-3.7 1.4 0 2.7.7 3.6 2 1-1.3 2.3-2 3.6-2 2 0 3.4 1.6 3.4 3.7 0 4-4 7.5-7 10.1Z" className="mark-cutout" /></svg></span>;
+  return <KampungLogo className="login-brand-mark" size={36} priority />;
 }

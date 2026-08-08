@@ -19,8 +19,7 @@ export function AccessibilityPreferenceFields({
 }) {
   return (
     <fieldset className={`accessibility-preferences${compact ? " accessibility-preferences-compact" : ""}`}>
-      <legend>Accessibility & matching (optional)</legend>
-      <p>Save these once and Senior Quest can reuse them in future quest chats. Choose “Ask me” any time to remove a default.</p>
+      <legend>Accessibility & matching</legend>
       <label>
         <span>Stairs and steps</span>
         <select

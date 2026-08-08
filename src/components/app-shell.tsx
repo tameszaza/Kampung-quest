@@ -9,6 +9,7 @@ import { Icon, type IconName } from "@/components/icons";
 import { useUser } from "@/components/user-context";
 import { authClient } from "@/lib/auth-client";
 import { SafeImage } from "@/components/safe-image";
+import { KampungLogo } from "@/components/kampung-logo";
 
 const navItems: Array<{ href: string; label: string; icon: IconName; match: string[] }> = [
   { href: "/home", label: "Home", icon: "home", match: ["/home"] },
@@ -84,7 +85,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       <aside className="desktop-nav">
         <div className="desktop-nav-inner">
           <Link className="desktop-brand" href="/home" aria-label="Senior Quest home">
-            <span className="brand-symbol" aria-hidden="true">♥</span>
+            <KampungLogo className="brand-symbol" size={42} priority />
             <span>Senior Quest</span>
           </Link>
           <nav aria-label="Primary navigation">

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { Icon } from "@/components/icons";
+import { KampungLogo } from "@/components/kampung-logo";
 
 export function PartnerRewardsPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -14,7 +15,7 @@ export function PartnerRewardsPage() {
 
   return <main className="partner-page">
     <header className="partner-nav">
-      <Link className="partner-brand" href="/home"><span aria-hidden="true">♥</span>Senior Quest</Link>
+      <Link className="partner-brand" href="/home"><KampungLogo className="partner-brand-mark" size={38} />Senior Quest</Link>
       <Link className="secondary-button" href="/rewards">Member rewards</Link>
     </header>
 
@@ -57,6 +58,6 @@ export function PartnerRewardsPage() {
       </form>}
     </section>
 
-    <footer className="partner-footer"><Link className="partner-brand" href="/home"><span aria-hidden="true">♥</span>Senior Quest</Link><p>Helping neighbours connect through meaningful activities.</p></footer>
+    <footer className="partner-footer"><Link className="partner-brand" href="/home"><KampungLogo className="partner-brand-mark" size={38} />Senior Quest</Link><p>Helping neighbours connect through meaningful activities.</p></footer>
   </main>;
 }

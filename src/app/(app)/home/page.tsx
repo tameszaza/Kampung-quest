@@ -10,6 +10,7 @@ import { quests } from "@/data/mock-data";
 import { SafeImage } from "@/components/safe-image";
 import { canSeeDemoContent } from "@/lib/demo-access";
 import { MobileMoreButton } from "@/components/mobile-more-menu";
+import { KampungLogo } from "@/components/kampung-logo";
 
 export default function HomePage() {
   const { user } = useUser();
@@ -32,7 +33,7 @@ export default function HomePage() {
       <div className="home-desktop-dashboard">
         <main className="home-desktop-main">
           <Link className="home-hero-card" href="/quests">
-            <span className="home-hero-mark" aria-hidden="true"><Icon name="heart" size={32} strokeWidth={2.2} /></span>
+            <span className="home-hero-mark" aria-hidden="true"><KampungLogo size={32} /></span>
             <span className="home-hero-copy">
               <strong>Connect. Share. Enjoy.</strong>
               <b>Life is better together.</b>
@@ -94,7 +95,7 @@ export default function HomePage() {
             <Link href="/quests?tab=Invited"><span>Invites</span><strong>{showDemo ? 2 : 0}</strong><small>Pending invitations</small></Link>
           </section>
           <Link className="assistant-home-callout" href="/messages?assistant=1">
-            <span aria-hidden="true">♥</span>
+            <span aria-hidden="true"><KampungLogo size={46} /></span>
             <div><strong>What would feel good today?</strong><small>Talk with Senior Quest and I&apos;ll find a safe activity with neighbours.</small></div>
             <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
           </Link>

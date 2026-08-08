@@ -101,6 +101,7 @@ The important state rule is: the agent interprets messages and proposes structur
 - Optional stairs, walking-distance, and quest-language defaults can be set during signup, profile completion, or Settings. New assistant conversations retrieve them and skip only the corresponding questions; “Ask me when needed” clears a default.
 - The assistant shows the saved-preferences retrieval card only after the brief is complete and immediately before final review. It keeps the Senior Quest, Memory Keeper, and Rules Check steps visible while retrieving, then changes the same card to an applied state.
 - Rewards uses semantic, direct-child section headings and keeps a visible gap between the usable-code empty state and partner deals so the two sections do not visually merge.
+- The supplied [`kampungLogo.svg`](../public/assets/kampungLogo.svg) is the shared app mark across navigation, auth, assistant/coordination surfaces, partner preview, and empty states. The same asset is also served through the app favicon and metadata icon links.
 - The main style entrypoint is [`src/app/globals.css`](../src/app/globals.css), which imports [`src/styles/tokens.css`](../src/styles/tokens.css), [`src/styles/base.css`](../src/styles/base.css), [`src/styles/navigation.css`](../src/styles/navigation.css), [`src/styles/components.css`](../src/styles/components.css), [`src/styles/pages.css`](../src/styles/pages.css), and [`src/styles/rewards.css`](../src/styles/rewards.css).
 
 ## Current boundaries to remember

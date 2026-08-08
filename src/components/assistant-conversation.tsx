@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { Icon } from "@/components/icons";
+import { KampungLogo } from "@/components/kampung-logo";
 import { createClientRequestId } from "@/lib/client-request-id";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { questParticipantStatus } from "@/lib/quest-participant-status";
@@ -295,7 +296,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
       {!embedded ? <header className="assistant-header">
         <Link className="icon-button" href="/home" aria-label="Back to home"><Icon name="back" /></Link>
         <div className="assistant-identity">
-          <span className="assistant-mark" aria-hidden="true">♥</span>
+          <KampungLogo className="assistant-mark" size={36} />
           <span><strong>Senior Quest</strong><small><i className="ai-live-dot" /> Live AI community guide</small></span>
         </div>
         <button className="assistant-reset" type="button" onClick={() => void startAgain()}>New conversation</button>
@@ -311,7 +312,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
           />
         ) : message.role === "assistant" ? (
           <div className="assistant-row" key={message.messageId}>
-            <span className="assistant-avatar" aria-hidden="true">♥</span>
+            <KampungLogo className="assistant-avatar" size={34} />
             <p className="assistant-bubble">{message.content}</p>
           </div>
         ) : (
@@ -324,7 +325,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
           <ChatMessageBubble body="Senior Quest is thinking…" />
         ) : (
           <div className="assistant-row assistant-thinking" role="status">
-            <span className="assistant-avatar" aria-hidden="true">♥</span>
+            <KampungLogo className="assistant-avatar" size={34} />
             <p className="assistant-bubble"><span className="thinking-dots"><i /><i /><i /></span><small>Senior Quest is thinking</small></p>
           </div>
         ) : null}
@@ -388,7 +389,7 @@ function AccessibilityRetrievalCard({ preferences, active }: { preferences: Acce
   const savedLabels = saved.length ? saved.join(", ") : "saved accessibility choices";
   return <section className={`assistant-retrieval${active ? " is-active" : ""}`} role="status" aria-live="polite" aria-busy={active}>
     <header className="assistant-retrieval-heading">
-      <h2><span className="assistant-retrieval-icon" aria-hidden="true">♥</span>{active ? "Your agent team is working" : "Saved preferences applied"}</h2>
+      <h2><KampungLogo className="assistant-retrieval-icon" size={34} />{active ? "Your agent team is working" : "Saved preferences applied"}</h2>
       <p>{active ? "Senior Quest is checking what you have already told us." : "Your saved accessibility choices are ready for the final review."}</p>
     </header>
     <ol className="assistant-retrieval-list">

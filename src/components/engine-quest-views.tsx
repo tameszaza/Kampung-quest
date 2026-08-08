@@ -19,6 +19,7 @@ import { questParticipantStatus } from "@/lib/quest-participant-status";
 import { canSeeDemoContent } from "@/lib/demo-access";
 import { activityLabel, participantCountLabel } from "@/lib/activity-label";
 import { questReviewPresentation } from "@/features/events/presentation";
+import { KampungLogo } from "@/components/kampung-logo";
 
 type LoadState<T> =
   | { status: "loading"; value: T }
@@ -69,7 +70,7 @@ export function LatestEngineQuest() {
 
   if (state.status === "loading") return <ConnectedLoading label="Checking for a recommendation…" />;
   if (state.status === "error" || !state.value) {
-    return <div className="home-assistant-empty"><span aria-hidden="true">♥</span><div><strong>Ready when you are, {user.fullName.split(/\s+/)[0]}</strong><p>Tell Senior Quest what would feel helpful or enjoyable today.</p></div><Link className="primary-button" href="/messages?assistant=1">Start a conversation</Link></div>;
+    return <div className="home-assistant-empty"><KampungLogo className="home-assistant-empty-mark" size={46} /><div><strong>Ready when you are, {user.fullName.split(/\s+/)[0]}</strong><p>Tell Senior Quest what would feel helpful or enjoyable today.</p></div><Link className="primary-button" href="/messages?assistant=1">Start a conversation</Link></div>;
   }
   return <EngineQuestCard run={state.value} compact />;
 }

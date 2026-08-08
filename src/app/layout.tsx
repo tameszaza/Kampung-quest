@@ -8,6 +8,11 @@ export const metadata: Metadata = {
     template: "%s | Senior Quest",
   },
   description: "Friendly, safe and meaningful community activities for seniors.",
+  icons: {
+    icon: "/assets/kampungLogo.svg",
+    shortcut: "/assets/kampungLogo.svg",
+    apple: "/assets/kampungLogo.svg",
+  },
 };
 
 export const viewport: Viewport = {

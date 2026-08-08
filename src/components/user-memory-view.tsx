@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
+import { KampungLogo } from "@/components/kampung-logo";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/components/user-context";
 import { getUserMemory } from "@/features/assistant/client";
@@ -28,7 +29,7 @@ export function UserMemoryView() {
       <PageHeader title="What Senior Quest Remembers" back />
       {memory === undefined && !error ? <div className="connected-state" role="status">Loading what I remember…</div> : null}
       {error ? <div className="connected-state error" role="alert">{error}</div> : null}
-      {memory === null ? <div className="connected-state empty"><span aria-hidden="true">♥</span><h2>Let&apos;s get to know you</h2><p>Tell Senior Quest what would feel helpful or enjoyable. You decide exactly what is remembered.</p><Link className="primary-button" href="/messages?assistant=1">Start a conversation</Link></div> : null}
+      {memory === null ? <div className="connected-state empty"><KampungLogo className="memory-empty-mark" size={58} /><h2>Let&apos;s get to know you</h2><p>Tell Senior Quest what would feel helpful or enjoyable. You decide exactly what is remembered.</p><Link className="primary-button" href="/messages?assistant=1">Start a conversation</Link></div> : null}
       {memory ? <article className="memory-card-live">
         <span className="memory-ready"><Icon name="check" size={18} /> Ready for matching</span>
         <h2>{memory.profile.need}</h2>

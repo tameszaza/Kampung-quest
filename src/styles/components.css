@@ -554,6 +554,7 @@
   color: white;
   display: grid;
   place-items: center;
+  object-fit: contain;
 }
 
 .coordination-details-link {
