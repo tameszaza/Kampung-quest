@@ -78,7 +78,7 @@ describe("Gemini agent output normalization", () => {
     expect(provider.requests).toHaveLength(1);
   });
 
-  it("logs the conversation when hosted structured output remains invalid", async () => {
+  it("recovers from a malformed optional recurring rule without pausing the conversation", async () => {
     const provider = new ConversationModelProvider({
       reply: "Which mornings suit you?",
       briefPatch: {
@@ -104,17 +104,41 @@ describe("Gemini agent output normalization", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     try {
-      await expect(runtime.conductConversation({
+      const output = await runtime.conductConversation({
         conversationId: "conversation-invalid-output",
         messages: [],
         brief: {},
         missingFields: ["availability"],
-      })).rejects.toThrow(/gemini provider unavailable/);
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"event":"agent.output.invalid"'));
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('"conversationId":"conversation-invalid-output"'));
+      });
+      expect(output.briefPatch.recurringAvailabilityRules).toBeUndefined();
+      expect(errorSpy).not.toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it("ignores a short model goal because the user's answer is authoritative", async () => {
+    const provider = new ConversationModelProvider({
+      reply: "What would you like to do?",
+      briefPatch: { currentGoal: "ok" },
+      requestedField: "goal",
+      suggestedReplies: [],
+      status: "collecting",
+    });
+    const runtime = new HostedAgentRuntime({
+      provider: "gemini",
+      models: { memory: "test", synthesis: "test", safety: "test", recovery: "test" },
+      modelProvider: provider,
+    });
+
+    const output = await runtime.conductConversation({
+      conversationId: "conversation-short-goal",
+      messages: [],
+      brief: {},
+      missingFields: ["goal"],
+    });
+
+    expect(output.briefPatch.currentGoal).toBeUndefined();
   });
 
   it("normalizes 12-hour recurring times to the server's HH:mm contract", async () => {

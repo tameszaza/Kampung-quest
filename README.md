@@ -5,7 +5,7 @@ Kampung Quest is a Next.js web application that helps older adults turn needs, i
 > Current implementation notes: [docs/current-web-state.md](docs/current-web-state.md) · [developer file map](docs/developer-guide.md#where-to-edit) · [API reference](docs/api-reference.md)
 
 The comprehensive QA and browser test instructions are in [docs/test-cases.md](docs/test-cases.md).
-The latest per-case QA report is in [docs/test-results-2026-08-07.md](docs/test-results-2026-08-07.md).
+The latest per-case QA report is in [docs/test-results-2026-08-08.md](docs/test-results-2026-08-08.md); the previous full catalog run is in [docs/test-results-2026-08-07.md](docs/test-results-2026-08-07.md).
 
 ## Start locally
 

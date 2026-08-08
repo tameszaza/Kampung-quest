@@ -137,22 +137,27 @@ export const assistantTurnAgentOutputSchema = z.object({
 export type AssistantTurnAgentOutput = z.infer<typeof assistantTurnAgentOutputSchema>;
 
 /*
- * Gemini occasionally treats the recurring-rule discriminator as a human
- * label (for example, "weekly" or "weekly_pattern") even when the rest of
- * the structured response is valid. Keep the hosted boundary tolerant, then
- * normalize into the strict domain contract before the brief is persisted.
+ * Hosted models occasionally return human-formatted values in optional
+ * briefPatch fields. The conversation service already applies the user's
+ * structured answer as the authority, so the hosted boundary must not let a
+ * malformed model echo invalidate an otherwise valid turn. Only soft facts
+ * and an optionally normalizable recurring rule are accepted here; the
+ * strict domain schema is still used before anything is persisted.
  */
 const hostedWeeklyAvailabilityRuleSchema = z.object({
-  ...weeklyAvailabilityRuleSchema.shape,
+  daysOfWeek: z.array(z.union([z.number(), z.string()])).min(1),
   kind: z.string().min(1),
   startLocalTime: z.string().min(1),
   endLocalTime: z.string().min(1),
-}).refine((rule) => Date.parse(rule.validUntil) >= Date.parse(rule.validFrom), {
-  message: "Recurring availability end must not precede its start",
-  path: ["validUntil"],
+  timeZone: z.string().min(1),
+  validFrom: z.string().min(1),
+  validUntil: z.string().min(1),
 });
 
-const hostedQuestBriefDraftSchema = questBriefDraftSchema.extend({
+const hostedQuestBriefDraftSchema = z.object({
+  currentGoal: z.string().min(1).optional(),
+  interests: z.array(z.string().min(1)).optional(),
+  offers: z.array(z.string().min(1)).optional(),
   recurringAvailabilityRules: z.array(hostedWeeklyAvailabilityRuleSchema).optional(),
 });
 
@@ -211,16 +216,35 @@ export function normalizeHostedLocalTime(value: string): string {
 export function normalizeHostedAssistantTurnOutput(
   output: z.infer<typeof hostedAssistantTurnAgentOutputSchema>,
 ): AssistantTurnAgentOutput {
+  const recurringAvailabilityRules = output.briefPatch.recurringAvailabilityRules?.flatMap((rule) => {
+    try {
+      const normalizedRule = {
+        ...rule,
+        kind: normalizeWeeklyAvailabilityRuleKind(rule.kind),
+        daysOfWeek: rule.daysOfWeek.map(Number),
+        startLocalTime: normalizeHostedLocalTime(rule.startLocalTime),
+        endLocalTime: normalizeHostedLocalTime(rule.endLocalTime),
+      };
+      return [weeklyAvailabilityRuleSchema.parse(normalizedRule)];
+    } catch {
+      // Recurring rules are never authoritative: the answer payload owns
+      // availability. Drop a malformed model rule instead of failing the
+      // whole assistant turn.
+      return [];
+    }
+  });
+
+  const currentGoal = output.briefPatch.currentGoal?.trim();
+  const interests = output.briefPatch.interests?.map((value) => value.trim()).filter(Boolean);
+  const offers = output.briefPatch.offers?.map((value) => value.trim()).filter(Boolean);
+
   return assistantTurnAgentOutputSchema.parse({
     ...output,
     briefPatch: {
-      ...output.briefPatch,
-      recurringAvailabilityRules: output.briefPatch.recurringAvailabilityRules?.map((rule) => ({
-        ...rule,
-        kind: normalizeWeeklyAvailabilityRuleKind(rule.kind),
-        startLocalTime: normalizeHostedLocalTime(rule.startLocalTime),
-        endLocalTime: normalizeHostedLocalTime(rule.endLocalTime),
-      })),
+      ...(currentGoal && currentGoal.length >= 3 ? { currentGoal } : {}),
+      ...(interests?.length ? { interests } : {}),
+      ...(offers?.length ? { offers } : {}),
+      ...(recurringAvailabilityRules?.length ? { recurringAvailabilityRules } : {}),
     },
   });
 }

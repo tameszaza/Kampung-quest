@@ -369,6 +369,17 @@
   display: none;
 }
 
+/* The desktop dashboard stays mounted for responsive hydration, so its
+ * fill-image wrapper needs a positioned parent even while the dashboard is
+ * hidden on smaller screens. */
+.home-desktop-wellbeing-art {
+  position: relative;
+}
+
+.home-hero-image {
+  position: relative;
+}
+
 /* Needs */
 .need-list,
 .invite-list,
@@ -5658,7 +5669,6 @@
   }
 
   .home-hero-image {
-    position: relative;
     align-self: stretch;
     min-height: 222px;
     overflow: hidden;
@@ -6000,7 +6010,6 @@
   }
 
   .home-desktop-wellbeing-art {
-    position: relative;
     align-self: stretch;
     min-height: 90px;
   }

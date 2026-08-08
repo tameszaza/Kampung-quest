@@ -38,7 +38,7 @@ export default function HomePage() {
               <b>Life is better together.</b>
               <small>Join activities, share your skills, and make new friends in your community.</small>
             </span>
-            <span className="home-hero-image"><Image src="/assets/cooking.jpg" alt="Older adults enjoying a cooking activity together" fill sizes="(min-width: 1024px) 38vw, 100vw" /></span>
+            <span className="home-hero-image"><Image src="/assets/cooking.jpg" alt="Older adults enjoying a cooking activity together" fill priority sizes="(min-width: 1024px) 38vw, 100vw" /></span>
           </Link>
 
           <div className="home-desktop-section-heading">

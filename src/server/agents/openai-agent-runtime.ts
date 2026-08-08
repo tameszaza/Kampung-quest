@@ -220,7 +220,21 @@ export class HostedAgentRuntime implements AgentRuntime {
       },
     }, { conversationId: input.conversationId });
     try {
-      return normalizeHostedAssistantTurnOutput(hostedAssistantTurnAgentOutputSchema.parse(output));
+      const hostedOutput = hostedAssistantTurnAgentOutputSchema.parse(output);
+      const normalized = normalizeHostedAssistantTurnOutput(hostedOutput);
+      const inputRuleCount = hostedOutput.briefPatch.recurringAvailabilityRules?.length ?? 0;
+      const outputRuleCount = normalized.briefPatch.recurringAvailabilityRules?.length ?? 0;
+      if (outputRuleCount < inputRuleCount) {
+        logger.warn("agent.output.recovered", {
+          role: this.conversationAgent.name,
+          model: typeof this.conversationAgent.model === "string" ? this.conversationAgent.model : "custom-model",
+          provider: this.options.provider,
+          conversationId: input.conversationId,
+          droppedRecurringRules: inputRuleCount - outputRuleCount,
+          reason: "malformed_optional_recurring_rule",
+        });
+      }
+      return normalized;
     } catch (error) {
       logger.error("agent.output.invalid", {
         role: this.conversationAgent.name,
