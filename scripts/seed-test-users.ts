@@ -14,8 +14,8 @@ import {
   TEST_USER_PERSONAS,
 } from "@/server/testing/test-user-personas";
 
-const DEFAULT_DATABASE_URL = "postgresql://kampung:kampung_dev_password@127.0.0.1:5432/kampung_quest";
-const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is required to seed test users");
 
 assertSafeTarget(databaseUrl);
 

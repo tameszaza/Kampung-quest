@@ -57,6 +57,10 @@ npm run build
 
 The full testing and feature ownership map is in [docs/developer-guide.md](docs/developer-guide.md).
 
+## Railway deployment
+
+Railway configuration is included in [`railway.json`](railway.json). Follow the [Railway deployment guide](docs/railway-deployment.md) to connect a Railway PostgreSQL service, set the required production variables, attach persistent storage, import reward codes, and verify `/health`.
+
 ## Documentation
 
 Start at [docs/README.md](docs/README.md). It separates current behavior from historical product plans and explains where the next developer should edit.

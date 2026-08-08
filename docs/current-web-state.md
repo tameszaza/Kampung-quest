@@ -102,7 +102,7 @@ The important state rule is: the agent interprets messages and proposes structur
 
 ## Current boundaries to remember
 
-- The app uses in-memory adapters when `DATABASE_URL` is absent and PostgreSQL in Docker/production. Keep both implementations behaviorally aligned.
-- Gemini is the default hosted provider when configured; OpenAI and an explicit deterministic test provider are supported. Provider failure is surfaced or falls through only where the feature explicitly defines a safe local fallback, such as quest thumbnail SVG generation.
+- Local development and tests may use in-memory adapters when `DATABASE_URL` is absent; production refuses to start without PostgreSQL and pgvector.
+- Production requires an explicit hosted Gemini or OpenAI provider and its API key. Deterministic agents are test-only; provider failure is surfaced or falls through only where the feature explicitly defines a safe local retry, such as quest thumbnail SVG generation.
 - Quest thumbnails are best effort. The quest is saved first, then a sanitized SVG is generated and stored as a 1200×675 WebP behind `/api/quest-images/[key]`.
 - External venue booking, push/email delivery, and partner-side reward validation/settlement are not implemented integrations. The application does issue encrypted, stocked codes and debit points atomically.

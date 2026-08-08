@@ -32,6 +32,7 @@ import type { RewardStore } from "@/server/repositories/reward-store";
 import { rewardOffers } from "@/server/features/reward-service";
 import { createQuestImageStorage } from "@/server/quest/quest-image-storage";
 import { identityStore } from "@/server/identity/container";
+import { assertProductionEnvironment, isProductionRuntime } from "@/server/runtime-environment";
 
 const globals = globalThis as typeof globalThis & {
   kampungStore?: KampungStore;
@@ -42,9 +43,11 @@ type AgentOpenAIClient = NonNullable<
 
 function createStore(): KampungStore {
   if (process.env.DATABASE_URL) return new PostgresKampungStore(process.env.DATABASE_URL);
+  if (isProductionRuntime()) throw new Error("DATABASE_URL is required in production");
   return new InMemoryKampungStore();
 }
 
+assertProductionEnvironment();
 export const kampungStore = globals.kampungStore ?? createStore();
 if (process.env.NODE_ENV !== "production") globals.kampungStore = kampungStore;
 
@@ -63,6 +66,7 @@ function createAgentDependencies() {
       ? "GEMINI_API_KEY"
       : "OPENAI_API_KEY";
     const reason = `${keyName} is required when AGENT_PROVIDER=${providerConfiguration.provider}`;
+    if (isProductionRuntime()) throw new Error(reason);
     return {
       agents: new UnavailableAgentRuntime(reason),
       embeddings: createConfiguredEmbeddingProvider(providerConfiguration),
@@ -265,6 +269,7 @@ const rewardGlobals = globalThis as typeof globalThis & {
 
 function createRewardStore(): RewardStore {
   if (process.env.DATABASE_URL) return new PostgresRewardStore(process.env.DATABASE_URL);
+  if (isProductionRuntime()) throw new Error("DATABASE_URL is required in production");
   return new InMemoryRewardStore(rewardOffers);
 }
 

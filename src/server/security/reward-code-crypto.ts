@@ -33,8 +33,7 @@ export function decryptRewardCode(value: Buffer | Uint8Array, version = 1): stri
 }
 
 export function fingerprintRewardCode(code: string): string {
-  const secret = process.env.REWARD_CODE_FINGERPRINT_KEY?.trim()
-    ?? process.env.REWARD_CODE_ENCRYPTION_KEY?.trim();
+  const secret = process.env.REWARD_CODE_FINGERPRINT_KEY?.trim();
   if (!secret) throw new Error("REWARD_CODE_FINGERPRINT_KEY is required to import reward codes");
   return createHmac("sha256", secret).update(code).digest("hex");
 }

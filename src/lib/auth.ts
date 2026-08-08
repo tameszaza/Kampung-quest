@@ -2,14 +2,21 @@ import { Pool } from "pg";
 import { betterAuth } from "better-auth";
 import { username } from "better-auth/plugins";
 import { isValidDisplayName, normalizeUsername } from "@/server/identity/username";
+import { assertProductionEnvironment, isNextProductionBuild, isProductionRuntime } from "@/server/runtime-environment";
 
 const globals = globalThis as typeof globalThis & { betterAuthPool?: Pool };
 
+assertProductionEnvironment();
+
 const connectionString = process.env.DATABASE_URL
-  ?? "postgresql://kampung:kampung_dev_password@127.0.0.1:5432/kampung_quest";
+  ?? (isProductionRuntime() ? null : "postgresql://kampung:kampung_dev_password@127.0.0.1:5432/kampung_quest");
+
+if (!connectionString && !isNextProductionBuild()) {
+  throw new Error("DATABASE_URL is required outside the Next production build");
+}
 
 export const betterAuthPool = globals.betterAuthPool ?? new Pool({
-  connectionString,
+  connectionString: connectionString ?? "postgresql://build-only-not-used",
   max: 10,
   options: "-c search_path=auth",
 });
@@ -18,7 +25,7 @@ if (process.env.NODE_ENV !== "production") globals.betterAuthPool = betterAuthPo
 
 const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 const authSecret = process.env.BETTER_AUTH_SECRET
-  ?? (process.env.NODE_ENV === "production" ? null : "senior-quest-development-secret-change-me-before-production");
+  ?? (isNextProductionBuild() ? "build-only-secret-not-used-at-runtime" : "senior-quest-development-secret-change-me-before-production");
 
 if (!authSecret) throw new Error("BETTER_AUTH_SECRET is required in production");
 

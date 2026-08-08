@@ -12,7 +12,7 @@ COPY . .
 # Next evaluates server route modules while collecting build metadata. This
 # disposable value exists only in this build process; Compose supplies the
 # actual session secret to the runtime container.
-RUN BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime npm run build
+RUN NEXT_PHASE=phase-production-build BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
@@ -34,4 +34,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1
 
-CMD ["sh", "-c", "node scripts/migrate.mjs && node server.js"]
+CMD ["sh", "-c", "node scripts/validate-production-env.mjs && node scripts/migrate.mjs && node server.js"]

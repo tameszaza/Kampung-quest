@@ -16,6 +16,12 @@ describe("provider configuration", () => {
     });
   });
 
+  it("requires an explicit hosted provider in production", () => {
+    expect(() => resolveProviderConfiguration({ NODE_ENV: "production" })).toThrow(
+      "AGENT_PROVIDER is required in production",
+    );
+  });
+
   it("configures Gemini through the OpenAI-compatible Chat Completions endpoint", () => {
     expect(resolveProviderConfiguration({
       AGENT_PROVIDER: "gemini",

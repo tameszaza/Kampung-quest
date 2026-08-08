@@ -2,13 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
+import { isProductionRuntime } from "@/server/runtime-environment";
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const AVATAR_SIZE = 512;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function storageDirectory() {
-  return process.env.AVATAR_STORAGE_DIR ?? join(process.cwd(), ".data", "avatars");
+  if (process.env.AVATAR_STORAGE_DIR) return process.env.AVATAR_STORAGE_DIR;
+  if (isProductionRuntime()) throw new Error("AVATAR_STORAGE_DIR is required in production");
+  return join(process.cwd(), ".data", "avatars");
 }
 
 export function avatarKey(userId: string): string {
@@ -84,4 +87,3 @@ function isTrustedGoogleImageHost(hostname: string): boolean {
 function isFileMissing(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
-

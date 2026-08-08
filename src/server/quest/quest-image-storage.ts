@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import type { QuestImageResult } from "@/server/agents/quest-image-agent";
+import { isProductionRuntime } from "@/server/runtime-environment";
 
 const THUMBNAIL_WIDTH = 1200;
 const THUMBNAIL_HEIGHT = 675;
@@ -33,7 +34,9 @@ export class LocalQuestImageStorage implements QuestImageStorage {
 }
 
 function storageDirectory(): string {
-  return process.env.QUEST_IMAGE_STORAGE_DIR || join(process.cwd(), ".data", "quest-images");
+  if (process.env.QUEST_IMAGE_STORAGE_DIR) return process.env.QUEST_IMAGE_STORAGE_DIR;
+  if (isProductionRuntime()) throw new Error("QUEST_IMAGE_STORAGE_DIR is required in production");
+  return join(process.cwd(), ".data", "quest-images");
 }
 
 export function createQuestImageStorage(): QuestImageStorage {

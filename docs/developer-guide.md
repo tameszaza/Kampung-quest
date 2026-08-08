@@ -58,6 +58,7 @@ If a change affects authoritative state, do not stop at the React component or c
 - Keep `MemoryKampungStore` and `PostgresKampungStore` in parity. Identity/chat changes likewise need both identity stores.
 - Agents may interpret and propose. Application services own authorization, deterministic validation, state transitions, and persistence.
 - Keep participant requirements and provider inputs privacy-safe. Use aliases and the minimum facts needed for the model task.
+- Production configuration is strict: do not add a localhost, in-memory, deterministic-provider, demo-seed, or default-secret fallback. Update `src/server/runtime-environment.ts`, `scripts/validate-production-env.mjs`, and [the Railway guide](railway-deployment.md) when adding a production variable.
 - Do not use `localStorage`, `src/data/mock-data.ts`, or a browser-only decision as a fallback after an API failure.
 - If you add a migration, update the repository queries and integration coverage in the same change.
 

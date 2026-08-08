@@ -26,6 +26,10 @@ export type ProviderConfiguration =
 export function resolveProviderConfiguration(
   environment: Readonly<Record<string, string | undefined>>,
 ): ProviderConfiguration {
+  if (environment.NODE_ENV === "production" && !environment.AGENT_PROVIDER
+    && environment.NEXT_PHASE !== "phase-production-build") {
+    throw new Error("AGENT_PROVIDER is required in production");
+  }
   const provider = environment.AGENT_PROVIDER
     ?? (environment.NODE_ENV === "test" ? "deterministic" : "gemini");
   if (provider === "deterministic") return { provider, ready: true };

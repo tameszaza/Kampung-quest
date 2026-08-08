@@ -10,6 +10,7 @@
 4. [Architecture](architecture.md) — server boundaries, storage, agents, and lifecycle state.
 5. [Test cases](test-cases.md) — reproducible unit, API, browser, responsive, security, and lifecycle QA instructions.
 6. [Latest test results](test-results-2026-08-07.md) — per-case evidence, blockers, and follow-up findings from the 7 August 2026 run.
+7. [Railway deployment](railway-deployment.md) — production variables, migrations, volumes, and health checks.
 
 ## Feature documents
 
