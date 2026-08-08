@@ -64,6 +64,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   const messageLoadInFlightRef = useRef<string | null>(null);
   const activityLoadInFlightRef = useRef(false);
   const hydratedActivityIdsRef = useRef(new Set<string>());
+  const readGroupActivityIdsRef = useRef(new Set<string>());
   const handleActivityTitle = useCallback((runId: string, title: string, memberCount: number) => {
     setActivitySummaries((items) => {
       const id = `${ACTIVITY_CONVERSATION_PREFIX}${runId}`;
@@ -107,7 +108,10 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
       ]);
       const cardsToHydrate = cards.filter((card) => !hydratedActivityIdsRef.current.has(card.runId));
       cardsToHydrate.forEach((card) => hydratedActivityIdsRef.current.add(card.runId));
-      const hydrated = await Promise.all(cardsToHydrate.map((card) => toActivitySummary(card, activities.groupChatUnread[card.runId] ?? 0)));
+      const hydrated = await Promise.all(cardsToHydrate.map((card) => toActivitySummary(
+        card,
+        readGroupActivityIdsRef.current.has(card.runId) ? 0 : activities.groupChatUnread[card.runId] ?? 0,
+      )));
       const cardsById = new Map(cards.map((card) => [`${ACTIVITY_CONVERSATION_PREFIX}${card.runId}`, card]));
       setActivitySummaries((current) => {
         const base = hydrated.length ? mergeActivitySummaries(current, hydrated, initialQuest) : current;
@@ -115,7 +119,9 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         const updated = base.map((item) => {
           const card = cardsById.get(item.id);
           if (!card) return item;
-          const unreadCount = activities.groupChatUnread[card.runId] ?? 0;
+          const unreadCount = readGroupActivityIdsRef.current.has(card.runId)
+            ? 0
+            : activities.groupChatUnread[card.runId] ?? 0;
           if (item.title === card.title && item.unreadCount === unreadCount) return item;
           changed = true;
           return { ...item, title: card.title, unreadCount };
@@ -273,6 +279,12 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     }
   }
 
+  function markGroupActivityRead(runId: string) {
+    readGroupActivityIdsRef.current.add(runId);
+    const activityConversationId = `${ACTIVITY_CONVERSATION_PREFIX}${runId}`;
+    setActivitySummaries((items) => items.map((item) => item.id === activityConversationId ? { ...item, unreadCount: 0 } : item));
+  }
+
   async function openChatProfile(userId: string | null | undefined, conversationId: string) {
     if (!userId) return;
     setProfileLoading(true);
@@ -373,7 +385,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
               <div className="chat-header-actions">
                 {activityHasGroupThread ? <div className="chat-scope-tabs" role="tablist" aria-label="Activity chat type">
                   <button type="button" role="tab" aria-selected={activityScope === "private"} onClick={() => setActivityScope("private")}>Private</button>
-                  <button type="button" role="tab" aria-selected={activityScope === "group"} onClick={() => setActivityScope("group")}>Group</button>
+                  <button type="button" role="tab" aria-selected={activityScope === "group"} onClick={() => { setActivityScope("group"); markGroupActivityRead(activityRunId); }}>Group</button>
                 </div> : null}
                 <button
                   className="chat-more-button"
@@ -398,8 +410,10 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
             scope={activityScope}
             onScopeChange={(nextScope) => {
               setActivityScope(nextScope);
-              if (nextScope === "group") {
-                setActivitySummaries((items) => items.map((item) => item.id === selectedId ? { ...item, unreadCount: 0 } : item));
+              if (nextScope === "group" && activityRunId) {
+                const activityConversationId = `${ACTIVITY_CONVERSATION_PREFIX}${activityRunId}`;
+                readGroupActivityIdsRef.current.add(activityRunId);
+                setActivitySummaries((items) => items.map((item) => item.id === activityConversationId ? { ...item, unreadCount: 0 } : item));
               }
             }}
             onGroupAvailabilityChange={setActivityHasGroupThread}

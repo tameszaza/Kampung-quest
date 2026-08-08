@@ -7,6 +7,7 @@ import { useActivityBadges } from "@/components/activity-badge-context";
 import { useAppState } from "@/components/app-state";
 import { Icon } from "@/components/icons";
 import { ActivityNotifications } from "@/components/activity-notifications";
+import { ActivityErrorBanner } from "@/components/activity-error-banner";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
 import { useUser } from "@/components/user-context";
@@ -77,7 +78,7 @@ export function ActivitiesPage({ initialTab = "Suggested" }: { initialTab?: "Sug
         active={tab}
         onChange={(value) => setTab(value as "Suggested" | "Invited" | "Notifications")}
       />
-      {displayError ? <div className="connected-state error" role="alert"><Icon name="shield" />{displayError}<button className="text-button" type="button" onClick={() => void refresh()}>Try again</button></div> : null}
+      {displayError ? <ActivityErrorBanner error={displayError} onRetry={() => void refresh()} /> : null}
       {!activities && loading && !displayError ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading activities…</div> : null}
       {activities && tab === "Suggested" ? <>
         <p className="matched-copy">Matched for {user.fullName.split(/\s+/)[0]} <span aria-hidden="true">✨</span></p>

@@ -35,3 +35,4 @@ AGENTS.md
 .agents
 prompt.txt
 .playwright-mcp/*
+*/test-evidence/*

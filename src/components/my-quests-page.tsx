@@ -8,6 +8,7 @@ import { useActivityBadges } from "@/components/activity-badge-context";
 import { Icon } from "@/components/icons";
 import { PageHeader } from "@/components/page-header";
 import { Tabs } from "@/components/tabs";
+import { ActivityErrorBanner } from "@/components/activity-error-banner";
 import type { EventActivityCard, UserEventActivities } from "@/server/domain/event-coordination";
 import { activityGroups, activityTabHref, isActivityGroup, type ActivityGroup } from "@/lib/my-activities";
 
@@ -48,11 +49,7 @@ export function MyQuestsPage({ initialTab }: { initialTab: ActivityGroup }) {
     <div className="page-container narrow-page my-activities-ref">
       <PageHeader title="My Activities" />
       <Tabs tabs={tabOptions} active={tab} onChange={(value) => selectTab(value as ActivityGroup)} />
-      {error ? <div className="activity-error-banner" role="alert">
-        <span className="activity-error-icon" aria-hidden="true"><Icon name="shield" size={19} /></span>
-        <div className="activity-error-copy"><strong>Activities couldn’t be refreshed</strong><p>{friendlyActivityError(error)}</p></div>
-        <button type="button" className="secondary-button" onClick={() => void refresh()}>Try again</button>
-      </div> : null}
+      {error ? <ActivityErrorBanner error={error} onRetry={() => void refresh()} /> : null}
       {!activities && loading && !error ? <div className="connected-state" role="status"><span className="connected-spinner" />Loading your activities…</div> : null}
       {activities && visible.length === 0 ? <div className="empty-state"><span><Icon name="check" size={34} /></span><h2>Nothing here yet</h2><p>{emptyCopy(tab)}</p></div> : null}
       <section className="joined-list" aria-label={tab}>
@@ -95,9 +92,4 @@ function emptyCopy(group: ActivityGroup) {
   if (group === "Awaiting confirmation") return "Arrangements that need confirmation will appear here.";
   if (group === "Upcoming") return "Fully confirmed activities will appear here.";
   return `You have no ${group.toLowerCase()} activities.`;
-}
-
-function friendlyActivityError(error: string) {
-  if (/networkerror|failed to fetch|fetch resource/i.test(error)) return "Check your connection and try again.";
-  return "We couldn’t load your activities right now. Please try again.";
 }

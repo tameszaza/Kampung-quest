@@ -8,6 +8,8 @@
 2. [Developer guide](developer-guide.md) — where to edit for each feature, how state flows, and what to test.
 3. [API reference](api-reference.md) — the implemented authenticated route inventory.
 4. [Architecture](architecture.md) — server boundaries, storage, agents, and lifecycle state.
+5. [Test cases](test-cases.md) — reproducible unit, API, browser, responsive, security, and lifecycle QA instructions.
+6. [Latest test results](test-results-2026-08-07.md) — per-case evidence, blockers, and follow-up findings from the 7 August 2026 run.
 
 ## Feature documents
 
@@ -40,4 +42,3 @@ When documentation, a test, and an implementation disagree, use this order while
 3. API route handlers define the HTTP boundary and authorization.
 4. Client feature adapters and components define presentation and interaction.
 5. Markdown explains intent, status, and navigation.
-

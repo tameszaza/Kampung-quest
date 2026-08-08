@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "db:migrate": "node scripts/migrate.mjs",
-    "db:reset": "node scripts/reset-database.mjs",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
+    "db:reset": "node --env-file-if-exists=.env scripts/reset-database.mjs",
     "db:reset-users": "node scripts/reset-users.mjs",
     "db:seed-test-users": "node --env-file-if-exists=.env --import tsx scripts/seed-test-users.ts",
     "db:reindex": "node --env-file-if-exists=.env --import tsx scripts/reindex-candidates.ts",
