@@ -107,6 +107,7 @@ The important state rule is: the agent interprets messages and proposes structur
 ## Current boundaries to remember
 
 - Local development and tests may use in-memory adapters when `DATABASE_URL` is absent; production refuses to start without PostgreSQL and pgvector.
+- The 2026-08-09 production Playwright sweep passed public pages, signed-out route protection, unauthenticated API protection, and public validation at seven viewports. Authenticated lifecycle coverage is still blocked until a disposable production QA identity is provisioned; see [`test-results-2026-08-09-production-full.md`](test-results-2026-08-09-production-full.md).
 
 ## Performance behavior
 

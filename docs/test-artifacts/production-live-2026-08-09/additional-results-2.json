@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "id": "PARTNER-002-required-fields",
+      "status": "PASS",
+      "errors": []
+    },
+    {
+      "id": "PARTNER-003-valid-mock-proposal",
+      "status": "PASS",
+      "success": 1,
+      "overflow": false,
+      "errors": []
+    }
+  ],
+  "screenshots": [
+    "/tmp/kq-live-full-2026-08-09/partners-empty-validation-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/partners-preview-success-phone-s25.png"
+  ]
+}

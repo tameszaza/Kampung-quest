@@ -1,0 +1,2243 @@
+{
+  "baseUrl": "https://kampung-quest-production.up.railway.app",
+  "generatedAt": "2026-08-08T18:43:21.856Z",
+  "artifactDir": "/tmp/kq-live-full-2026-08-09",
+  "resultCount": 128,
+  "pass": 113,
+  "fail": 0,
+  "blocked": 15,
+  "screenshots": [
+    "/tmp/kq-live-full-2026-08-09/login-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/register-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/partners-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/login-desktop.png",
+    "/tmp/kq-live-full-2026-08-09/register-desktop.png",
+    "/tmp/kq-live-full-2026-08-09/partners-desktop.png",
+    "/tmp/kq-live-full-2026-08-09/wrong-credentials-phone-s25.png"
+  ],
+  "results": [
+    {
+      "id": "PROD-001-health",
+      "status": "PASS",
+      "statusCode": 200,
+      "elapsedMs": null,
+      "details": "{\"status\":\"ok\",\"service\":\"kampung-quest\",\"database\":{\"ready\":true,\"adapter\":\"postgresql\"},\"pgvector\":{\"ready\":true},\"embeddingIndex\":{\"ready\":true,\"indexed\":3,\"stale\":0},\"agents\":{\"ready\":true,\"provider\":\"gemini\"}}"
+    },
+    {
+      "id": "PROD-LOGIN-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 678,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 146,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 82,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-LOGIN-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 190,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/login-phone-s25.png",
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 80,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/register-phone-s25.png",
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 65,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/partners-phone-s25.png",
+      "note": null
+    },
+    {
+      "id": "PROD-LOGIN-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 201,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 84,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 64,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-LOGIN-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 189,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 70,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 64,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-LOGIN-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 204,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 76,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 65,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-LOGIN-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 176,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/login-desktop.png",
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 145,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/register-desktop.png",
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 64,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/partners-desktop.png",
+      "note": null
+    },
+    {
+      "id": "PROD-LOGIN-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 212,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Welcome back!",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-REGISTER-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/register",
+      "finalPath": "/register",
+      "statusCode": 200,
+      "elapsedMs": 66,
+      "overflow": false,
+      "logoCount": 1,
+      "brokenLogos": 0,
+      "heading": "Senior Quest",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PARTNERS-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/partners",
+      "finalPath": "/partners",
+      "statusCode": 200,
+      "elapsedMs": 66,
+      "overflow": false,
+      "logoCount": 2,
+      "brokenLogos": 0,
+      "heading": "Turn a simple offer into a meaningful local connection.",
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 183,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 100,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 94,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 93,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 102,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 93,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 86,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 97,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 91,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 110,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-phone-360",
+      "status": "PASS",
+      "viewport": "360x800",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 91,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 209,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 107,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 85,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 87,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 104,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 114,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 96,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 100,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 132,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 84,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-phone-s25",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 80,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 212,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 87,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 90,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 77,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 94,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 106,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 82,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 103,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 93,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 87,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-phone-large",
+      "status": "PASS",
+      "viewport": "412x915",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 86,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 242,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 87,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 108,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 108,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 85,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 93,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 83,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 94,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 73,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 75,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-tablet",
+      "status": "PASS",
+      "viewport": "768x1024",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 82,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 228,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 143,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 79,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 106,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 78,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 106,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 75,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 112,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 127,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 86,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-desktop-small",
+      "status": "PASS",
+      "viewport": "1024x768",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 106,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 218,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 148,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 118,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 106,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 75,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 82,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 113,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 76,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 112,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 114,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-desktop",
+      "status": "PASS",
+      "viewport": "1440x900",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 104,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED--desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 210,
+      "overflow": false,
+      "errors": [],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-home-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/home",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 124,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-quests-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 121,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-invites-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/invites",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 76,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-my-quests-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/my-quests",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 78,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-messages-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/messages",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 81,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-rewards-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/rewards",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 112,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-profile-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/profile",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 77,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-settings-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/settings",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 77,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-needs-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/needs",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 75,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "PROD-PROTECTED-assistant-desktop-wide",
+      "status": "PASS",
+      "viewport": "1920x1080",
+      "path": "/assistant",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 73,
+      "overflow": false,
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/login?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        }
+      ],
+      "screenshot": null,
+      "note": null
+    },
+    {
+      "id": "AUTH-003-wrong-credentials",
+      "status": "PASS",
+      "viewport": "390x844",
+      "path": "/login",
+      "finalPath": "/login",
+      "statusCode": 200,
+      "elapsedMs": 185,
+      "overflow": false,
+      "alert": "The email, display name, or password is incorrect.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 401 ()"
+        }
+      ],
+      "screenshot": "/tmp/kq-live-full-2026-08-09/wrong-credentials-phone-s25.png"
+    },
+    {
+      "id": "AUTH-013-google-ui",
+      "status": "PASS",
+      "disabled": false,
+      "title": null,
+      "errors": []
+    },
+    {
+      "id": "AUTH-016-facebook-removed",
+      "status": "PASS",
+      "details": "facebookMatches=0"
+    },
+    {
+      "id": "A11Y-login-controls",
+      "status": "PASS",
+      "unlabeledInputs": [],
+      "unnamedButtons": [],
+      "errors": []
+    },
+    {
+      "id": "AUTH-QA-sqtest.cook.host",
+      "status": "BLOCKED",
+      "identifier": "sqtest.cook.host",
+      "finalPath": "/login",
+      "alert": "The email, display name, or password is incorrect.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 401 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.cook.halal",
+      "status": "BLOCKED",
+      "identifier": "sqtest.cook.halal",
+      "finalPath": "/login",
+      "alert": "The email, display name, or password is incorrect.",
+      "errors": [
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 401 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.cook.access",
+      "status": "BLOCKED",
+      "identifier": "sqtest.cook.access",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.garden.host",
+      "status": "BLOCKED",
+      "identifier": "sqtest.garden.host",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.garden.seated",
+      "status": "BLOCKED",
+      "identifier": "sqtest.garden.seated",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.garden.walk",
+      "status": "BLOCKED",
+      "identifier": "sqtest.garden.walk",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.tech.host",
+      "status": "BLOCKED",
+      "identifier": "sqtest.tech.host",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.tech.errands",
+      "status": "BLOCKED",
+      "identifier": "sqtest.tech.errands",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.tech.language",
+      "status": "BLOCKED",
+      "identifier": "sqtest.tech.language",
+      "finalPath": "/login",
+      "alert": "The email, display name, or password is incorrect.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 401 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.filter.time",
+      "status": "BLOCKED",
+      "identifier": "sqtest.filter.time",
+      "finalPath": "/login",
+      "alert": "The email, display name, or password is incorrect.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 401 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.filter.language",
+      "status": "BLOCKED",
+      "identifier": "sqtest.filter.language",
+      "finalPath": "/login",
+      "alert": "The email, display name, or password is incorrect.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 401 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.filter.distance",
+      "status": "BLOCKED",
+      "identifier": "sqtest.filter.distance",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.filter.group",
+      "status": "BLOCKED",
+      "identifier": "sqtest.filter.group",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=_H_fFy2_Q06N8BA7",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.reserve.cook",
+      "status": "BLOCKED",
+      "identifier": "sqtest.reserve.cook",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "AUTH-QA-sqtest.reserve.tech",
+      "status": "BLOCKED",
+      "identifier": "sqtest.reserve.tech",
+      "finalPath": "/login",
+      "alert": "Too many requests. Please try again later.",
+      "errors": [
+        {
+          "type": "requestfailed",
+          "url": "https://kampung-quest-production.up.railway.app/register?_rsc=sW2A7HEmFQnSVIMx",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "type": "console",
+          "text": "Failed to load resource: the server responded with a status of 429 ()"
+        }
+      ]
+    },
+    {
+      "id": "API-022-activities",
+      "status": "PASS",
+      "route": "/api/v1/activities",
+      "method": "GET",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "API-022-rewards",
+      "status": "PASS",
+      "route": "/api/v1/rewards",
+      "method": "GET",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "API-022-chat-conversations",
+      "status": "PASS",
+      "route": "/api/chat/conversations",
+      "method": "GET",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "API-022-user-me",
+      "status": "PASS",
+      "route": "/api/users/me",
+      "method": "GET",
+      "statusCode": 405,
+      "location": null,
+      "bodyPreview": ""
+    },
+    {
+      "id": "API-022-notifications",
+      "status": "PASS",
+      "route": "/api/v1/notifications",
+      "method": "GET",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "API-022-memories",
+      "status": "PASS",
+      "route": "/api/v1/memories",
+      "method": "GET",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "API-022-quests",
+      "status": "PASS",
+      "route": "/api/v1/quests",
+      "method": "GET",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "API-022-notifications-read",
+      "status": "PASS",
+      "route": "/api/v1/notifications/read",
+      "method": "POST",
+      "statusCode": 401,
+      "location": null,
+      "bodyPreview": "{\"error\":\"Authentication required\"}"
+    },
+    {
+      "id": "ASSET-favicon",
+      "status": "PASS",
+      "route": "/icon.svg",
+      "statusCode": 200,
+      "contentType": "image/svg+xml",
+      "bytes": 38200
+    },
+    {
+      "id": "ASSET-kampung-logo",
+      "status": "PASS",
+      "route": "/assets/kampungLogo.svg",
+      "statusCode": 200,
+      "contentType": "image/svg+xml",
+      "bytes": 38200
+    }
+  ]
+}

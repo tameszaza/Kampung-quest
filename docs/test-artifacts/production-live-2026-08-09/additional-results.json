@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "id": "AUTH-008-empty-registration",
+      "status": "PASS",
+      "invalidFields": 5,
+      "errors": []
+    },
+    {
+      "id": "AUTH-009-011-registration-step-through",
+      "status": "PASS",
+      "matchingHeading": 1,
+      "oldCopy": 0,
+      "optionalHeading": 0,
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "id": "PARTNER-001-mock-proposal",
+      "status": "FAIL",
+      "success": 0,
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "id": "AUTH-013-google-error",
+      "status": "PASS",
+      "alert": "Google sign-in could not be completed. Please try again.",
+      "overflow": false,
+      "errors": []
+    }
+  ],
+  "screenshots": [
+    "/tmp/kq-live-full-2026-08-09/register-empty-validation-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/register-accessibility-step3-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/partners-preview-success-phone-s25.png",
+    "/tmp/kq-live-full-2026-08-09/login-google-error-phone-s25.png"
+  ]
+}
