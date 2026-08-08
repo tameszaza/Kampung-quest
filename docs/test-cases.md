@@ -244,7 +244,9 @@ Each case below is a minimum scenario. Add a regression test when the case expos
 | ASSIST-015 | Include private addresses, contact details, medical information, passwords, or emergency details in assistant text. | Provider input is redacted/minimized; sensitive data is not sent as unnecessary model context or rendered in public quest text. |
 | ASSIST-016 | Open `/assistant` and `/messages?assistant=1`. | Both route to the same embedded assistant experience with the correct conversation. |
 | ASSIST-017 | Reset/start over in assistant options. | A new conversation state is created without deleting unrelated direct/group chats. |
-| ASSIST-018 | Navigate away while a turn is pending, then return. | In-flight state reconciles from server history; no duplicate turn is created. |
+| ASSIST-018 | Complete a brief for a member with saved accessibility defaults. | The saved-preferences agent card is absent while collecting answers, appears at the bottom immediately before final review, shows each retrieval step, and changes to an applied state after its animation. |
+| ASSIST-019 | Complete a brief for a member without saved accessibility defaults. | No retrieval card is shown and the normal final review remains available. |
+| ASSIST-020 | Navigate away while a turn is pending, then return. | In-flight state reconciles from server history; no duplicate turn is created. |
 
 ### 5.4 Proposal, validation, safety, and thumbnail generation
 
@@ -416,6 +418,7 @@ Each case below is a minimum scenario. Add a regression test when the case expos
 | TASK-020 | Test Rewards with no points, one award, multiple awards, reversal, and zero-value history. | Empty and populated states are readable and totals are correct. |
 | TASK-021 | Test rewards pages at phone widths. | Deal details, image, CTA, and back link do not overflow; hamburger exposes Rewards. |
 | TASK-022 | Fail rewards API. | Compact retry state; no stale balance is presented as fresh without indication. |
+| TASK-023 | Open Rewards with no usable codes at desktop and phone widths. | The usable-code empty state and partner-deals section have clear separation; section headings use direct semantic children without a redundant nested heading wrapper. |
 
 ### 5.11 Profile, settings, privacy, and safety
 

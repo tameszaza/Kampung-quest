@@ -285,7 +285,11 @@ export class InMemoryKampungStore implements KampungStore {
     const included = new Set(candidateIds);
     return [...this.embeddings.entries()]
       .filter(([candidateId]) => included.has(candidateId))
-      .flatMap(([, embeddings]) => embeddings.map(({ vector: _vector, ...status }) => structuredClone(status)));
+      .flatMap(([, embeddings]) => embeddings.map((embedding) => {
+        const status = { ...embedding };
+        Reflect.deleteProperty(status, "vector");
+        return structuredClone(status);
+      }));
   }
 
   async replaceActiveEmbeddings(

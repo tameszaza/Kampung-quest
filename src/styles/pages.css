@@ -3329,74 +3329,94 @@
   padding: 16px;
   border: 1px solid #d5e6df;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #f8fcfa, #eef9f4);
+  background: white;
   box-shadow: var(--shadow-sm);
 }
 
 .assistant-retrieval-heading {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  align-items: center;
-  column-gap: 10px;
+  display: block;
 }
 
 .assistant-retrieval-icon {
   width: 34px;
   height: 34px;
+  flex: 0 0 auto;
   border-radius: 50%;
   background: var(--green-100);
   color: var(--green-700);
   display: grid;
   place-items: center;
-  grid-row: 1 / span 2;
   animation: assistant-retrieval-pulse 1.4s ease-in-out infinite;
 }
 
 .assistant-retrieval-heading h2,
 .assistant-retrieval-heading p {
-  grid-column: 2;
   margin: 0;
 }
 
 .assistant-retrieval-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--green-900);
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .assistant-retrieval-heading p {
-  margin-top: 2px;
+  margin: 4px 0 0 44px;
   color: var(--muted);
   font-size: 12px;
 }
 
 .assistant-retrieval-list {
-  margin: 13px 0 0;
+  margin: 16px 0 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 7px;
+  gap: 10px;
 }
 
 .assistant-retrieval-list li {
   color: var(--green-800);
-  display: flex;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 700;
 }
 
-.assistant-retrieval-list li::before {
-  width: 7px;
-  height: 7px;
+.assistant-retrieval-step {
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--green-500);
-  content: "";
+  background: var(--green-100);
+  color: var(--green-700);
+  display: grid;
+  grid-row: 1 / span 2;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.assistant-retrieval-list strong,
+.assistant-retrieval-list small {
+  grid-column: 2;
+}
+
+.assistant-retrieval-list strong {
+  font-size: 13px;
+}
+
+.assistant-retrieval-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.assistant-retrieval.is-active .assistant-retrieval-list li:nth-child(2) .assistant-retrieval-step,
+.assistant-retrieval.is-active .assistant-retrieval-list li:nth-child(3) .assistant-retrieval-step {
+  color: var(--green-700);
   animation: assistant-retrieval-step 1.2s ease-in-out infinite;
 }
-
-.assistant-retrieval-list li:nth-child(2)::before { animation-delay: 160ms; }
-.assistant-retrieval-list li:nth-child(3)::before { animation-delay: 320ms; }
 
 .assistant-retrieval-note {
   margin: 12px 0 0;
@@ -4383,7 +4403,7 @@
 @media (prefers-reduced-motion: reduce) {
   .thinking-dots i { animation: none; }
   .assistant-retrieval-icon,
-  .assistant-retrieval-list li::before { animation: none; }
+  .assistant-retrieval-list .assistant-retrieval-step { animation: none; }
 }
 
 /* Activity coordination is a group conversation inside Messages. Keep the

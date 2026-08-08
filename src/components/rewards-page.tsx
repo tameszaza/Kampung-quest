@@ -39,21 +39,21 @@ export function RewardsPage() {
       </section>
 
       <section className="usable-rewards" aria-labelledby="usable-rewards-title">
-        <div className="rewards-heading"><div><p>Your rewards</p><h2 id="usable-rewards-title">Usable codes</h2></div></div>
+        <header className="rewards-heading"><p>Your rewards</p><h2 id="usable-rewards-title">Usable codes</h2></header>
         {summary.usableRewards.length ? <UsableRewardList rewards={summary.usableRewards} /> : <div className="usable-rewards-empty"><Icon name="gift" size={22} /><span><strong>Your redeemed codes will appear here</strong><small>Choose a partner reward when you have enough points. Codes stay here until they are used or expire.</small></span></div>}
       </section>
 
-      <div className="rewards-heading">
-        <div><p>Community partner rewards</p><h2>Deals for your points</h2></div>
+      <header className="rewards-heading">
+        <p>Community partner rewards</p><h2>Deals for your points</h2>
         <Link href="/partners">For companies <Icon name="chevron" size={17} /></Link>
-      </div>
+      </header>
       <p className="rewards-preview-note"><Icon name="help" size={18} /> Use your points for one of these community partner rewards. Each code has its own expiry and terms.</p>
       <section className="reward-offer-grid" aria-label="Reward offers">
         {summary.offers.map((offer) => <RewardOfferCard key={offer.offerId} offer={offer} balance={summary.balance} />)}
       </section>
 
       <section className="reward-history" aria-labelledby="reward-history-title">
-        <div className="rewards-heading"><div><p>Your progress</p><h2 id="reward-history-title">Points history</h2></div></div>
+        <header className="rewards-heading"><p>Your progress</p><h2 id="reward-history-title">Points history</h2></header>
         {summary.history.length ? <ul>{summary.history.map((item) => <li key={item.earningId}><span><Icon name={item.kind === "redemption" ? "gift" : "badge"} size={20} /><span>{item.redemptionId ? <Link className="reward-history-link" href={`/rewards/redemptions/${item.redemptionId}`}><strong>{item.title}</strong></Link> : <strong>{item.title}</strong>}<small>{item.subtitle}</small></span></span><b className={item.points < 0 ? "reward-history-value--debit" : "reward-history-value--credit"} aria-label={`${item.points < 0 ? "Spent" : "Earned"} ${Math.abs(item.points)} points`}>{item.points >= 0 ? "+" : "−"}{Math.abs(item.points)}</b></li>)}</ul> : <div className="reward-history-empty"><span aria-hidden="true">✨</span><div><strong>Your first points are waiting</strong><small>Complete a task and ask the event admin to review it.</small></div><Link className="secondary-button" href="/quests">Find an activity</Link></div>}
       </section>
     </> : null}
