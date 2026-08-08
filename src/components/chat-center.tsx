@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AssistantConversation } from "@/components/assistant-conversation";
+import { AvatarImage } from "@/components/avatar-image";
 import { KampungLogo } from "@/components/kampung-logo";
 import { ChatComposer, ChatDayLabel, ChatMessageBubble } from "@/components/chat-message";
 import { ChatProfileDialog } from "@/components/chat-profile-dialog";
@@ -16,7 +16,6 @@ import { getQuestRun } from "@/features/assistant/client";
 import { getEventCoordinationThread, getEventGroupCoordinationThread, getEventQuest } from "@/features/events/client";
 import { latestChatMessage } from "@/features/events/conversation-preview";
 import { visibleConversationSummaries } from "@/features/events/conversation-projection";
-import { isLocalAvatarUrl } from "@/lib/avatar-url";
 import type { EventActivityCard } from "@/server/domain/event-coordination";
 import type { ChatContact, ChatMessage, ChatMessageSync, ChatProfile, ConversationSummary } from "@/server/identity/types";
 import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
@@ -584,13 +583,13 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
 }
 
 function AssistantAvatar({ size }: { size: number }) {
-  return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true"><KampungLogo size={size} /></span>;
+  return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true"><KampungLogo size={Math.max(1, size - 8)} /></span>;
 }
 
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
-  return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <Image src={src!} alt="" fill sizes={`${size}px`} unoptimized={isLocalAvatarUrl(src)} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
+  return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <AvatarImage src={src!} alt="" sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
 }
 
 function formatThreadTime(value: string) {

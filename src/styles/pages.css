@@ -1952,6 +1952,10 @@
 }
 
 .chat-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
 
@@ -1959,6 +1963,10 @@
   background: var(--green-800);
   color: white;
   font-size: 18px;
+}
+
+.assistant-chat-avatar .kampung-logo {
+  flex: 0 0 auto;
 }
 
 .chat-profile-trigger {
@@ -4621,6 +4629,10 @@
 }
 
 .profile-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
 

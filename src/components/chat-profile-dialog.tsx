@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import { Icon } from "@/components/icons";
-import { isLocalAvatarUrl } from "@/lib/avatar-url";
+import { AvatarImage } from "@/components/avatar-image";
 import type { ChatProfile } from "@/server/identity/types";
 
 export function ChatProfileDialog({ profile, onClose }: { profile: ChatProfile; onClose: () => void }) {
@@ -27,5 +26,5 @@ export function ChatProfileDialog({ profile, onClose }: { profile: ChatProfile; 
 function Avatar({ src, name, size }: { src: string | null; name: string; size: number }) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
-  return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <Image src={src!} alt="" fill sizes={`${size}px`} unoptimized={isLocalAvatarUrl(src)} onError={() => setFailed(true)} /> : <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>}</span>;
+  return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <AvatarImage src={src!} alt="" sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>}</span>;
 }
