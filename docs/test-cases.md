@@ -180,6 +180,50 @@ For every browser test:
 
 For tests that need a deterministic unread badge or failure, intercept the specific API response in the test browser. Do not add fake data to production code or local storage as an application fallback.
 
+### 4.1 Production live smoke matrix
+
+Run this matrix against `https://kampung-quest-production.up.railway.app` before declaring a release healthy. These checks are intentionally read-only: do not create a quest, send a message, accept/decline an invitation, change preferences, redeem a reward, or mark a task complete on production unless a separate disposable production test account and rollback plan have been approved.
+
+#### Prerequisites
+
+- Use a fresh Playwright browser context for every persona and viewport.
+- Use only the seeded QA accounts listed in section 2.4; never use a personal or customer account.
+- Confirm the site loads over HTTPS and record the commit/deployment shown by the release owner before starting.
+- Record browser console errors, failed requests, response status, and screenshots for each failed or visually important case.
+- For every viewport, assert `document.documentElement.scrollWidth <= document.documentElement.clientWidth`.
+- If a case requires a missing state (for example, an unread invitation or a completed quest), mark it `blocked` rather than manufacturing data in production.
+
+#### Case matrix
+
+| ID | Preconditions and steps | Expected result |
+| --- | --- | --- |
+| PROD-001 | Open the live root while signed out. | HTTPS responds, the app redirects to login, and no protected content flashes. |
+| PROD-002 | While signed out, open `/home`, `/activities`, `/messages`, `/my-quests`, `/rewards`, `/profile`, and `/settings`. | Each protected route redirects safely to login without a 5xx response. |
+| PROD-003 | Log in as `sqtest.garden.host`; reload the landing route. | Session persists, profile identity is correct, and the shell renders once without hydration or console errors. |
+| PROD-004 | At 1440×900, open Home, Activities, My Activities, Rewards, Messages, Profile, and Settings through the sidebar. | Each route loads its primary heading and active navigation state; no page-level overflow occurs. |
+| PROD-005 | At 390×844, open the hamburger menu from a page that hides desktop-only navigation. | Menu opens in the existing surface, exposes Activities/My Activities/Rewards/Messages/Profile/Settings, closes cleanly, and does not add horizontal overflow. |
+| PROD-006 | At 390×844, inspect the fixed bottom navigation on Home, Activities, Rewards, and Messages. | Bottom navigation remains visible, does not cover the composer or primary content, and active labels/icons are readable. |
+| PROD-007 | Open Rewards at desktop and mobile widths. | Points balance, usable-code empty/populated state, partner offers, history, and loading/error states have stable layout; usable codes and deals remain visibly separated. |
+| PROD-008 | On Rewards at 360×800, 390×844, and 412×915, scroll through all offers. | Offer cards, “More details,” headings, and fixed navigation do not clip or overflow. |
+| PROD-009 | Open Activities and inspect Suggested, Invited, and Notifications tabs. | Each tab can be selected, badges/counts match visible unread items, and empty states are intentional rather than broken panels. |
+| PROD-010 | Open My Activities and select Awaiting coordination, Awaiting confirmation, Upcoming, Completed, and Cancelled. | Each subcategory renders its correct empty/card state; counts appear only when nonzero and use the intended color/style. |
+| PROD-011 | Open Messages with the seeded account. | Conversation list, latest previews, unread badges, selected conversation, and composer load without duplicate requests or console errors. |
+| PROD-012 | Stay on Messages for 6 seconds with Network logging enabled. | Ordinary chat does not repeatedly download the full history; polling is bounded and the page remains responsive. |
+| PROD-013 | Open an existing activity conversation if one is available, then switch Private/Group views. | The latest preview is the latest message from either scope, switching scope does not duplicate messages, and group unread state is represented in the conversation list. |
+| PROD-014 | Open an existing quest card/detail if available. | Correct thumbnail or intentional fallback loads for the viewer, participant/organizer sections do not overlap, and the back link preserves the originating area. |
+| PROD-015 | Open Profile and inspect the profile dialog/card if available. | Name, handle, avatar, and safe public information render; internal database IDs and raw object text are not exposed. |
+| PROD-016 | Open Settings and inspect accessibility defaults and display settings without saving. | Optional stairs, distance, language, text-size, contrast, and privacy controls are present, labelled, keyboard reachable, and visually consistent. |
+| PROD-017 | Use Tab/Shift+Tab through login, hamburger, tabs, cards, and primary buttons. | Focus is visible, order is logical, icon-only controls have accessible names, and no focus is trapped outside an intentional menu/dialog. |
+| PROD-018 | Inspect the accessibility tree on Rewards, Messages, Activities, and My Activities. | Headings are hierarchical, tabs expose selected state, badges do not replace accessible labels, and status/error regions are announced. |
+| PROD-019 | Test 360×800, 390×844, 412×915, 768×1024, 1024×768, 1440×900, and 1920×1080. | Shell breakpoints are coherent, content remains readable, and no viewport has page-level horizontal overflow. |
+| PROD-020 | Collect all image requests while visiting Home, Activities, My Activities, Rewards, and Messages. | No broken image responses, no unexpected placeholder for an available asset, and decorative images have empty alt text. |
+| PROD-021 | Collect all responses and console events during the route sweep. | No unexpected 4xx/5xx requests, uncaught exceptions, hydration errors, or repeated identical fetch storms. |
+| PROD-022 | Call `/api/v1/activities`, `/api/v1/rewards`, `/api/chat/conversations`, and `/api/users/me` from a fresh signed-out context. | Protected APIs reject/redirect safely (401/403/3xx, or 405 when the route intentionally disallows GET) and do not return user data. |
+| PROD-023 | Reload every tested route directly and use browser Back/Forward between Messages, Activities, My Activities, and Rewards. | Deep links recover their state, browser history works, and no route becomes stuck on a loading shell. |
+| PROD-024 | Run the same route sweep as `sqtest.garden.walk` in a fresh context. | A second persona sees only its own safe projections; no identity, avatar, chat, reward, or activity data leaks from the first context. |
+| PROD-025 | If a live state already contains a pending invite, suggested quest, unread notification, or saved accessibility preference, inspect it without mutating it. | The relevant badge/card/agent retrieval UI is placed in the correct parent tab and has no duplicate notification surface. |
+| PROD-026 | If any request fails during the sweep, preserve the response body/status, console output, route, viewport, and screenshot, then retry once in a fresh context. | Intermittent infrastructure failures are separated from deterministic UI/API failures; no failure is silently swallowed. |
+
 ## 5. Test case catalog
 
 Each case below is a minimum scenario. Add a regression test when the case exposes a bug or when it changes authoritative state.
