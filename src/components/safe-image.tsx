@@ -2,6 +2,7 @@
 
 import Image, { type ImageProps } from "next/image";
 import { useState } from "react";
+import { isLocalAvatarUrl } from "@/lib/avatar-url";
 
 type SafeImageProps = Omit<ImageProps, "src"> & {
   src: string;
@@ -12,9 +13,9 @@ type SafeImageProps = Omit<ImageProps, "src"> & {
 export function SafeImage({ src, fallbackSrc = "/assets/profile-maria.jpg", ...props }: SafeImageProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const resolvedSrc = failedSrc === src ? fallbackSrc : src;
-  const { alt, ...imageProps } = props;
+  const { alt, unoptimized, ...imageProps } = props;
 
-  return <Image {...imageProps} alt={alt} src={resolvedSrc} onError={() => {
+  return <Image {...imageProps} alt={alt} src={resolvedSrc} unoptimized={unoptimized || isLocalAvatarUrl(resolvedSrc)} onError={() => {
     if (resolvedSrc !== fallbackSrc) setFailedSrc(src);
   }} />;
 }

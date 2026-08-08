@@ -37,6 +37,8 @@ Railway supplies `PORT`; do not hard-code it in service variables. Optional mode
 
 Attach a Railway volume mounted at `/app/.data`. Without a volume, database-backed member data remains durable but uploaded avatars and generated quest images are lost when the container is replaced.
 
+If an existing member's `photo_url` points to `/api/profile/avatar/<key>` but the file is missing from the mounted volume, the URL is stale. Reattach the volume at the exact mount path and ask affected members to upload their photo again; the original bytes cannot be recovered from the hashed key. The chat UI bypasses Next's image optimizer for these internal avatar routes, so a missing file now falls back to the member initial instead of surfacing an optimizer `400` error.
+
 ## 4. Import reward inventory
 
 After the app service can reach PostgreSQL, import one code per line from a secure operator machine. Do not put bearer codes in command arguments or commit them:
