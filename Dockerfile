@@ -34,4 +34,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1
 
-CMD ["sh", "-c", "node scripts/validate-production-env.mjs && node scripts/migrate.mjs && node server.js"]
+CMD ["sh", "-c", "node scripts/predeploy.mjs && exec node server.js"]
