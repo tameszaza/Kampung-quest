@@ -1,6 +1,6 @@
 # Kampung Quest documentation
 
-> Living documentation for the web application. Current-state notes are verified against the repository as of **8 August 2026**.
+> Living documentation for the web application. Current-state notes are verified against the repository as of **9 August 2026**.
 
 ## Read this first
 
@@ -9,7 +9,7 @@
 3. [API reference](api-reference.md) — the implemented authenticated route inventory.
 4. [Architecture](architecture.md) — server boundaries, storage, agents, and lifecycle state.
 5. [Test cases](test-cases.md) — reproducible unit, API, browser, responsive, security, and lifecycle QA instructions.
-6. [Latest test results](test-results-2026-08-08.md) — focused remediation evidence for the Gemini blocker and responsive smoke run.
+6. [Latest test results](test-results-2026-08-09.md) — accessibility preference lifecycle, assistant retrieval, and responsive UI evidence.
 7. [Full previous test results](test-results-2026-08-07.md) — per-case evidence, blockers, and follow-up findings from the 7 August 2026 run.
 7. [Railway deployment](railway-deployment.md) — production variables, migrations, volumes, and health checks.
 

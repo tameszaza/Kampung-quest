@@ -10,7 +10,7 @@ This guide answers the question: **“Which file do I edit?”** Start with the 
 | Change the authenticated shell or navigation | `src/components/app-shell.tsx` | `src/styles/navigation.css`, `src/components/activity-badge-context.tsx` |
 | Change login/register UI | `src/components/auth-form.tsx` | `src/app/(auth)/*/page.tsx`, `src/lib/auth.ts`, `src/server/identity/*` |
 | Change onboarding or profile photo upload | `src/components/profile-completion-form.tsx`, `src/components/profile-photo-editor.tsx` | `src/app/api/profile/*`, `src/server/profile/avatar-storage.ts`, identity stores |
-| Change member preferences, privacy, security, or emergency contact | `src/app/(app)/settings/page.tsx`, `src/components/security-settings.tsx` | `src/app/api/users/me/route.ts`, `src/app/api/account/*`, `src/server/identity/*` |
+| Change member preferences, optional accessibility defaults, privacy, security, or emergency contact | `src/app/(app)/settings/page.tsx`, `src/components/accessibility-preference-fields.tsx`, `src/components/security-settings.tsx` | `src/app/api/users/me/route.ts`, `src/app/api/account/*`, `src/server/identity/*`, `db/migrations/017_accessibility_preferences.sql` |
 | Change the assistant conversation UI | `src/components/assistant-conversation.tsx` | `src/features/assistant/client.ts`, assistant conversation routes and service |
 | Change assistant questions or extracted brief validation | `src/server/features/assistant-conversation-service.ts`, `src/server/domain/schemas.ts` | `src/server/agents/agent-instructions.ts`, assistant tests |
 | Change synchronous recommendation behavior | `src/server/features/assistant-recommendation-service.ts` | `src/app/api/v1/assistant/recommend/route.ts`, `src/server/core/kampung-quest-engine.ts` |
@@ -88,7 +88,7 @@ Then inspect `http://localhost:3000/health`, authenticate at `/register`, and te
 | Area | Test files to start with |
 | --- | --- |
 | Domain and pipeline | `tests/core-engine.test.ts`, `tests/quest-pipeline.test.ts`, `tests/safety-service.test.ts`, `tests/validation-service.test.ts` |
-| Assistant | `tests/assistant-client.test.ts`, `tests/assistant-conversation-service.test.ts`, `tests/coordination-agent-output.test.ts` |
+| Assistant and saved accessibility retrieval | `tests/assistant-client.test.ts`, `tests/assistant-conversation-service.test.ts`, `tests/coordination-agent-output.test.ts`, `tests/identity-and-chat.test.ts` |
 | Coordination | `tests/event-coordinator.test.ts`, `tests/event-participant-history.test.ts`, `tests/event-quest-presentation.test.ts`, `tests/coordination-message-presentation.test.ts` |
 | Recruitment and access | `tests/recruitment-eligibility.test.ts`, `tests/quest-access.test.ts`, `tests/availability-control.test.ts` |
 | Tasks and rewards | `tests/event-task-rewards.test.ts`, `tests/reward-service.test.ts`, `tests/reward-redemption.test.ts`, `tests/activity-badges.test.ts` |
