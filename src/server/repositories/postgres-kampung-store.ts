@@ -438,15 +438,30 @@ export class PostgresKampungStore implements KampungStore {
         );
       }
     }
-    for (const entry of state.rewardEntries ?? []) {
-      await client.query(
+    for (const entry of [...(state.rewardEntries ?? [])].sort((left, right) => left.userId.localeCompare(right.userId))) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [entry.userId]);
+      const inserted = await client.query(
         `INSERT INTO rewards.point_ledger
-          (entry_id, user_id, run_id, task_id, points, kind, reverses_entry_id, actor_id, reason, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (entry_id) DO NOTHING`,
+          (entry_id, user_id, run_id, task_id, redemption_id, points, kind,
+           source_type, source_id, reverses_entry_id, actor_id, reason, metadata, created_at)
+         VALUES ($1, $2, $3, $4, NULL, $5, $6, 'event_task', $1, $7, $8, $9, '{}'::jsonb, $10)
+         ON CONFLICT (entry_id) DO NOTHING
+         RETURNING user_id, points, kind`,
         [entry.entryId, entry.userId, entry.runId, entry.taskId, entry.points, entry.kind,
           entry.reversesEntryId, entry.actorId, entry.reason, entry.createdAt],
       );
+      if (inserted.rowCount === 1) {
+        await client.query(
+          `INSERT INTO rewards.accounts (user_id, balance, lifetime_points, version, created_at, updated_at)
+           VALUES ($1, $2, GREATEST($2, 0), 1, $3, $3)
+           ON CONFLICT (user_id) DO UPDATE
+           SET balance = rewards.accounts.balance + EXCLUDED.balance,
+               lifetime_points = GREATEST(0, rewards.accounts.lifetime_points + $2),
+               version = rewards.accounts.version + 1,
+               updated_at = EXCLUDED.updated_at`,
+          [entry.userId, entry.points, entry.createdAt],
+        );
+      }
     }
     for (const notification of state.notifications) {
       await client.query(

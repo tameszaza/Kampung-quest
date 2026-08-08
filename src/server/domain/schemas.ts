@@ -205,7 +205,7 @@ export function normalizeHostedLocalTime(value: string): string {
     }
   }
 
-  return normalized;
+  throw new Error(`Unsupported local time format: ${value}`);
 }
 
 export function normalizeHostedAssistantTurnOutput(

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { RewardDomainError } from "@/server/repositories/reward-store";
 
 function isPostgresError(error: unknown): error is Error & { code: string } {
   return error instanceof Error
@@ -17,6 +18,16 @@ export function errorResponse(error: unknown): NextResponse {
   }
   if (isPostgresError(error)) {
     return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
+  }
+  if (error instanceof RewardDomainError) {
+    const status = error.code === "OFFER_NOT_FOUND" || error.code === "REDEMPTION_NOT_FOUND"
+      ? 404
+      : error.code === "IDEMPOTENCY_KEY_REQUIRED" || error.code === "INVALID_REQUEST"
+        ? 400
+        : error.code === "REWARD_CODE_KEY_MISSING"
+          ? 503
+        : 409;
+    return NextResponse.json({ error: error.message, code: error.code }, { status });
   }
   const message = error instanceof Error ? error.message : "Unexpected server error";
   const providerUnavailable = message.includes("provider unavailable")

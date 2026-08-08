@@ -14,7 +14,13 @@ export interface RewardOffer {
   tone: "mint" | "amber" | "blue" | "rose" | "violet" | "green";
   value: string;
   validUntil: string;
+  validUntilAt?: string;
+  startsAt?: string;
+  status?: "draft" | "active" | "paused" | "retired";
+  maxRedemptionsPerUser?: number;
+  eligibility?: RewardEligibility;
   locations: string;
+  terms?: string;
   partnerDescription: string;
   redemptionSteps: string[];
   heroImage?: string;
@@ -35,6 +41,35 @@ export interface RewardEarning {
   earnedAt?: string;
 }
 
+export interface RewardHistoryItem extends RewardEarning {
+  kind: "earning" | "redemption" | "reversal" | "refund";
+  subtitle: string;
+  occurredAt: string;
+  redemptionId?: string;
+}
+
+export interface UsableReward {
+  redemptionId: string;
+  offerId: string;
+  company: string;
+  title: string;
+  maskedCode: string;
+  pointsCost: number;
+  status: "issued";
+  redeemedAt: string;
+  effectiveExpiresAt: string;
+  locations: string;
+}
+
+export type RewardEligibility =
+  | { status: "eligible"; balanceAfter: number }
+  | { status: "insufficient_points"; pointsNeeded: number }
+  | { status: "out_of_stock" }
+  | { status: "not_started"; startsAt: string }
+  | { status: "ended" }
+  | { status: "paused" }
+  | { status: "limit_reached" };
+
 export interface RewardSummary {
   balance: number;
   lifetimePoints: number;
@@ -44,6 +79,8 @@ export interface RewardSummary {
   pointsUntilNextReward: number;
   earnings: RewardEarning[];
   offers: RewardOffer[];
+  history: RewardHistoryItem[];
+  usableRewards: UsableReward[];
 }
 
 export const rewardOffers: RewardOffer[] = [
@@ -58,9 +95,13 @@ export const rewardOffers: RewardOffer[] = [
     tone: "amber",
     value: "One drink and one snack set",
     validUntil: "31 Dec 2026",
+    validUntilAt: "2026-12-31T23:59:59.999Z",
+    status: "active",
+    maxRedemptionsPerUser: 1,
     locations: "Selected neighbourhood outlets",
+    terms: "Valid at participating neighbourhood outlets. One code per member.",
     partnerDescription: "Toast Box brings familiar food, drinks, and a welcoming café setting together for a relaxed community break.",
-    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Open this deal and tap Redeem when redemption launches.", "Show the reward code to the café team.", "Enjoy your drink or snack set."],
+    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Redeem this reward when you have enough points.", "Show the reward code to the café team.", "Enjoy your drink or snack set."],
     heroImage: "/assets/hero_breakfast_set.png",
     partnerLogoImage: "/assets/partner_logo.png",
     outletImage: "/assets/partner_outlet.png",
@@ -79,9 +120,13 @@ export const rewardOffers: RewardOffer[] = [
     tone: "green",
     value: "$5 off gardening supplies",
     validUntil: "31 Dec 2026",
+    validUntilAt: "2026-12-31T23:59:59.999Z",
+    status: "active",
+    maxRedemptionsPerUser: 1,
     locations: "Participating garden centres",
+    terms: "Valid at participating garden centres. One code per member.",
     partnerDescription: "Green Garden Centre helps neighbours keep growing with practical supplies for balconies, windowsills, and community gardens.",
-    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Choose this gardening credit from your available rewards.", "Show the reward code at a participating centre.", "Use the credit on eligible gardening supplies."],
+    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Redeem this gardening credit when you have enough points.", "Show the reward code at a participating centre.", "Use the credit on eligible gardening supplies."],
     outletImage: "/assets/garden_centre_interior.jpg",
     menuImages: [
       "/assets/gardening_tools_flatlay.jpg",
@@ -100,9 +145,13 @@ export const rewardOffers: RewardOffer[] = [
     tone: "violet",
     value: "One weekday cinema ticket",
     validUntil: "30 Nov 2026",
+    validUntilAt: "2026-11-30T23:59:59.999Z",
+    status: "active",
+    maxRedemptionsPerUser: 1,
     locations: "Selected community screenings",
+    terms: "Valid for selected weekday screenings. One code per member.",
     partnerDescription: "Community Cinema brings people together for affordable weekday screenings and relaxed shared experiences.",
-    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Select a weekday screening after redemption opens.", "Show the reward code at the cinema desk.", "Enjoy the film with your community."],
+    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Redeem a weekday ticket when you have enough points.", "Show the reward code at the cinema desk.", "Enjoy the film with your community."],
   },
   {
     offerId: "neighbourhood-grocer-voucher",
@@ -115,9 +164,13 @@ export const rewardOffers: RewardOffer[] = [
     tone: "mint",
     value: "$5 toward fresh food and essentials",
     validUntil: "31 Dec 2026",
+    validUntilAt: "2026-12-31T23:59:59.999Z",
+    status: "active",
+    maxRedemptionsPerUser: 1,
     locations: "Participating neighbourhood stores",
+    terms: "Valid at participating neighbourhood stores. One code per member.",
     partnerDescription: "Neighbourhood Grocer supports everyday wellbeing with fresh food, household essentials, and friendly local service.",
-    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Open this voucher from your rewards page.", "Show the reward code at checkout.", "Use the credit on eligible items."],
+    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Redeem this voucher when you have enough points.", "Show the reward code at checkout.", "Use the credit on eligible items."],
   },
   {
     offerId: "city-rides-credit",
@@ -130,9 +183,13 @@ export const rewardOffers: RewardOffer[] = [
     tone: "blue",
     value: "$5 toward a community trip",
     validUntil: "31 Oct 2026",
+    validUntilAt: "2026-10-31T23:59:59.999Z",
+    status: "active",
+    maxRedemptionsPerUser: 1,
     locations: "Within participating service areas",
+    terms: "Valid within participating service areas. One code per member.",
     partnerDescription: "City Rides helps members travel to community activities, appointments, and the people who matter to them.",
-    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Choose the ride credit when redemption opens.", "Apply the reward code to an eligible trip.", "Travel safely to your next destination."],
+    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Redeem the ride credit when you have enough points.", "Apply the reward code to an eligible trip.", "Travel safely to your next destination."],
   },
   {
     offerId: "wellness-pharmacy-voucher",
@@ -145,9 +202,13 @@ export const rewardOffers: RewardOffer[] = [
     tone: "rose",
     value: "$8 toward selected wellbeing essentials",
     validUntil: "31 Dec 2026",
+    validUntilAt: "2026-12-31T23:59:59.999Z",
+    status: "active",
+    maxRedemptionsPerUser: 1,
     locations: "Participating Wellness Pharmacy outlets",
+    terms: "Valid at participating Wellness Pharmacy outlets. One code per member.",
     partnerDescription: "Wellness Pharmacy offers approachable personal care and wellbeing essentials for everyday routines.",
-    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Open this wellbeing voucher after redemption launches.", "Show the reward code to staff.", "Use it on selected eligible products."],
+    redemptionSteps: ["Complete or attend any Senior Quest activity.", "Redeem this voucher when you have enough points.", "Show the reward code to staff.", "Use it on selected eligible products."],
   },
 ];
 
@@ -173,6 +234,13 @@ export function buildRewardSummary(completedActivities: EventActivityCard[]): Re
     pointsUntilNextReward: nextOffer ? nextOffer.pointsCost - balance : 0,
     earnings,
     offers: rewardOffers,
+    history: earnings.map((earning) => ({
+      ...earning,
+      kind: "earning" as const,
+      subtitle: "Activity completed",
+      occurredAt: "",
+    })),
+    usableRewards: [],
   };
 }
 
@@ -203,6 +271,13 @@ export function buildTaskRewardSummary(entries: Array<EventRewardEntry & {
     pointsUntilNextReward: nextOffer ? nextOffer.pointsCost - balance : 0,
     earnings,
     offers: rewardOffers,
+    history: earnings.map((earning) => ({
+      ...earning,
+      kind: entryKind(earning.points),
+      subtitle: earning.difficulty ? `${earning.difficulty} task approved` : "Activity completed",
+      occurredAt: earning.earnedAt ?? "",
+    })),
+    usableRewards: [],
   };
 }
 
@@ -234,5 +309,16 @@ export function buildRewardSummaryWithTaskEntries(
     pointsUntilNextReward: nextOffer ? nextOffer.pointsCost - balance : 0,
     earnings,
     offers: rewardOffers,
+    history: earnings.map((earning) => ({
+      ...earning,
+      kind: entryKind(earning.points),
+      subtitle: earning.difficulty ? `${earning.difficulty} task approved` : "Activity completed",
+      occurredAt: earning.earnedAt ?? "",
+    })),
+    usableRewards: [],
   };
+}
+
+function entryKind(points: number): RewardHistoryItem["kind"] {
+  return points < 0 ? "reversal" : "earning";
 }

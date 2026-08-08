@@ -1,6 +1,6 @@
 # Kampung Quest documentation
 
-> Living documentation for the web application. Current-state notes are verified against the repository as of **7 August 2026**.
+> Living documentation for the web application. Current-state notes are verified against the repository as of **8 August 2026**.
 
 ## Read this first
 
@@ -18,7 +18,8 @@ These documents capture product decisions and delivery history. They are useful 
 | Document | Use it for | Status |
 | --- | --- | --- |
 | [Open quest recruitment requirements](open-quest-recruitment-requirements.md) | Recruitment rules, eligibility, privacy, and join requests | Implemented reference; deferred decisions remain at the end |
-| [Event task rewards requirements](event-task-reward-requirements.md) | Roles, tasks, points, review, and reversals | Implemented reference; partner redemption is preview-only |
+| [Event task rewards requirements](event-task-reward-requirements.md) | Roles, tasks, points, review, and reversals | Implemented reference; see the redemption plan for the newer code-issuance flow |
+| [Reward redemption implementation plan](reward-redemption-implementation-plan.md) | Wallet, offer inventory, atomic redemption, code security, and rollout | Implemented reference |
 | [Agentic coordination requirements](agentic-event-coordination-requirements.md) | Coordination behavior and safety requirements | Product contract with current implementation notes |
 | [Event coordinator implementation plan](event-coordinator-implementation-plan.md) | Detailed delivery plan for the durable event aggregate | Historical plan plus current status |
 | [Agentic coordination implementation plan](agentic-event-coordination-implementation-plan.md) | Earlier agent-oriented coordination plan | Historical plan; use the current file map before editing |

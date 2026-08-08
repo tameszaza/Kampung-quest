@@ -87,7 +87,11 @@
 | `POST` | `/api/v1/event-quests/[questId]/task-plan/retry` | Retry a failed task-plan generation | [`src/app/api/v1/event-quests/[questId]/task-plan/retry/route.ts`](../src/app/api/v1/event-quests/%5BquestId%5D/task-plan/retry/route.ts) |
 | `POST` | `/api/v1/event-quests/[questId]/tasks/[taskId]` | Submit, approve, retry, or reverse a task | [`src/app/api/v1/event-quests/[questId]/tasks/[taskId]/route.ts`](../src/app/api/v1/event-quests/%5BquestId%5D/tasks/%5BtaskId%5D/route.ts) |
 | `POST` | `/api/v1/event-quests/[questId]/task-reassignments/[requestId]` | Approve or reject a task reassignment | [`src/app/api/v1/event-quests/[questId]/task-reassignments/[requestId]/route.ts`](../src/app/api/v1/event-quests/%5BquestId%5D/task-reassignments/%5BrequestId%5D/route.ts) |
-| `GET` | `/api/v1/rewards` | Read current balance, approved task history, and preview offers | [`src/app/api/v1/rewards/route.ts`](../src/app/api/v1/rewards/route.ts) |
+| `GET` | `/api/v1/rewards` | Read the wallet balance, point history, decorated offers, and masked usable codes | [`src/app/api/v1/rewards/route.ts`](../src/app/api/v1/rewards/route.ts) |
+| `POST` | `/api/v1/rewards` | Atomically spend points and issue one stocked code; requires `Idempotency-Key` | same handler |
+| `POST` | `/api/v1/rewards/redemptions` | Alias for reward redemption with the same idempotency contract | [`src/app/api/v1/rewards/redemptions/route.ts`](../src/app/api/v1/rewards/redemptions/route.ts) |
+| `GET` | `/api/v1/rewards/offers/[offerId]` | Read one offer with member-specific eligibility and post-redemption balance | [`src/app/api/v1/rewards/offers/[offerId]/route.ts`](../src/app/api/v1/rewards/offers/%5BofferId%5D/route.ts) |
+| `GET` | `/api/v1/rewards/redemptions/[redemptionId]` | Read the full issued code for its authenticated owner | [`src/app/api/v1/rewards/redemptions/[redemptionId]/route.ts`](../src/app/api/v1/rewards/redemptions/%5BredemptionId%5D/route.ts) |
 | `GET` | `/api/v1/notifications?limit=...` | Read member activity notifications | [`src/app/api/v1/notifications/route.ts`](../src/app/api/v1/notifications/route.ts) |
 | `POST` | `/api/v1/notifications/read` | Mark activity notifications read | [`src/app/api/v1/notifications/read/route.ts`](../src/app/api/v1/notifications/read/route.ts) |
 
@@ -96,4 +100,3 @@
 | Method | Endpoint | Purpose | Handler |
 | --- | --- | --- | --- |
 | `GET` | `/api/quest-images/[key]` | Serve a stored quest thumbnail | [`src/app/api/quest-images/[key]/route.ts`](../src/app/api/quest-images/%5Bkey%5D/route.ts) |
-

@@ -241,6 +241,25 @@
   font-size: 12px;
 }
 
+.usable-rewards { margin-top: 38px; }
+.usable-rewards-empty { padding: 18px 20px; border: 1px dashed var(--line); border-radius: 18px; color: var(--green-700); display: flex; align-items: center; gap: 12px; }
+.usable-rewards-empty span { display: grid; gap: 3px; }
+.usable-rewards-empty small { color: var(--muted); line-height: 1.45; }
+.usable-rewards-list { margin: 0; padding: 0; border-top: 1px solid var(--line); list-style: none; }
+.usable-rewards-list li { min-height: 72px; padding: 12px 4px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
+.usable-reward-icon { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 13px; background: var(--green-100); color: var(--green-700); display: grid; place-items: center; }
+.usable-reward-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.usable-reward-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usable-reward-copy small { color: var(--muted); }
+.usable-rewards-list .secondary-button { flex: 0 0 auto; min-height: 38px; padding: 0 12px; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; }
+.reward-offer-status { margin-top: 10px; font-size: 12px; font-weight: 750; }
+.reward-offer-status--eligible { color: var(--green-700); }
+.reward-offer-status--insufficient_points { color: var(--muted); }
+.reward-offer-status--out_of_stock,
+.reward-offer-status--ended,
+.reward-offer-status--paused,
+.reward-offer-status--limit_reached { color: #a24a4a; }
+
 .reward-detail-page {
   max-width: 1180px;
   padding-bottom: 56px;
@@ -404,6 +423,35 @@
 .reward-detail-footer > span > span { display: grid; }
 .reward-detail-footer small { color: var(--ink-soft); }
 .reward-detail-footer .primary-button { flex: 0 0 auto; }
+.reward-detail-footer .primary-button:disabled { cursor: not-allowed; opacity: .65; }
+
+.reward-redemption-success { margin-top: 24px; padding: 22px; border: 1px solid #b8e2cc; border-radius: 20px; background: #f0fbf5; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 15px; }
+.reward-redemption-success-icon { width: 48px; height: 48px; border-radius: 50%; background: var(--green-100); color: var(--green-700); display: grid; place-items: center; }
+.reward-redemption-success h2 { margin: 5px 0 5px; color: var(--green-900); font-size: 22px; }
+.reward-redemption-success p { margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
+.reward-redemption-success code { margin-right: 8px; padding: 10px 13px; border: 1px solid #a8d6bb; border-radius: 9px; background: white; color: var(--green-900); display: inline-block; font-size: 17px; font-weight: 800; letter-spacing: .08em; }
+.reward-redemption-success small { margin-top: 13px; color: var(--muted); display: block; line-height: 1.45; }
+.reward-dialog-backdrop { position: fixed; z-index: 20; inset: 0; padding: 18px; background: rgba(2, 31, 23, .42); display: grid; place-items: center; }
+.reward-dialog { position: relative; width: min(100%, 470px); padding: 28px; border-radius: 20px; background: var(--surface); box-shadow: 0 24px 70px rgba(2, 31, 23, .24); }
+.reward-dialog h2 { margin: 7px 0 10px; color: var(--green-900); font-size: 25px; line-height: 1.18; }
+.reward-dialog p { margin: 0; color: var(--muted); line-height: 1.55; }
+.reward-dialog-close { position: absolute; top: 10px; right: 13px; border: 0; background: transparent; color: var(--muted); font-size: 28px; line-height: 1; cursor: pointer; }
+.reward-dialog-actions { margin-top: 24px; display: flex; justify-content: flex-end; gap: 10px; }
+.reward-code-page { max-width: 760px; padding-bottom: 56px; }
+.reward-code-card { padding: clamp(24px, 5vw, 46px); border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow-sm); text-align: center; }
+.reward-code-card > .reward-redemption-success-icon { margin: 0 auto 16px; }
+.reward-code-card h1 { margin: 6px 0 4px; color: var(--green-900); font-size: clamp(27px, 5vw, 40px); letter-spacing: -.04em; }
+.reward-code-company { margin: 0; color: var(--muted); font-size: 16px; }
+.reward-code-value { margin: 25px auto 13px; padding: 19px 15px; border: 2px dashed #80bd99; border-radius: 14px; background: #f0fbf5; color: var(--green-900); font-size: clamp(23px, 6vw, 38px); font-weight: 850; letter-spacing: .1em; word-break: break-word; }
+.reward-code-facts { margin: 27px 0 0; padding-top: 22px; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; text-align: left; }
+.reward-code-facts dt { color: var(--muted); font-size: 12px; }
+.reward-code-facts dd { margin: 5px 0 0; color: var(--green-900); font-size: 13px; font-weight: 750; line-height: 1.4; }
+.reward-code-terms, .reward-code-instruction { margin: 22px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.reward-code-instruction { color: var(--green-800); font-weight: 700; }
+.reward-code-card > .secondary-button { margin-top: 22px; display: inline-flex; }
+.reward-code-error { margin: 10px 0 0; color: #a24a4a; font-size: 13px; }
+.reward-history-value--debit { color: #b04a4a !important; }
+.reward-history-value--credit { color: var(--green-700); }
 
 .reward-history { margin-top: 42px; }
 
@@ -437,6 +485,7 @@
   min-width: 0;
   display: grid;
 }
+.reward-history-link { color: inherit; }
 
 .reward-history li small,
 .reward-history-empty small { color: var(--muted); }
@@ -882,6 +931,11 @@
   .reward-detail-facts > div:nth-child(even) { padding-right: 0; }
   .reward-detail-footer { align-items: stretch; flex-direction: column; }
   .reward-detail-footer .primary-button { width: 100%; }
+  .reward-redemption-success { grid-template-columns: auto minmax(0, 1fr); }
+  .reward-redemption-success > .secondary-button { grid-column: 1 / -1; width: 100%; }
+  .reward-code-facts { grid-template-columns: 1fr; text-align: center; }
+  .usable-rewards-list li { align-items: flex-start; flex-wrap: wrap; }
+  .usable-rewards-list .secondary-button { margin-left: 50px; }
   .reward-detail-gallery { grid-template-columns: 1fr; }
   .reward-detail-gallery img { height: auto; }
 

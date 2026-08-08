@@ -90,6 +90,23 @@ The model proposes and interprets. Application services own permissions, exact c
 - [`src/server/repositories/kampung-store.ts`](src/server/repositories/kampung-store.ts) — storage contract shared by memory and PostgreSQL adapters.
 - [`src/server/identity/identity-store.ts`](src/server/identity/identity-store.ts) — profile, preferences, contacts, and chat contract.
 
+### Reward codes
+
+Reward codes are encrypted at rest and stored as one-time inventory. Set
+`REWARD_CODE_ENCRYPTION_KEY` to a random 32-byte hex/base64 value and keep it in the deployment
+secret manager. Set a separate high-entropy `REWARD_CODE_FINGERPRINT_KEY` when possible. Import
+codes through stdin so bearer codes do not appear in shell history or process listings:
+
+```bash
+printf '%s\n' 'PARTNER-CODE-001' 'PARTNER-CODE-002' \
+  | DATABASE_URL=... REWARD_CODE_ENCRYPTION_KEY=... \
+    REWARD_CODE_FINGERPRINT_KEY=... npm run rewards:import-codes -- sunrise-cafe-set
+```
+
+The rewards API returns only masked codes in lists/history; the full code is shown to its owning
+member on the redemption detail page. Keep old `REWARD_CODE_ENCRYPTION_KEY_V<version>` values
+available during key rotation so previously imported inventory remains readable.
+
 ## Provider configuration
 
 The default hosted provider outside tests is Gemini. OpenAI and an explicit deterministic provider are also supported:
@@ -115,7 +132,7 @@ See [.env.example](.env.example) for model and storage settings. Keep provider k
 - Showcase fixtures and seeded welcome chats are gated to the exact username `test`.
 - Normal accounts see their real persisted state and may have empty activities until they create or receive one.
 - `/partners` is a non-persisted partner proposal preview.
-- `/rewards` reads real balances and approved task history, but offer redemption is not implemented.
+- `/rewards` reads real balances and approved task history, and lets members exchange points for stocked one-time reward codes.
 - Quest thumbnails are best effort and never block quest creation.
 
 ## Competition context

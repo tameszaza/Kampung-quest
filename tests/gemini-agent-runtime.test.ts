@@ -3,6 +3,7 @@ import { Usage, type Model, type ModelProvider, type ModelRequest } from "@opena
 import {
   hostedRetrySettings,
   hostedProviderErrorMessage,
+  normalizeHostedLocalTime,
   normalizeGeminiVenueRequirements,
   HostedAgentRuntime,
 } from "@/server/agents/openai-agent-runtime";
@@ -32,6 +33,14 @@ class ConversationModelProvider implements ModelProvider {
 }
 
 describe("Gemini agent output normalization", () => {
+  it.each([
+    ["9:00 AM", "09:00"],
+    ["12:00 PM", "12:00"],
+    ["12:00 AM", "00:00"],
+  ])("normalizes local time %s to %s", (input, expected) => {
+    expect(normalizeHostedLocalTime(input)).toBe(expected);
+  });
+
   it.each(["weekly", "weekly_pattern", "recurring"])("normalizes a hosted recurring rule labelled %s", async (kind) => {
     const provider = new ConversationModelProvider({
       reply: "Which mornings suit you?",
@@ -106,6 +115,43 @@ describe("Gemini agent output normalization", () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it("normalizes 12-hour recurring times to the server's HH:mm contract", async () => {
+    const provider = new ConversationModelProvider({
+      reply: "Weekday mornings work.",
+      briefPatch: {
+        recurringAvailabilityRules: [{
+          kind: "weekly",
+          daysOfWeek: [1, 2, 3, 4, 5],
+          startLocalTime: "9:00 AM",
+          endLocalTime: "12:00 PM",
+          timeZone: "Asia/Singapore",
+          validFrom: "2026-08-06",
+          validUntil: "2026-12-31",
+        }],
+      },
+      requestedField: "availability",
+      suggestedReplies: [],
+      status: "collecting",
+    });
+    const runtime = new HostedAgentRuntime({
+      provider: "gemini",
+      models: { memory: "test", synthesis: "test", safety: "test", recovery: "test" },
+      modelProvider: provider,
+    });
+
+    const output = await runtime.conductConversation({
+      conversationId: "conversation-twelve-hour-times",
+      messages: [],
+      brief: {},
+      missingFields: ["availability"],
+    });
+
+    expect(output.briefPatch.recurringAvailabilityRules?.[0]).toMatchObject({
+      startLocalTime: "09:00",
+      endLocalTime: "12:00",
+    });
   });
 
   it("maps descriptive public indoor venues to the validator's canonical requirements", () => {

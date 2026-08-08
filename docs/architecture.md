@@ -25,7 +25,7 @@ The browser is a presentation and command client. It does not own invitations, m
 | Assistant | `src/components/assistant-conversation.tsx`, `src/server/features/assistant-conversation-service.ts` | Conversation turns, brief extraction, confirmation stream, durable workflow events |
 | Quest engine | `src/server/core/kampung-quest-engine.ts`, `src/server/features/quest-pipeline.ts` | Memory, retrieval, synthesis, deterministic validation, safety, and quest runs |
 | Event coordinator | `src/server/features/event-coordinator.ts`, `src/server/domain/event-coordination.ts` | Formation, roster, recruitment, invitations, memberships, coordination, arrangements, lifecycle |
-| Task/reward flow | `src/server/domain/event-tasks.ts`, `src/server/features/reward-service.ts` | Role acknowledgement, task plan, review, reassignment, points ledger |
+| Task/reward flow | `src/server/domain/event-tasks.ts`, `src/server/features/reward-service.ts`, `src/server/features/reward-redemption-service.ts` | Role acknowledgement, task review, wallet projection, eligibility, and atomic redemption |
 | Provider adapters | `src/server/agents/*` | OpenAI/Gemini/deterministic runtimes, embeddings, privacy minimization, SVG thumbnail generation |
 | Persistence | `src/server/repositories/*`, `src/server/identity/*store.ts` | In-memory/PostgreSQL parity and optimistic writes |
 | Browser feature clients | `src/features/assistant/client.ts`, `src/features/events/client.ts`, `src/features/rewards/client.ts` | Typed fetch wrappers and client request/idempotency identifiers |
@@ -60,7 +60,7 @@ PostgreSQL currently uses these logical schemas:
 | `retrieval` | Need, interest, and offer vectors tied to memory versions |
 | `assistant` | Assistant conversations, ordered messages, and replayable workflow events |
 | `quest` | Quest runs, event coordination aggregates, arrangements, tasks, audit, outbox, and notifications |
-| `rewards` | Append-only task awards and reversals |
+| `rewards` | Wallet accounts, append-only point ledger, partner offers, encrypted one-time code inventory, and redemptions |
 
 Migrations are applied in filename order by [`scripts/migrate.mjs`](../scripts/migrate.mjs). Add a new numbered migration instead of editing an applied migration.
 
@@ -79,6 +79,8 @@ Commands use:
 
 Both stores implement the same [`KampungStore`](../src/server/repositories/kampung-store.ts) contract. PostgreSQL adds transaction and locking behavior; tests keep the in-memory adapter as a fast parity target.
 
+Reward redemption uses a separate [`RewardStore`](../src/server/repositories/reward-store.ts) boundary. PostgreSQL serializes each member's wallet with an advisory transaction lock, locks one available code with `SKIP LOCKED`, writes the redemption and debit ledger entry, and updates the account in one transaction. Lists expose masked codes; the authenticated owner sees the full decrypted code only on redemption/detail responses.
+
 ## Provider and privacy rules
 
 `AGENT_PROVIDER` selects `gemini` by default outside tests, `openai` when explicitly selected, or `deterministic` for an explicit test/development double. Keys stay server-side. Agent inputs use participant aliases and omit direct contact details and precise addresses.
@@ -93,8 +95,7 @@ Member avatars are orientation-corrected, cropped to 512px, metadata-stripped, a
 
 ## Known product boundaries
 
-- The partner proposal form and reward redemption are not connected to an external system.
+- The partner proposal form and partner-side reward validation/settlement are not connected to an external system; local redemption still spends points and issues stocked codes.
 - Venue checking is deterministic/local; there is no external venue booking adapter.
 - The outbox is persisted for reliable internal delivery state, but push/email delivery adapters are not included.
 - `DEMO_SEED_ENABLED` and the exact `test` username support the showcase path; do not treat them as production data.
-

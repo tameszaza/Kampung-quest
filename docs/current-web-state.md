@@ -27,8 +27,9 @@ All routes under `src/app/(app)/` require a signed-in member who has completed o
 | `/assistant` | Authenticated | Redirects to the embedded Senior Quest assistant in Messages | [`src/app/assistant/page.tsx`](../src/app/assistant/page.tsx) |
 | `/profile` | Authenticated | Member profile, photo, and profile shortcuts | [`src/app/(app)/profile/page.tsx`](../src/app/%28app%29/profile/page.tsx) |
 | `/settings` | Authenticated | Preferences, accessibility, privacy, blocked users, emergency contact, and security | [`src/app/(app)/settings/page.tsx`](../src/app/%28app%29/settings/page.tsx) |
-| `/rewards` | Authenticated | Point balance, approved task history, and preview partner offers | [`src/app/(app)/rewards/page.tsx`](../src/app/%28app%29/rewards/page.tsx), [`src/components/rewards-page.tsx`](../src/components/rewards-page.tsx) |
-| `/rewards/[offerId]` | Authenticated | Details for a preview partner offer | [`src/app/(app)/rewards/[offerId]/page.tsx`](../src/app/%28app%29/rewards/%5BofferId%5D/page.tsx) |
+| `/rewards` | Authenticated | Wallet balance, point history, partner offers, and usable reward codes | [`src/app/(app)/rewards/page.tsx`](../src/app/%28app%29/rewards/page.tsx), [`src/components/rewards-page.tsx`](../src/components/rewards-page.tsx) |
+| `/rewards/[offerId]` | Authenticated | Offer eligibility, details, confirmation, and reward-code redemption | [`src/app/(app)/rewards/[offerId]/page.tsx`](../src/app/%28app%29/rewards/%5BofferId%5D/page.tsx), [`src/components/reward-offer-detail-page.tsx`](../src/components/reward-offer-detail-page.tsx) |
+| `/rewards/redemptions/[redemptionId]` | Authenticated owner | Full issued code, expiry, locations, and terms | [`src/app/(app)/rewards/redemptions/[redemptionId]/page.tsx`](../src/app/%28app%29/rewards/redemptions/%5BredemptionId%5D/page.tsx), [`src/components/reward-code-page.tsx`](../src/components/reward-code-page.tsx) |
 | `/partners` | Public | Partner pitch and non-persisted proposal preview | [`src/app/partners/page.tsx`](../src/app/partners/page.tsx), [`src/components/partner-rewards-page.tsx`](../src/components/partner-rewards-page.tsx) |
 | `/health` | Public | Container health response | [`src/app/health/route.ts`](../src/app/health/route.ts) |
 
@@ -37,7 +38,7 @@ All routes under `src/app/(app)/` require a signed-in member who has completed o
 ### Persisted and server-authoritative
 
 - Member identity, Better Auth sessions, unique usernames, profile preferences, photos, emergency contacts, blocks, conversations, and messages.
-- Assistant conversations, turns, extracted briefs, workflow events, memory cards, embeddings, quest runs, safety/validation results, event coordination state, audit events, outbox entries, tasks, and reward ledger entries.
+- Assistant conversations, turns, extracted briefs, workflow events, memory cards, embeddings, quest runs, safety/validation results, event coordination state, audit events, outbox entries, tasks, reward wallets, ledger entries, offers, one-time code inventory, and redemptions.
 - Suggested activities and invitations returned by `/api/v1/activities`.
 - Roster edits, invitation responses, join requests, private/group coordination messages, arrangement proposals and confirmations, lifecycle changes, task review, and notification read state.
 
@@ -45,7 +46,7 @@ All routes under `src/app/(app)/` require a signed-in member who has completed o
 
 - The showcase fixtures in [`src/data/mock-data.ts`](../src/data/mock-data.ts) and demo welcome chats are visible only to the exact username `test`.
 - `/partners` is a product preview. Its form acknowledges submission in the browser and does not send or store a partner proposal.
-- Reward offers are examples; points and approved-task history come from the API, but redemption is not open.
+- Reward offers are seeded examples. Redemption is live when an offer is active and stocked with imported one-time codes; no external partner settlement or code-status callback is connected.
 - “My Badges” on Profile currently shows a toast rather than a persisted badge screen.
 - The normal account experience can be empty until the member creates or receives a real activity. A provider or API failure must not turn on demo data.
 
@@ -75,6 +76,8 @@ Organizer approves → every accepted member confirms
 Scheduled activity → roles acknowledged → tasks completed and reviewed
         ↓
 Approved tasks add points to Rewards
+        ↓
+Choose a stocked offer → confirm point spend → receive an expiring code
 ```
 
 An accepted invitation does not confirm the provisional time. The final arrangement is separate and must be approved and confirmed.
@@ -102,5 +105,4 @@ The important state rule is: the agent interprets messages and proposes structur
 - The app uses in-memory adapters when `DATABASE_URL` is absent and PostgreSQL in Docker/production. Keep both implementations behaviorally aligned.
 - Gemini is the default hosted provider when configured; OpenAI and an explicit deterministic test provider are supported. Provider failure is surfaced or falls through only where the feature explicitly defines a safe local fallback, such as quest thumbnail SVG generation.
 - Quest thumbnails are best effort. The quest is saved first, then a sanitized SVG is generated and stored as a 1200×675 WebP behind `/api/quest-images/[key]`.
-- External venue booking, push/email delivery, and partner reward redemption are not implemented integrations.
-
+- External venue booking, push/email delivery, and partner-side reward validation/settlement are not implemented integrations. The application does issue encrypted, stocked codes and debit points atomically.

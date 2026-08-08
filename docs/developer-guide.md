@@ -24,7 +24,7 @@ This guide answers the question: **“Which file do I edit?”** Start with the 
 | Change private or group quest coordination | `src/components/event-coordination-conversation.tsx` | `src/features/events/coordination-message-presentation.ts`, coordination routes, `src/server/features/coordination-service.ts` |
 | Change arrangement suggestion/approval/confirmation | `src/server/features/availability-service.ts`, `src/server/features/event-coordinator.ts` | `src/components/event-quest-detail.tsx`, `src/features/events/client.ts`, arrangement routes |
 | Change roles, tasks, review, or reassignment | `src/components/event-task-board.tsx`, `src/server/domain/event-tasks.ts` | `src/server/features/event-coordinator.ts`, task routes, `src/server/features/reward-service.ts` |
-| Change points or reward history | `src/server/features/reward-service.ts`, `src/components/rewards-page.tsx` | `src/features/rewards/client.ts`, `src/app/api/v1/rewards/route.ts`, migration `014_event_task_rewards.sql` |
+| Change points, reward history, offers, or redemption | `src/server/features/reward-service.ts`, `src/server/features/reward-redemption-service.ts`, `src/components/rewards-page.tsx` | `src/server/repositories/*reward-store.ts`, reward API routes/client, migrations `014_event_task_rewards.sql` through `016_admin_reward_grants.sql` |
 | Change direct/group chat | `src/components/chat-center.tsx`, `src/components/chat-message.tsx` | `src/app/api/chat/*`, `src/server/identity/*`, `src/server/chat/message-sync.ts` |
 | Change notifications or unread badges | `src/components/activity-notifications.tsx`, `src/components/activity-badge-context.tsx` | `src/server/quest/quest-notifications.ts`, `/api/v1/notifications/*`, event state |
 | Change quest thumbnails | `src/server/agents/quest-image-agent.ts` and `retrying-quest-image-agent.ts` | `src/server/quest/quest-image-storage.ts`, image route, quest image tests |
@@ -90,7 +90,7 @@ Then inspect `http://localhost:3000/health`, authenticate at `/register`, and te
 | Assistant | `tests/assistant-client.test.ts`, `tests/assistant-conversation-service.test.ts`, `tests/coordination-agent-output.test.ts` |
 | Coordination | `tests/event-coordinator.test.ts`, `tests/event-participant-history.test.ts`, `tests/event-quest-presentation.test.ts`, `tests/coordination-message-presentation.test.ts` |
 | Recruitment and access | `tests/recruitment-eligibility.test.ts`, `tests/quest-access.test.ts`, `tests/availability-control.test.ts` |
-| Tasks and rewards | `tests/event-task-rewards.test.ts`, `tests/reward-service.test.ts`, `tests/activity-badges.test.ts` |
+| Tasks and rewards | `tests/event-task-rewards.test.ts`, `tests/reward-service.test.ts`, `tests/reward-redemption.test.ts`, `tests/activity-badges.test.ts` |
 | Chat and identity | `tests/identity-and-chat.test.ts`, `tests/chat-message-sync.test.ts`, `tests/quest-chat-notifier.test.ts`, `tests/better-auth.integration.test.ts` |
 | Persistence | `tests/postgres-store.integration.test.ts`, `tests/postgres-identity.integration.test.ts`, `tests/compose-configuration.test.ts` |
 
@@ -103,4 +103,3 @@ Update documentation in the same change when you:
 - move ownership between a component, service, or repository;
 - change demo gating or a preview-only product surface;
 - change a command, environment variable, migration, or verification requirement.
-
