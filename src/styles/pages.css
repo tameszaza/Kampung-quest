@@ -2559,9 +2559,24 @@
 }
 
 .chat-loading {
-  padding: 30px 20px;
+  min-height: 180px;
+  width: min(220px, 100%);
+  margin: auto;
+  padding: 24px 20px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  border: 1px solid #e0ece7;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.68);
   color: var(--muted);
   text-align: center;
+}
+
+.chat-loading strong {
+  color: var(--ink-soft);
+  font-size: 13px;
 }
 
 .chat-alert {

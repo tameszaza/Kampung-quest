@@ -51,6 +51,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [messageLoading, setMessageLoading] = useState(false);
+  const [messagesReadyFor, setMessagesReadyFor] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [activityScope, setActivityScope] = useState<"private" | "group">("private");
@@ -155,8 +156,14 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
           if (latest && snapshot) setAssistant({ ...assistantConversation, preview: latest.content, lastMessageAt: snapshot.updatedAt });
         }
       }
+      const nextSelectedId = selectedIdRef.current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null);
+      if (!selectedIdRef.current && nextSelectedId && nextSelectedId !== ASSISTANT_CONVERSATION_ID) {
+        const hasCachedMessages = messageCacheRef.current.has(nextSelectedId);
+        setMessagesReadyFor(hasCachedMessages ? nextSelectedId : null);
+        setMessageLoading(!hasCachedMessages);
+      }
       setSelectedId((current) => {
-        const next = current ?? (window.matchMedia("(min-width: 768px)").matches ? nextConversations[0]?.id ?? ASSISTANT_CONVERSATION_ID : null);
+        const next = current ?? nextSelectedId;
         selectedIdRef.current = next;
         return next;
       });
@@ -202,9 +209,13 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
       messageSyncByConversationRef.current.set(conversationId, { cursor: sync.cursor, hasMore: sync.hasMore });
       if (selectedIdRef.current !== conversationId) return;
       setMessages(next);
+      setMessagesReadyFor(conversationId);
       if (!quiet) requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     } catch (reason) {
-      if (selectedIdRef.current === conversationId) setError(reason instanceof Error ? reason.message : "Could not load messages");
+      if (selectedIdRef.current === conversationId) {
+        setError(reason instanceof Error ? reason.message : "Could not load messages");
+        setMessagesReadyFor(conversationId);
+      }
     } finally {
       messageLoadsInFlightRef.current.delete(conversationId);
       if (!quiet && selectedIdRef.current === conversationId) setMessageLoading(false);
@@ -235,7 +246,10 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
 
   function openConversation(id: string) {
     selectedIdRef.current = id;
+    const hasCachedMessages = messageCacheRef.current.has(id);
     setMessages(messageCacheRef.current.get(id) ?? []);
+    setMessagesReadyFor(hasCachedMessages ? id : null);
+    setMessageLoading(!hasCachedMessages && id !== ASSISTANT_CONVERSATION_ID && !id.startsWith(ACTIVITY_CONVERSATION_PREFIX));
     setSelectedId(id);
     if (id === ASSISTANT_CONVERSATION_ID || id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) setMessages([]);
     if (id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) {
@@ -249,6 +263,13 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     }
     setConversations((items) => items.map((item) => item.id === id ? { ...item, unreadCount: 0 } : item));
   }
+
+  const messageIsLoading = Boolean(
+    activeConversation &&
+    !assistantSelected &&
+    !activitySelected &&
+    (messageLoading || messagesReadyFor !== activeConversation.id),
+  );
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -381,7 +402,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         </header>
         <label className="message-search"><span className="sr-only">Search messages</span><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search messages" /></label>
         {error ? <div className="chat-alert" role="alert">{error}<button type="button" onClick={() => { setError(""); void loadConversations(); }}>Try again</button></div> : null}
-        {loading ? <div className="chat-loading" role="status">Loading your conversations…</div> : null}
+        {loading ? <ChatLoadingState label="Loading your conversations…" /> : null}
         {!loading && filtered.length === 0 ? (
           <div className="empty-chat-list"><span aria-hidden="true">💬</span><h2>{query ? "No messages found" : "Start a conversation"}</h2><p>{query ? "Try another name or word." : "Connect one-to-one or bring friends together in a group."}</p>{!query ? <button className="primary-button" type="button" onClick={() => setCreating(true)}>New Message</button> : null}</div>
         ) : null}
@@ -476,10 +497,10 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
               ) : null}
             </div>
             {assistantSelected ? <AssistantConversation embedded resetToken={assistantResetToken} startFresh={startNewAssistant} /> : <>
-            <div className="message-history" aria-live="polite" aria-busy={messageLoading}>
+            <div className="message-history" aria-live="polite" aria-busy={messageIsLoading}>
               <ChatDayLabel />
-              {messageLoading ? <div className="chat-loading">Loading messages…</div> : null}
-              {!messageLoading && messages.length === 0 ? <div className="empty-conversation"><span>👋</span><p>Say hello and start the conversation.</p></div> : null}
+              {messageIsLoading ? <ChatLoadingState label="Loading messages…" /> : null}
+              {!messageIsLoading && messages.length === 0 ? <div className="empty-conversation"><span>👋</span><p>Say hello and start the conversation.</p></div> : null}
               {messages.map((message, index) => {
                 const showName = activeConversation.type === "group" && !message.mine && messages[index - 1]?.senderId !== message.senderId;
                 return <ChatMessageBubble
@@ -590,6 +611,10 @@ function Avatar({ src, name, size, group = false }: { src: string | null; name: 
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(src) && !failed;
   return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <AvatarImage src={src!} alt="" sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
+}
+
+function ChatLoadingState({ label }: { label: string }) {
+  return <output className="chat-loading" role="status" aria-live="polite"><span className="connected-spinner" aria-hidden="true" /><strong>{label}</strong></output>;
 }
 
 function formatThreadTime(value: string) {
