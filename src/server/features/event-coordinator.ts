@@ -110,7 +110,24 @@ interface EventCoordinatorDependencies {
 }
 
 export class EventCoordinator {
+  private readonly coordinationEnrichmentQueues = new Map<string, Promise<unknown>>();
+
   constructor(private readonly dependencies: EventCoordinatorDependencies) {}
+
+  private enqueueCoordinationEnrichment(key: string, task: () => Promise<unknown>): Promise<unknown> {
+    const previous = this.coordinationEnrichmentQueues.get(key) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(task);
+    this.coordinationEnrichmentQueues.set(key, next);
+    void next.then(
+      () => {
+        if (this.coordinationEnrichmentQueues.get(key) === next) this.coordinationEnrichmentQueues.delete(key);
+      },
+      () => {
+        if (this.coordinationEnrichmentQueues.get(key) === next) this.coordinationEnrichmentQueues.delete(key);
+      },
+    );
+    return next;
+  }
 
   async createFormation(run: QuestRun): Promise<EventCoordinationState> {
     if (!this.canEnterFormation(run)) {
@@ -678,6 +695,7 @@ export class EventCoordinator {
     body: string;
     clientMessageId: string;
     expectedRevision: number;
+    waitForAgent?: boolean;
   }): Promise<EventCoordinationThread> {
     const current = await this.requireState(input.runId);
     const thread = current.threads.find((candidate) => candidate.userId === input.actorId);
@@ -713,42 +731,43 @@ export class EventCoordinator {
       }, current.lifecycle)],
       updatedAt: now,
     }, current.revision);
-    let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
-    try {
+    const enrich = async () => {
+      let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
+      try {
       output = this.dependencies.coordinate
         ? await this.dependencies.coordinate({ state: acceptedState, thread, message: input.body, scope: "private" })
         : { reply: "Thank you. I have noted this for coordination.", requirementPatch: undefined };
-    } catch (error) {
-      logger.warn("event_coordination.agent_failed", {
-        runId: input.runId,
-        scope: "private",
-        error: safeErrorMessage(error),
-      });
-      const failureAt = new Date().toISOString();
-      const failedThread: EventCoordinationThread = {
-        ...acceptedThread,
-        messages: [...acceptedThread.messages, {
-          messageId: `message_${randomUUID()}`,
-          role: "assistant",
-          body: "I couldn't process that message right now. Your message was saved; please try asking Senior Quest again.",
-          kind: "text",
-          createdAt: failureAt,
-        }],
-        updatedAt: failureAt,
-      };
-      try {
-        await this.dependencies.store.saveEventCoordinationState({
-          ...acceptedState,
-          revision: acceptedState.revision + 1,
-          threads: acceptedState.threads.map((candidate) => candidate.threadId === thread.threadId ? failedThread : candidate),
+      } catch (error) {
+        logger.warn("event_coordination.agent_failed", {
+          runId: input.runId,
+          scope: "private",
+          error: safeErrorMessage(error),
+        });
+        const failureAt = new Date().toISOString();
+        const failedThread: EventCoordinationThread = {
+          ...acceptedThread,
+          messages: [...acceptedThread.messages, {
+            messageId: `message_${randomUUID()}`,
+            role: "assistant",
+            body: "I couldn't process that message right now. Your message was saved; please try asking Senior Quest again.",
+            kind: "text",
+            createdAt: failureAt,
+          }],
           updatedAt: failureAt,
-        }, acceptedState.revision);
-        return structuredClone(failedThread);
-      } catch {
-        return structuredClone(acceptedThread);
+        };
+        try {
+          await this.dependencies.store.saveEventCoordinationState({
+            ...acceptedState,
+            revision: acceptedState.revision + 1,
+            threads: acceptedState.threads.map((candidate) => candidate.threadId === thread.threadId ? failedThread : candidate),
+            updatedAt: failureAt,
+          }, acceptedState.revision);
+          return structuredClone(failedThread);
+        } catch {
+          return structuredClone(acceptedThread);
+        }
       }
-    }
-    const responseState = await this.requireState(input.runId);
+      const responseState = await this.requireState(input.runId);
     const responseThread = responseState.threads.find((candidate) => candidate.userId === input.actorId);
     if (!responseThread || !responseThread.messages.some((message) => message.messageId === input.clientMessageId)) {
       return structuredClone(acceptedThread);
@@ -911,7 +930,17 @@ export class EventCoordinator {
       updatedAt: now,
     }, responseState.revision);
     if (savedState.lifecycle === "scheduled") await this.ensureTaskPlan(savedState);
-    return structuredClone(updatedThread);
+      return structuredClone(updatedThread);
+    };
+    if (input.waitForAgent === false) {
+      void this.enqueueCoordinationEnrichment(`private:${input.runId}`, enrich).catch((error) => logger.warn("event_coordination.enrichment_failed", {
+        runId: input.runId,
+        scope: "private",
+        error: safeErrorMessage(error),
+      }));
+      return structuredClone(acceptedThread);
+    }
+    return enrich();
   }
 
   async getGroupCoordinationThread(runId: string, actorId: string): Promise<EventGroupCoordinationThread> {
@@ -928,6 +957,7 @@ export class EventCoordinator {
     body: string;
     clientMessageId: string;
     expectedRevision: number;
+    waitForAgent?: boolean;
   }): Promise<EventGroupCoordinationThread> {
     const current = await this.requireState(input.runId);
     const group = current.groupThread;
@@ -998,43 +1028,44 @@ export class EventCoordinator {
       confirmedRequirements: this.emptyRequirements(),
       pendingRequirements: null,
     };
-    let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
-    try {
+    const enrich = async () => {
+      let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
+      try {
       output = this.dependencies.coordinate
         ? await this.dependencies.coordinate({ state: acceptedState, thread: groupContext, message: input.body, scope: "group" })
         : { reply: "Thank you. I have noted this for the group.", requirementPatch: undefined };
-    } catch (error) {
-      logger.warn("event_coordination.agent_failed", {
-        runId: input.runId,
-        scope: "group",
-        error: safeErrorMessage(error),
-      });
-      const failureAt = new Date().toISOString();
-      const failedGroup: EventGroupCoordinationThread = {
-        ...acceptedGroup,
-        messages: [...acceptedGroup.messages, {
-          messageId: `message_${randomUUID()}`,
-          senderId: null,
-          role: "assistant",
-          body: "I couldn't process that message right now. Your message was delivered to the group; please try asking Senior Quest again.",
-          kind: "text",
-          createdAt: failureAt,
-        }],
-        updatedAt: failureAt,
-      };
-      try {
-        await this.dependencies.store.saveEventCoordinationState({
-          ...acceptedState,
-          revision: acceptedState.revision + 1,
-          groupThread: failedGroup,
+      } catch (error) {
+        logger.warn("event_coordination.agent_failed", {
+          runId: input.runId,
+          scope: "group",
+          error: safeErrorMessage(error),
+        });
+        const failureAt = new Date().toISOString();
+        const failedGroup: EventGroupCoordinationThread = {
+          ...acceptedGroup,
+          messages: [...acceptedGroup.messages, {
+            messageId: `message_${randomUUID()}`,
+            senderId: null,
+            role: "assistant",
+            body: "I couldn't process that message right now. Your message was delivered to the group; please try asking Senior Quest again.",
+            kind: "text",
+            createdAt: failureAt,
+          }],
           updatedAt: failureAt,
-        }, acceptedState.revision);
-        return structuredClone(failedGroup);
-      } catch {
-        return structuredClone(acceptedGroup);
+        };
+        try {
+          await this.dependencies.store.saveEventCoordinationState({
+            ...acceptedState,
+            revision: acceptedState.revision + 1,
+            groupThread: failedGroup,
+            updatedAt: failureAt,
+          }, acceptedState.revision);
+          return structuredClone(failedGroup);
+        } catch {
+          return structuredClone(acceptedGroup);
+        }
       }
-    }
-    const responseState = await this.requireState(input.runId);
+      const responseState = await this.requireState(input.runId);
     const responseGroup = responseState.groupThread;
     const responsePrivateThread = responseState.threads.find((thread) => thread.userId === input.actorId);
     if (!responseGroup || !responsePrivateThread
@@ -1171,7 +1202,17 @@ export class EventCoordinator {
       updatedAt: now,
     }, responseState.revision);
     if (savedState.lifecycle === "scheduled") await this.ensureTaskPlan(savedState);
-    return structuredClone(updatedGroup);
+      return structuredClone(updatedGroup);
+    };
+    if (input.waitForAgent === false) {
+      void this.enqueueCoordinationEnrichment(`group:${input.runId}`, enrich).catch((error) => logger.warn("event_coordination.enrichment_failed", {
+        runId: input.runId,
+        scope: "group",
+        error: safeErrorMessage(error),
+      }));
+      return structuredClone(acceptedGroup);
+    }
+    return enrich();
   }
 
   async confirmRequirements(input: {

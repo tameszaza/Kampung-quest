@@ -15,6 +15,7 @@ import {
 } from "@/server/domain/schemas";
 import type { KampungStore } from "@/server/repositories/kampung-store";
 import type { AccessibilityPreferences } from "@/server/identity/types";
+import { logger, safeErrorMessage } from "@/server/observability/logger";
 
 const REQUIRED_FIELDS: AssistantBriefField[] = [
   "goal",
@@ -38,7 +39,24 @@ interface AssistantConversationDependencies {
 }
 
 export class AssistantConversationService {
+  private readonly turnQueues = new Map<string, Promise<unknown>>();
+
   constructor(private readonly dependencies: AssistantConversationDependencies) {}
+
+  private enqueueTurn(conversationId: string, task: () => Promise<unknown>): Promise<unknown> {
+    const previous = this.turnQueues.get(conversationId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(task);
+    this.turnQueues.set(conversationId, next);
+    void next.then(
+      () => {
+        if (this.turnQueues.get(conversationId) === next) this.turnQueues.delete(conversationId);
+      },
+      () => {
+        if (this.turnQueues.get(conversationId) === next) this.turnQueues.delete(conversationId);
+      },
+    );
+    return next;
+  }
 
   async create(input: { candidateId: string }): Promise<AssistantConversationSnapshot> {
     const conversationId = randomUUID();
@@ -76,13 +94,14 @@ export class AssistantConversationService {
 
   async addTurn(
     conversationId: string,
-    command: { clientTurnId: string; revision: number; answer: AssistantAnswer },
+    command: { clientTurnId: string; revision: number; answer: AssistantAnswer; waitForAgent?: boolean },
   ): Promise<AssistantConversationSnapshot> {
     const answer = assistantAnswerSchema.parse(command.answer);
     const current = await this.requireConversation(conversationId);
     const existingMessageIndex = current.messages.findIndex(
       (message) => message.messageId === command.clientTurnId,
     );
+    if (existingMessageIndex >= 0 && current.status === "processing") return current;
     if (existingMessageIndex >= 0 && current.messages[existingMessageIndex + 1]?.role === "assistant") {
       return current;
     }
@@ -115,40 +134,73 @@ export class AssistantConversationService {
           updatedAt: new Date().toISOString(),
         }, current.revision);
     const missingFields = this.missingFields(brief);
-    let turn;
-    try {
-      turn = await this.dependencies.agents.conductConversation({
-        conversationId,
-        messages,
-        brief,
-        missingFields,
-      });
-    } catch (error) {
-      await this.dependencies.store.saveAssistantConversation({
+    const processTurn = async (agentPending = pending) => {
+      let turn;
+      try {
+        turn = await this.dependencies.agents.conductConversation({
+          conversationId,
+          messages,
+          brief,
+          missingFields,
+        });
+      } catch (error) {
+        await this.dependencies.store.saveAssistantConversation({
+          ...agentPending,
+          status: pending.status,
+          nextField: pending.nextField,
+          suggestedReplies: pending.suggestedReplies,
+          revision: agentPending.revision + 1,
+          error: error instanceof Error ? error.message : "Senior Quest could not respond",
+          updatedAt: new Date().toISOString(),
+        }, agentPending.revision);
+        throw error;
+      }
+      const patchedBrief = questBriefDraftSchema.parse(this.applySafePatch(brief, turn.briefPatch, answer.field));
+      const remaining = this.missingFields(patchedBrief);
+      const ready = remaining.length === 0;
+      const updated: AssistantConversationSnapshot = {
+        ...agentPending,
+        status: ready ? "ready_for_review" : "collecting",
+        revision: agentPending.revision + 1,
+        messages: [...messages, this.message("assistant", turn.reply)],
+        brief: patchedBrief,
+        nextField: ready ? null : this.safeNextField(turn.requestedField, patchedBrief),
+        suggestedReplies: turn.suggestedReplies,
+        questRunId: current.status === "no_match" ? null : agentPending.questRunId,
+        events: current.status === "no_match" ? [] : agentPending.events,
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+      return this.dependencies.store.saveAssistantConversation(updated, agentPending.revision);
+    };
+    if (command.waitForAgent === false) {
+      const processing = await this.dependencies.store.saveAssistantConversation({
         ...pending,
+        status: "processing",
         revision: pending.revision + 1,
-        error: error instanceof Error ? error.message : "Senior Quest could not respond",
+        nextField: null,
+        suggestedReplies: [],
+        error: null,
         updatedAt: new Date().toISOString(),
       }, pending.revision);
-      throw error;
+      const backgroundStartedAt = performance.now();
+      void this.enqueueTurn(conversationId, async () => {
+        const result = await processTurn(processing);
+        logger.info("assistant.turn.background_completed", {
+          conversationId,
+          clientTurnId: command.clientTurnId,
+          durationMs: Math.round(performance.now() - backgroundStartedAt),
+        });
+        return result;
+      }).catch((error) => logger.error("assistant.turn.background_failed", {
+        conversationId,
+        clientTurnId: command.clientTurnId,
+        durationMs: Math.round(performance.now() - backgroundStartedAt),
+        error: safeErrorMessage(error),
+      }));
+      return processing;
     }
-    const patchedBrief = questBriefDraftSchema.parse(this.applySafePatch(brief, turn.briefPatch, answer.field));
-    const remaining = this.missingFields(patchedBrief);
-    const ready = remaining.length === 0;
-    const updated: AssistantConversationSnapshot = {
-      ...pending,
-      status: ready ? "ready_for_review" : "collecting",
-      revision: pending.revision + 1,
-      messages: [...messages, this.message("assistant", turn.reply)],
-      brief: patchedBrief,
-      nextField: ready ? null : this.safeNextField(turn.requestedField, patchedBrief),
-      suggestedReplies: turn.suggestedReplies,
-      questRunId: current.status === "no_match" ? null : pending.questRunId,
-      events: current.status === "no_match" ? [] : pending.events,
-      error: null,
-      updatedAt: new Date().toISOString(),
-    };
-    return this.dependencies.store.saveAssistantConversation(updated, pending.revision);
+    return processTurn();
   }
 
   confirmedBrief(snapshot: AssistantConversationSnapshot) {

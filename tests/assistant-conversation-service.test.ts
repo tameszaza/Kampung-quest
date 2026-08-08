@@ -143,6 +143,62 @@ describe("Senior Quest AI conversation", () => {
     expect(cookingFollowUp.brief.currentGoal).toContain("salad");
   });
 
+  it("returns the user's answer while a hosted turn continues in the background", async () => {
+    let finishTurn!: (output: Awaited<ReturnType<DeterministicAgentRuntime["conductConversation"]>>) => void;
+    class SlowTurnRuntime extends DeterministicAgentRuntime {
+      private calls = 0;
+
+      override async conductConversation(
+        input: Parameters<DeterministicAgentRuntime["conductConversation"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["conductConversation"]> {
+        this.calls += 1;
+        if (this.calls === 2) {
+          return new Promise((resolve) => {
+            finishTurn = resolve;
+          });
+        }
+        return super.conductConversation(input);
+      }
+    }
+    const service = new AssistantConversationService({
+      store: new InMemoryKampungStore(),
+      agents: new SlowTurnRuntime(),
+    });
+    const opened = await service.create({ candidateId: "maria" });
+
+    const startedAt = Date.now();
+    const processing = await service.addTurn(opened.conversationId, {
+      clientTurnId: "fast-assistant-turn",
+      revision: opened.revision,
+      answer: { field: "goal", value: "I want to join a gentle book club" },
+      waitForAgent: false,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(processing.status).toBe("processing");
+    expect(processing.messages).toContainEqual(expect.objectContaining({
+      messageId: "fast-assistant-turn",
+      role: "user",
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    finishTurn({
+      reply: "What interests would you like this quest to include?",
+      briefPatch: {},
+      requestedField: "interests",
+      suggestedReplies: [],
+      status: "collecting",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const completed = await service.get(opened.conversationId);
+    expect(completed?.status).toBe("collecting");
+    expect(completed?.messages.at(-1)).toEqual(expect.objectContaining({
+      role: "assistant",
+      content: "What interests would you like this quest to include?",
+    }));
+  });
+
   it("retrieves saved accessibility defaults and skips those questions", async () => {
     const service = new AssistantConversationService({
       store: new InMemoryKampungStore(),

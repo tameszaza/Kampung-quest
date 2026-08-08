@@ -70,6 +70,7 @@ export async function POST(request: Request, context: RouteContext) {
             body,
             clientMessageId,
             expectedRevision: thread.revision,
+            waitForAgent: false,
           })
         : await eventCoordinator.addCoordinationMessage({
             runId: questConversation.runId,
@@ -77,6 +78,7 @@ export async function POST(request: Request, context: RouteContext) {
             body,
             clientMessageId,
             expectedRevision: thread.revision,
+            waitForAgent: false,
           });
       const message = updated.messages.find((candidate) => candidate.messageId === clientMessageId)!;
       const quest = await eventCoordinator.getStateForUser(questConversation.runId, user.id);

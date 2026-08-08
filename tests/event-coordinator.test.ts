@@ -1207,6 +1207,46 @@ describe("EventCoordinator", () => {
       .toContainEqual(expect.objectContaining({ messageId: "provider-failure-message" }));
   });
 
+  it("returns a private message without waiting for the hosted provider", async () => {
+    const store = new InMemoryKampungStore();
+    let finishCoordination!: (output: { reply: string; requirementPatch: Record<string, never> }) => void;
+    const coordinator = new EventCoordinator({
+      store,
+      coordinate: () => new Promise((resolve) => {
+        finishCoordination = resolve;
+      }),
+    });
+    const forming = await coordinator.createFormation(approvedRun());
+    const state = await coordinator.confirmRoster({
+      runId: forming.runId,
+      actorId: "maria",
+      expectedRevision: forming.revision,
+      idempotencyKey: "fast-private-roster",
+    });
+    const thread = await coordinator.getCoordinationThread(state.runId, "maria");
+
+    const startedAt = Date.now();
+    const updated = await coordinator.addCoordinationMessage({
+      runId: state.runId,
+      actorId: "maria",
+      body: "Is the venue accessible?",
+      clientMessageId: "fast-private-message",
+      expectedRevision: thread.revision,
+      waitForAgent: false,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      messageId: "fast-private-message",
+      role: "participant",
+    }));
+    expect((await store.findEventCoordinationState(state.runId))?.threads
+      .find((candidate) => candidate.userId === "maria")?.messages)
+      .toContainEqual(expect.objectContaining({ messageId: "fast-private-message" }));
+
+    finishCoordination({ reply: "Yes, I will check the venue requirements.", requirementPatch: {} });
+  });
+
   it("keeps a group message when the hosted provider fails", async () => {
     const store = new InMemoryKampungStore();
     const coordinator = new EventCoordinator({
@@ -1306,15 +1346,19 @@ describe("EventCoordinator", () => {
     }
     const group = await coordinator.getGroupCoordinationThread(state.runId, "maria");
 
-    void coordinator.addGroupCoordinationMessage({
+    const updated = await coordinator.addGroupCoordinationMessage({
       runId: state.runId,
       actorId: "maria",
       body: "Should we meet at NTU Hall 15?",
       clientMessageId: "pending-provider-message",
       expectedRevision: group.revision,
+      waitForAgent: false,
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      messageId: "pending-provider-message",
+      role: "participant",
+    }));
     expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
       .toContainEqual(expect.objectContaining({ messageId: "pending-provider-message" }));
   });

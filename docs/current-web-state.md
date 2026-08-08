@@ -111,6 +111,7 @@ The important state rule is: the agent interprets messages and proposes structur
 
 - Ordinary chat history is cursor-based. The browser keeps a bounded per-conversation snapshot, applies deltas, and allows a newly selected conversation to load while another request is still finishing.
 - Outgoing ordinary messages render optimistically and reconcile with the authoritative server message. The PostgreSQL send path validates access/block state, inserts the message, updates the conversation, and resolves the sender in one statement.
+- Assistant turns and activity private/group messages are durable-first: the HTTP request returns the user's saved message immediately, while hosted Gemini enrichment runs in a serialized background queue and the existing client polling/reconnect path picks up the reply. This prevents provider tail latency from blocking message delivery.
 - Active chat delta refreshes run every 2 seconds while visible. Heavier conversation and activity projections run every 15 seconds and also refresh on focus/visibility changes; the Messages route does not duplicate the shell conversation poller.
 - Activity images are loaded with one batch quest query. Related coordination states use normalized membership, invitation, and roster indexes instead of JSON membership scans.
 - `/health` coalesces concurrent checks and caches the expensive vector/index diagnostic for 30 seconds so platform health probes do not create continuous database load.
