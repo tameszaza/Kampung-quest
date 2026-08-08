@@ -48,6 +48,7 @@ export interface EventCoordinationStore {
   listHiddenEventSuggestionIds(userId: string): Promise<string[]>;
   hideEventSuggestion(userId: string, runId: string): Promise<void>;
   findQuestRun?(runId: string): Promise<QuestRun | null>;
+  findQuestRuns?(runIds: string[]): Promise<QuestRun[]>;
   saveQuestRunWithFormation(
     run: QuestRun,
     state: EventCoordinationState,
@@ -2513,12 +2514,11 @@ export class EventCoordinator {
     ]);
     const hiddenSuggestions = new Set(hiddenSuggestionIds);
     const states = [...new Map([...relatedStates, ...recruitingStates].map((state) => [state.runId, this.withRecruitmentDefaults(state)])).values()];
-    const imageUrls = new Map(
-      await Promise.all(states.map(async (state) => {
-        const run = await this.dependencies.store.findQuestRun?.(state.runId);
-        return [state.runId, run?.imageUrl ?? null] as const;
-      })),
-    );
+    const questRuns: QuestRun[] = this.dependencies.store.findQuestRuns
+      ? await this.dependencies.store.findQuestRuns(states.map((state) => state.runId))
+      : (await Promise.all(states.map((state) => this.dependencies.store.findQuestRun?.(state.runId))))
+          .filter((run): run is QuestRun => run !== null && run !== undefined);
+    const imageUrls = new Map(questRuns.map((run) => [run.runId, run.imageUrl ?? null]));
     const result: UserEventActivities = {
       unreadCount: 0,
       groupChatUnread: {},

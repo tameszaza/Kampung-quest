@@ -721,17 +721,17 @@ export class PostgresIdentityStore implements IdentityStore {
   }
 
   async listMessagesPage(userId: string, conversationId: string, after?: ChatMessageCursor): Promise<ChatMessagePage> {
-    await this.requireMember(userId, conversationId);
-    if (after) {
-      const cursor = await this.pool.query<{ exists: boolean }>(
+    const [, cursor] = await Promise.all([
+      this.requireMember(userId, conversationId),
+      after ? this.pool.query<{ exists: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM chat.messages
            WHERE conversation_id = $1 AND message_id = $2
          ) AS exists`,
         [conversationId, after.messageId],
-      );
-      if (!cursor.rows[0]?.exists) return this.listMessagesPage(userId, conversationId);
-    }
+      ) : Promise.resolve(null),
+    ]);
+    if (after && !cursor?.rows[0]?.exists) return this.listMessagesPage(userId, conversationId);
     const result = await this.pool.query<{
       message_id: string; conversation_id: string; sender_id: string | null; body: string;
       created_at: Date | string; full_name: string | null; photo_url: string | null;
@@ -752,22 +752,25 @@ export class PostgresIdentityStore implements IdentityStore {
        LEFT JOIN identity.users sender ON sender.user_id = message.sender_id
        WHERE message.conversation_id = $1
          AND (
-           $3::text IS NULL
-           OR message.created_at > (SELECT cursor.created_at FROM chat.messages cursor WHERE cursor.conversation_id = $1 AND cursor.message_id = $3)
+           $3::timestamptz IS NULL
+           OR message.created_at > $3::timestamptz
            OR (
-             message.created_at = (SELECT cursor.created_at FROM chat.messages cursor WHERE cursor.conversation_id = $1 AND cursor.message_id = $3)
-             AND message.message_id > $3
+             message.created_at = $3::timestamptz
+             AND message.message_id > $4
            )
          )
        ORDER BY message.created_at ASC
        LIMIT ${CHAT_MESSAGE_PAGE_SIZE + 1}`,
-      [conversationId, userId, after?.messageId ?? null],
+      [conversationId, userId, after?.createdAt ?? null, after?.messageId ?? null],
     );
-    await this.pool.query(
-      `UPDATE chat.conversation_members SET last_read_at = now()
-       WHERE conversation_id = $1 AND user_id = $2`,
-      [conversationId, userId],
-    );
+    const hasUnreadMessages = result.rows.some((row) => row.sender_id !== userId);
+    if (!after || hasUnreadMessages) {
+      await this.pool.query(
+        `UPDATE chat.conversation_members SET last_read_at = now()
+         WHERE conversation_id = $1 AND user_id = $2`,
+        [conversationId, userId],
+      );
+    }
     const messages = result.rows.slice(0, CHAT_MESSAGE_PAGE_SIZE).map((row) => ({
       id: row.message_id,
       conversationId: row.conversation_id,
@@ -791,33 +794,44 @@ export class PostgresIdentityStore implements IdentityStore {
   }
 
   async sendMessage(userId: string, conversationId: string, body: string): Promise<ChatMessage> {
-    await this.requireMember(userId, conversationId);
-    const blocked = await this.pool.query(
-      `SELECT 1
-       FROM chat.conversations c
-       JOIN chat.conversation_members member ON member.conversation_id = c.conversation_id
-       JOIN chat.user_blocks block
-         ON (block.blocker_id = $1 AND block.blocked_id = member.user_id)
-         OR (block.blocker_id = member.user_id AND block.blocked_id = $1)
-       WHERE c.conversation_id = $2 AND c.conversation_type = 'direct' AND member.user_id <> $1
-       LIMIT 1`,
-      [userId, conversationId],
-    );
-    if (blocked.rowCount) throw new Error("This conversation is unavailable because one participant is blocked");
     const id = randomUUID();
-    const result = await this.pool.query<{ created_at: Date | string }>(
-      `WITH inserted AS (
+    const result = await this.pool.query<{ created_at: Date | string; full_name: string; photo_url: string | null }>(
+      `WITH allowed AS (
+         SELECT 1
+         FROM chat.conversations conversation
+         JOIN chat.conversation_members self
+           ON self.conversation_id = conversation.conversation_id AND self.user_id = $3
+         WHERE conversation.conversation_id = $2
+           AND NOT (
+             conversation.conversation_type = 'direct' AND EXISTS (
+               SELECT 1
+               FROM chat.conversation_members participant
+               JOIN chat.user_blocks block
+                 ON (block.blocker_id = $3 AND block.blocked_id = participant.user_id)
+                 OR (block.blocker_id = participant.user_id AND block.blocked_id = $3)
+               WHERE participant.conversation_id = conversation.conversation_id
+                 AND participant.user_id <> $3
+             )
+           )
+       ), inserted AS (
          INSERT INTO chat.messages (message_id, conversation_id, sender_id, body)
-         VALUES ($1, $2, $3, $4) RETURNING created_at
+         SELECT $1, $2, $3, $4 FROM allowed
+         RETURNING created_at
+       ), updated AS (
+         UPDATE chat.conversations
+         SET updated_at = now()
+         WHERE conversation_id = $2 AND EXISTS (SELECT 1 FROM inserted)
        )
-       UPDATE chat.conversations SET updated_at = now() WHERE conversation_id = $2
-       RETURNING (SELECT created_at FROM inserted) AS created_at`,
+       SELECT inserted.created_at, sender.full_name, sender.photo_url
+       FROM inserted
+       JOIN identity.users sender ON sender.user_id = $3`,
       [id, conversationId, userId, body],
     );
-    const user = await this.findUserById(userId);
+    const sent = result.rows[0];
+    if (!sent) throw new Error("Conversation not found or unavailable");
     return {
-      id, conversationId, senderId: userId, senderName: user?.fullName ?? "You",
-      senderImageUrl: user?.photoUrl ?? null, body, createdAt: asIso(result.rows[0].created_at), mine: true,
+      id, conversationId, senderId: userId, senderName: sent.full_name,
+      senderImageUrl: sent.photo_url, body, createdAt: asIso(sent.created_at), mine: true,
       receipt: "delivered",
     };
   }

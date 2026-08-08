@@ -7,12 +7,15 @@ import { identityStore } from "@/server/identity/container";
 import { sendMessageSchema } from "@/server/identity/schemas";
 import { requireUser } from "@/server/identity/session";
 import { errorResponse } from "@/server/http/responses";
+import { RequestPerformance } from "@/server/observability/request-performance";
 
 type RouteContext = { params: Promise<{ conversationId: string }> };
 
 export async function GET(request: Request, context: RouteContext) {
+  const timing = new RequestPerformance();
   try {
     const user = await requireUser();
+    timing.mark("auth");
     const { conversationId } = await context.params;
     let after;
     try {
@@ -30,24 +33,28 @@ export async function GET(request: Request, context: RouteContext) {
       ]);
       const messages = thread.messages.map((message) => toChatMessage(message, conversationId, user.id, quest));
       const page = pageChatMessages(messages, conversationId, after);
-      return NextResponse.json({
+      timing.mark("quest_messages");
+      return timing.apply(NextResponse.json({
         messages: page.messages,
         sync: syncMeta(page, after && !page.resetRequired ? "delta" : "snapshot"),
-      });
+      }), "chat.messages.get.slow", { conversationType: "quest", userId: user.id });
     }
     const page = await identityStore.listMessagesPage(user.id, conversationId, after);
-    return NextResponse.json({
+    timing.mark("messages");
+    return timing.apply(NextResponse.json({
       messages: page.messages,
       sync: syncMeta(page, after && !page.resetRequired ? "delta" : "snapshot"),
-    });
+    }), "chat.messages.get.slow", { conversationType: "ordinary", userId: user.id });
   } catch (error) {
     return errorResponse(error);
   }
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  const timing = new RequestPerformance();
   try {
     const user = await requireUser();
+    timing.mark("auth");
     const { conversationId } = await context.params;
     const { body } = sendMessageSchema.parse(await request.json());
     const questConversation = parseQuestConversationId(conversationId);
@@ -75,17 +82,19 @@ export async function POST(request: Request, context: RouteContext) {
       const quest = await eventCoordinator.getStateForUser(questConversation.runId, user.id);
       const chatMessage = toChatMessage(message, conversationId, user.id, quest);
       const page = pageChatMessages([chatMessage], conversationId);
-      return NextResponse.json(
+      timing.mark("quest_send");
+      return timing.apply(NextResponse.json(
         { message: chatMessage, sync: syncMeta(page, "snapshot") },
         { status: 201 },
-      );
+      ), "chat.messages.send.slow", { conversationType: "quest", userId: user.id });
     }
     const message = await identityStore.sendMessage(user.id, conversationId, body);
     const page = pageChatMessages([message], conversationId);
-    return NextResponse.json(
+    timing.mark("send");
+    return timing.apply(NextResponse.json(
       { message, sync: syncMeta(page, "snapshot") },
       { status: 201 },
-    );
+    ), "chat.messages.send.slow", { conversationType: "ordinary", userId: user.id });
   } catch (error) {
     return errorResponse(error);
   }

@@ -15,6 +15,7 @@ import type { EventCoordinationState, EventRecruitmentEligibilityGuard } from "@
 import type {
   ActivateMemoryInput,
   CandidateCommitment,
+  CandidateEmbeddingStatus,
   EmbeddingSearchInput,
   KampungStore,
   MemoryUpdateAttempt,
@@ -187,9 +188,20 @@ export class PostgresKampungStore implements KampungStore {
       `SELECT payload
        FROM quest.event_coordination_states
        WHERE initiator_id = $1
-          OR payload @> jsonb_build_object('roster', jsonb_build_array(jsonb_build_object('userId', $1::text)))
-          OR payload @> jsonb_build_object('invitations', jsonb_build_array(jsonb_build_object('guestId', $1::text)))
-          OR payload @> jsonb_build_object('memberships', jsonb_build_array(jsonb_build_object('userId', $1::text)))
+          OR EXISTS (
+            SELECT 1 FROM quest.event_roster_members roster
+            WHERE roster.run_id = event_coordination_states.run_id
+              AND roster.roster_revision = (event_coordination_states.payload->>'rosterRevision')::integer
+              AND roster.user_id = $1
+          )
+          OR EXISTS (
+            SELECT 1 FROM quest.event_invitations invitation
+            WHERE invitation.run_id = event_coordination_states.run_id AND invitation.guest_id = $1
+          )
+          OR EXISTS (
+            SELECT 1 FROM quest.event_memberships membership
+            WHERE membership.run_id = event_coordination_states.run_id AND membership.user_id = $1
+          )
        ORDER BY updated_at DESC`,
       [userId],
     );
@@ -910,6 +922,29 @@ export class PostgresKampungStore implements KampungStore {
     }));
   }
 
+  async findEmbeddingStatuses(candidateIds: string[]): Promise<CandidateEmbeddingStatus[]> {
+    if (!candidateIds.length) return [];
+    const result = await this.pool.query<{
+      candidate_id: string;
+      memory_version: number;
+      kind: CandidateEmbedding["kind"];
+      model: string;
+      dimensions: number;
+    }>(
+      `SELECT candidate_id, memory_version, kind, model, dimensions
+       FROM retrieval.candidate_embeddings
+       WHERE candidate_id = ANY($1::text[]) AND active = true`,
+      [[...new Set(candidateIds)]],
+    );
+    return result.rows.map((row) => ({
+      candidateId: row.candidate_id,
+      memoryVersion: row.memory_version,
+      kind: row.kind,
+      model: row.model,
+      dimensions: row.dimensions,
+    }));
+  }
+
   async replaceActiveEmbeddings(
     candidateId: string,
     memoryVersion: number,
@@ -1061,6 +1096,20 @@ export class PostgresKampungStore implements KampungStore {
     );
     const row = result.rows[0];
     return row ? { ...row.payload, updatedAt: new Date(row.updated_at).toISOString() } : null;
+  }
+
+  async findQuestRuns(runIds: string[]): Promise<QuestRun[]> {
+    if (!runIds.length) return [];
+    const result = await this.pool.query<{ payload: QuestRun; updated_at: Date | string }>(
+      `SELECT payload, updated_at
+       FROM quest.quest_runs
+       WHERE run_id = ANY($1::text[])`,
+      [[...new Set(runIds)]],
+    );
+    return result.rows.map((row) => ({
+      ...row.payload,
+      updatedAt: new Date(row.updated_at).toISOString(),
+    }));
   }
 
   async saveQuestRunWithEvent(

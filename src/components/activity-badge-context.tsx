@@ -100,7 +100,7 @@ export function ActivityBadgeProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "visible") void refresh();
     };
     refreshWhenVisible();
-    const timer = window.setInterval(refreshWhenVisible, 5_000);
+    const timer = window.setInterval(refreshWhenVisible, 15_000);
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {

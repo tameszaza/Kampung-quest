@@ -495,6 +495,13 @@ Run these against a disposable local environment with two authenticated sessions
 | RES-013 | Use browser offline mode, then reconnect. | UI retains safe local input, retries when appropriate, and reconciles server state without duplication. |
 | RES-014 | Capture console and network errors in every smoke flow. | No unexpected unhandled rejection, hydration mismatch, 404 asset, or repeated failed request. |
 | RES-015 | Check image sizes and loading behavior on quest/reward pages. | No broken asset/placeholder mismatch between organizer and participant views; responsive images remain bounded. |
+| RES-016 | Delay chat A's snapshot, then select chat B before A finishes. | Chat B starts loading immediately and renders independently; A cannot block or overwrite B. |
+| RES-017 | Switch away from a loaded chat and return. | Cached messages render immediately, then reconcile from the saved delta cursor without duplicate history. |
+| RES-018 | Send a direct/group message while the database response is delayed or fails. | A sending state appears immediately; success replaces it exactly once, while failure removes it and restores the draft without overwriting newer typing. |
+| RES-019 | Keep Messages visible for at least 30 seconds and inspect network traffic. | Conversation/activity projections refresh at a bounded interval, selected messages use small delta requests, hidden tabs stop polling, and no overlapping request storm occurs. |
+| RES-020 | Send from a second signed-in browser while the recipient keeps the conversation open. | The recipient receives the message within one active polling interval without re-downloading full history. |
+| RES-021 | Call `/health` repeatedly and concurrently. | Expensive database/vector diagnostics are coalesced and cached; probes remain truthful without creating an N+1 embedding workload. |
+| RES-022 | Load activities with many related/recruiting quests. | Quest images and coordination membership are read in bounded batch/indexed queries rather than one query per activity or JSON scans. |
 
 ## 6. Mandatory end-to-end lifecycle smoke flows
 

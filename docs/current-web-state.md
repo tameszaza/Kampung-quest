@@ -104,6 +104,15 @@ The important state rule is: the agent interprets messages and proposes structur
 ## Current boundaries to remember
 
 - Local development and tests may use in-memory adapters when `DATABASE_URL` is absent; production refuses to start without PostgreSQL and pgvector.
+
+## Performance behavior
+
+- Ordinary chat history is cursor-based. The browser keeps a bounded per-conversation snapshot, applies deltas, and allows a newly selected conversation to load while another request is still finishing.
+- Outgoing ordinary messages render optimistically and reconcile with the authoritative server message. The PostgreSQL send path validates access/block state, inserts the message, updates the conversation, and resolves the sender in one statement.
+- Active chat delta refreshes run every 2 seconds while visible. Heavier conversation and activity projections run every 15 seconds and also refresh on focus/visibility changes; the Messages route does not duplicate the shell conversation poller.
+- Activity images are loaded with one batch quest query. Related coordination states use normalized membership, invitation, and roster indexes instead of JSON membership scans.
+- `/health` coalesces concurrent checks and caches the expensive vector/index diagnostic for 30 seconds so platform health probes do not create continuous database load.
+- Chat and activity APIs return `Server-Timing` phase data. Requests slower than 500 ms emit one structured JSON warning with safe IDs and phase durations, without message bodies or secrets.
 - Production requires an explicit hosted Gemini or OpenAI provider and its API key. Deterministic agents are test-only; provider failure is surfaced or falls through only where the feature explicitly defines a safe local retry, such as quest thumbnail SVG generation.
 - Quest thumbnails are best effort. The quest is saved first, then a sanitized SVG is generated and stored as a 1200×675 WebP behind `/api/quest-images/[key]`.
 - External venue booking, push/email delivery, and partner-side reward validation/settlement are not implemented integrations. The application does issue encrypted, stocked codes and debit points atomically.

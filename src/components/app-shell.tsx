@@ -60,7 +60,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       }
     };
     void loadUnreadMessages();
-    const timer = window.setInterval(() => void loadUnreadMessages(), 4_000);
+    const timer = window.setInterval(() => void loadUnreadMessages(), 15_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [pathname]);
 

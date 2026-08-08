@@ -148,16 +148,24 @@ export class KampungQuestEngine {
       ? await this.dependencies.filterContactableCandidateIds(candidateIds)
       : candidateIds;
     const contactable = new Set(contactableIds);
-    const statuses = await Promise.all(cards
-      .filter((card) => contactable.has(card.profile.candidateId))
-      .map(async (card) => {
-        const embeddings = await this.dependencies.store.findEmbeddings(card.profile.candidateId);
+    const relevantCards = cards.filter((card) => contactable.has(card.profile.candidateId));
+    const embeddingStatuses = await this.dependencies.store.findEmbeddingStatuses(
+      relevantCards.map((card) => card.profile.candidateId),
+    );
+    const embeddingsByCandidate = new Map<string, typeof embeddingStatuses>();
+    for (const embedding of embeddingStatuses) {
+      const current = embeddingsByCandidate.get(embedding.candidateId) ?? [];
+      current.push(embedding);
+      embeddingsByCandidate.set(embedding.candidateId, current);
+    }
+    const statuses = relevantCards.map((card) => {
+        const embeddings = embeddingsByCandidate.get(card.profile.candidateId) ?? [];
         const ready = embeddings.length === 3 && embeddings.every((embedding) =>
           embedding.memoryVersion === card.version
           && embedding.model === target.model
           && embedding.dimensions === target.dimensions);
         return { candidateId: card.profile.candidateId, ready };
-      }));
+      });
     const staleCandidateIds = statuses.filter((status) => !status.ready).map((status) => status.candidateId);
     return {
       ready: staleCandidateIds.length === 0,

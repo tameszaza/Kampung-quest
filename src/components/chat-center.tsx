@@ -21,6 +21,8 @@ import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
 
 export const ASSISTANT_CONVERSATION_ID = "senior-quest-assistant";
 const ACTIVITY_CONVERSATION_PREFIX = "activity:";
+const CONVERSATION_REFRESH_INTERVAL_MS = 15_000;
+const MESSAGE_REFRESH_INTERVAL_MS = 2_000;
 
 const assistantConversation: ConversationSummary = {
   id: ASSISTANT_CONVERSATION_ID,
@@ -60,8 +62,9 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   const [profileLoading, setProfileLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef(selectedId);
-  const messageSyncRef = useRef<{ conversationId: string; cursor: string | null; hasMore: boolean } | null>(null);
-  const messageLoadInFlightRef = useRef<string | null>(null);
+  const messageSyncByConversationRef = useRef(new Map<string, { cursor: string | null; hasMore: boolean }>());
+  const messageCacheRef = useRef(new Map<string, ChatMessage[]>());
+  const messageLoadsInFlightRef = useRef(new Set<string>());
   const activityLoadInFlightRef = useRef(false);
   const hydratedActivityIdsRef = useRef(new Set<string>());
   const readGroupActivityIdsRef = useRef(new Set<string>());
@@ -165,10 +168,11 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   }, []);
 
   const loadMessages = useCallback(async (conversationId: string, quiet = false) => {
-    if (messageLoadInFlightRef.current === conversationId) return;
-    messageLoadInFlightRef.current = conversationId;
-    if (!quiet) setMessageLoading(true);
-    const knownSync = messageSyncRef.current?.conversationId === conversationId ? messageSyncRef.current : null;
+    if (messageLoadsInFlightRef.current.has(conversationId)) return;
+    messageLoadsInFlightRef.current.add(conversationId);
+    const cachedMessages = messageCacheRef.current.get(conversationId);
+    if (!quiet && !cachedMessages) setMessageLoading(true);
+    const knownSync = messageSyncByConversationRef.current.get(conversationId);
     const fetchPage = async (cursor?: string | null) => {
       const query = cursor ? `?after=${encodeURIComponent(cursor)}` : "";
       const response = await fetch(`/api/chat/conversations/${conversationId}/messages${query}`, { cache: "no-store" });
@@ -185,23 +189,24 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         // A stale cursor can happen after a deployment, data restore, or a
         // conversation being recreated. One full snapshot safely re-baselines
         // the stream instead of leaving the UI permanently stale.
-        messageSyncRef.current = null;
+        messageSyncByConversationRef.current.delete(conversationId);
         result = await fetchPage();
       }
-      if (selectedIdRef.current !== conversationId) return;
       const sync = result.sync ?? { mode: "snapshot" as const, cursor: null, hasMore: false, resetRequired: false };
-      setMessages((current) => sync.mode === "delta" && !sync.resetRequired
+      const current = messageCacheRef.current.get(conversationId) ?? [];
+      const next = sync.mode === "delta" && !sync.resetRequired
         ? mergeChatMessages(current, result.messages ?? [])
-        : current.every((message) => message.conversationId === conversationId)
-          ? mergeChatMessages(current, result.messages ?? [])
-          : result.messages ?? []);
-      messageSyncRef.current = { conversationId, cursor: sync.cursor, hasMore: sync.hasMore };
+        : mergeChatMessages([], result.messages ?? []);
+      messageCacheRef.current.set(conversationId, next);
+      messageSyncByConversationRef.current.set(conversationId, { cursor: sync.cursor, hasMore: sync.hasMore });
+      if (selectedIdRef.current !== conversationId) return;
+      setMessages(next);
       if (!quiet) requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     } catch (reason) {
       if (selectedIdRef.current === conversationId) setError(reason instanceof Error ? reason.message : "Could not load messages");
     } finally {
-      if (!quiet) setMessageLoading(false);
-      if (messageLoadInFlightRef.current === conversationId) messageLoadInFlightRef.current = null;
+      messageLoadsInFlightRef.current.delete(conversationId);
+      if (!quiet && selectedIdRef.current === conversationId) setMessageLoading(false);
     }
   }, []);
 
@@ -214,7 +219,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void loadConversations();
-    }, 4_000);
+    }, CONVERSATION_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [loadConversations]);
   useEffect(() => {
@@ -222,17 +227,14 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     void loadMessages(selectedId);
     const timer = window.setInterval(() => {
       void loadMessages(selectedId, true);
-    }, 4_000);
+    }, MESSAGE_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [activitySelected, assistantSelected, loadConversations, loadMessages, selectedId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function openConversation(id: string) {
     selectedIdRef.current = id;
-    if (messageSyncRef.current?.conversationId !== id) {
-      messageSyncRef.current = null;
-      setMessages([]);
-    }
+    setMessages(messageCacheRef.current.get(id) ?? []);
     setSelectedId(id);
     if (id === ASSISTANT_CONVERSATION_ID || id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) setMessages([]);
     if (id.startsWith(ACTIVITY_CONVERSATION_PREFIX)) {
@@ -255,6 +257,21 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
     const body = input.value.trim();
     if (!body) return;
     input.value = "";
+    const optimisticId = `pending:${crypto.randomUUID()}`;
+    const optimisticMessage: ChatMessage = {
+      id: optimisticId,
+      conversationId: selectedId,
+      senderId: "current-user",
+      senderName: "You",
+      senderImageUrl: null,
+      body,
+      createdAt: new Date().toISOString(),
+      mine: true,
+    };
+    const optimisticMessages = mergeChatMessages(messageCacheRef.current.get(selectedId) ?? [], [optimisticMessage]);
+    messageCacheRef.current.set(selectedId, optimisticMessages);
+    setMessages(optimisticMessages);
+    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     try {
       const response = await fetch(`/api/chat/conversations/${selectedId}/messages`, {
         method: "POST",
@@ -263,18 +280,23 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
       });
       const result = await response.json() as { message?: ChatMessage; sync?: ChatMessageSync; error?: string };
       if (!response.ok || !result.message) throw new Error(result.error ?? "Message was not sent");
+      const confirmedMessages = mergeChatMessages(
+        (messageCacheRef.current.get(selectedId) ?? []).filter((message) => message.id !== optimisticId),
+        [result.message],
+      );
+      messageCacheRef.current.set(selectedId, confirmedMessages);
       if (selectedIdRef.current === selectedId) {
-        setMessages((items) => mergeChatMessages(items, [result.message!]));
-        if (result.sync) {
-          messageSyncRef.current = { conversationId: selectedId, cursor: result.sync.cursor, hasMore: result.sync.hasMore };
-        }
+        setMessages(confirmedMessages);
         requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
       }
       setConversations((items) => items.map((item) => item.id === selectedId
         ? { ...item, preview: body, lastMessageAt: result.message!.createdAt }
         : item).sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)));
     } catch (reason) {
-      input.value = body;
+      const rolledBackMessages = (messageCacheRef.current.get(selectedId) ?? []).filter((message) => message.id !== optimisticId);
+      messageCacheRef.current.set(selectedId, rolledBackMessages);
+      if (selectedIdRef.current === selectedId) setMessages(rolledBackMessages);
+      if (!input.value) input.value = body;
       setError(reason instanceof Error ? reason.message : "Message was not sent");
     }
   }
@@ -465,7 +487,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
                   mine={message.mine}
                   heading={showName ? message.senderName : undefined}
                   time={formatMessageTime(message.createdAt)}
-                  receipt={message.mine ? (message.receipt ?? "delivered") : undefined}
+                  receipt={message.id.startsWith("pending:") ? "sending" : message.mine ? (message.receipt ?? "delivered") : undefined}
                 />;
               })}
               <div ref={bottomRef} />

@@ -42,6 +42,8 @@ export interface CandidateCommitment {
   end: string | null;
 }
 
+export type CandidateEmbeddingStatus = Omit<CandidateEmbedding, "vector">;
+
 export interface KampungStore {
   createEventCoordinationState(state: EventCoordinationState): Promise<EventCoordinationState>;
   findEventCoordinationState(runId: string): Promise<EventCoordinationState | null>;
@@ -69,6 +71,7 @@ export interface KampungStore {
   findMemory(candidateId: string): Promise<MemoryCard | null>;
   listMemories(): Promise<MemoryCard[]>;
   findEmbeddings(candidateId: string): Promise<CandidateEmbedding[]>;
+  findEmbeddingStatuses(candidateIds: string[]): Promise<CandidateEmbeddingStatus[]>;
   replaceActiveEmbeddings(
     candidateId: string,
     memoryVersion: number,
@@ -85,6 +88,7 @@ export interface KampungStore {
     expectedUpdatedAt: string,
   ): Promise<QuestRun>;
   findQuestRun(runId: string): Promise<QuestRun | null>;
+  findQuestRuns(runIds: string[]): Promise<QuestRun[]>;
   findQuestByIdempotencyKey(key: string): Promise<QuestRun | null>;
   listQuestRuns(candidateId: string, limit: number): Promise<QuestRun[]>;
   /** Active future quests that may accept another compatible participant. */
@@ -277,6 +281,13 @@ export class InMemoryKampungStore implements KampungStore {
     return structuredClone(this.embeddings.get(candidateId) ?? []);
   }
 
+  async findEmbeddingStatuses(candidateIds: string[]): Promise<CandidateEmbeddingStatus[]> {
+    const included = new Set(candidateIds);
+    return [...this.embeddings.entries()]
+      .filter(([candidateId]) => included.has(candidateId))
+      .flatMap(([, embeddings]) => embeddings.map(({ vector: _vector, ...status }) => structuredClone(status)));
+  }
+
   async replaceActiveEmbeddings(
     candidateId: string,
     memoryVersion: number,
@@ -358,6 +369,13 @@ export class InMemoryKampungStore implements KampungStore {
   async findQuestRun(runId: string): Promise<QuestRun | null> {
     const run = this.questRuns.get(runId);
     return run ? structuredClone(run) : null;
+  }
+
+  async findQuestRuns(runIds: string[]): Promise<QuestRun[]> {
+    return runIds.flatMap((runId) => {
+      const run = this.questRuns.get(runId);
+      return run ? [structuredClone(run)] : [];
+    });
   }
 
   async saveQuestRunWithEvent(

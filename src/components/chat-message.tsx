@@ -5,7 +5,7 @@ type ChatMessageBubbleProps = {
   mine?: boolean;
   heading?: string;
   time?: string;
-  receipt?: "delivered" | "read";
+  receipt?: "sending" | "delivered" | "read";
   actionLabel?: string;
   onAction?: () => void;
   variant?: "default" | "activity-card";
@@ -19,7 +19,7 @@ export function ChatMessageBubble({ body, mine = false, heading, time, receipt, 
       {label ? <span className="message-bubble-label">{label}</span> : null}
       {heading ? <strong>{heading}</strong> : null}
       <p>{body}</p>
-      {time ? <time>{time}{receipt ? <span className={`message-receipt ${receipt}`} aria-label={receipt === "read" ? "Read" : "Delivered"} title={receipt === "read" ? "Read" : "Delivered"}><span aria-hidden="true">✓</span>{receipt === "read" ? <span aria-hidden="true">✓</span> : null}</span> : null}</time> : null}
+      {time ? <time>{time}{receipt ? <span className={`message-receipt ${receipt}`} aria-label={receipt === "sending" ? "Sending" : receipt === "read" ? "Read" : "Delivered"} title={receipt === "sending" ? "Sending" : receipt === "read" ? "Read" : "Delivered"}><span aria-hidden="true">{receipt === "sending" ? "…" : "✓"}</span>{receipt === "read" ? <span aria-hidden="true">✓</span> : null}</span> : null}</time> : null}
       {actionLabel ? <small className="message-bubble-action">{actionLabel}</small> : null}
     </>
   );
