@@ -136,10 +136,6 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
     }
   }
 
-  function continueWithFacebook() {
-    setError("Facebook sign-in is not available yet. You can use Google or your email to log in.");
-  }
-
   if (mode === "login") {
     return (
       <form className="auth-form" onSubmit={submit}>
@@ -157,7 +153,6 @@ export function AuthForm({ mode, googleEnabled }: { mode: FormMode; googleEnable
         <button className="primary-button auth-submit" disabled={busy}>{busy ? "Logging in…" : "Log In"}</button>
         <AuthDivider />
         <button className="social-auth-button" type="button" onClick={continueWithGoogle} disabled={busy || !googleEnabled} title={googleEnabled ? undefined : "Google sign-in is not configured on this server"}><GoogleMark /> Continue with Google</button>
-        <button className="social-auth-button facebook-auth-button" type="button" onClick={continueWithFacebook} disabled={busy}><span className="facebook-mark" aria-hidden="true">f</span> Continue with Facebook</button>
         <p className="auth-switch">Don’t have an account? <Link href="/register">Sign up</Link></p>
       </form>
     );
