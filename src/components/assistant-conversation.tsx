@@ -8,6 +8,7 @@ import { KampungLogo } from "@/components/kampung-logo";
 import { createClientRequestId } from "@/lib/client-request-id";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { questParticipantStatus } from "@/lib/quest-participant-status";
+import { showAssistantTurnThinking, showQuestFindingProgress } from "@/lib/assistant-progress";
 import { useUser } from "@/components/user-context";
 import {
   confirmAssistantConversation,
@@ -211,6 +212,12 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
     for (const event of conversation?.events ?? []) byStage.set(event.stage, event);
     return [...byStage.values()].sort((left, right) => left.sequence - right.sequence);
   }, [conversation?.events]);
+  const questFinding = conversation
+    ? showQuestFindingProgress(conversation.status, latestEvents.length, confirming)
+    : false;
+  const assistantTurnThinking = conversation
+    ? showAssistantTurnThinking(conversation.status, latestEvents.length, confirming, thinking)
+    : thinking;
 
   async function answer(answer: AssistantAnswer) {
     if (!conversation || thinking) return;
@@ -321,7 +328,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
           </div>
         ))}
 
-        {thinking ? embedded ? (
+        {assistantTurnThinking ? embedded ? (
           <ChatMessageBubble body="Senior Quest is thinking…" />
         ) : (
           <div className="assistant-row assistant-thinking" role="status">
@@ -350,7 +357,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
           </>
         ) : null}
 
-        {conversation.status === "processing" || confirming ? (
+        {questFinding ? (
           <AgentProgress events={latestEvents} />
         ) : null}
 

@@ -95,7 +95,7 @@ export default function HomePage() {
             <Link href="/quests?tab=Invited"><span>Invites</span><strong>{showDemo ? 2 : 0}</strong><small>Pending invitations</small></Link>
           </section>
           <Link className="assistant-home-callout" href="/messages?assistant=1">
-            <span aria-hidden="true"><KampungLogo size={46} /></span>
+            <KampungLogo className="assistant-home-mark" size={46} />
             <div><strong>What would feel good today?</strong><small>Talk with Senior Quest and I&apos;ll find a safe activity with neighbours.</small></div>
             <b>Let&apos;s talk <Icon name="chevron" size={18} /></b>
           </Link>

@@ -319,7 +319,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     }
   }
 
-  if (loading) return <CoordinationSkeleton />;
+  if (loading) return <CoordinationLoadingState embedded={embedded} />;
   if (!thread || !quest) return <div className="connected-state error coordination-load-error" role="alert"><Icon name="shield" /><strong>{error || "Coordination could not be loaded"}</strong><button className="secondary-button" type="button" onClick={() => { setLoading(true); void load(); }}>Try again</button><Link href="/my-quests">Back to My Activities</Link></div>;
 
   const pendingInvitation = quest.viewer.role === "pending_invitee";
@@ -549,11 +549,12 @@ function mergeCoordinationThread<T extends { messages: EventCoordinationThread["
   };
 }
 
-function CoordinationSkeleton() {
-  return <div className="coordination-hub coordination-hub-skeleton" role="status" aria-label="Opening activity coordination">
-    <div className="coordination-skeleton-header" />
-    <div className="coordination-skeleton-layout"><div /><div /></div>
-  </div>;
+function CoordinationLoadingState({ embedded }: { embedded: boolean }) {
+  return <output className={`chat-loading coordination-chat-loading${embedded ? " coordination-chat-loading-embedded" : ""}`} role="status" aria-live="polite">
+    <span className="connected-spinner" aria-hidden="true" />
+    <strong>Loading conversation…</strong>
+    <small>Retrieving chat history</small>
+  </output>;
 }
 
 function requirementSummary(requirements: NonNullable<EventCoordinationThread["pendingRequirements"]>) {

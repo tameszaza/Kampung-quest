@@ -604,7 +604,7 @@ function NewConversationSheet({ onClose, onCreated }: { onClose: () => void; onC
 }
 
 function AssistantAvatar({ size }: { size: number }) {
-  return <span className="chat-avatar assistant-chat-avatar" style={{ width: size, height: size }} aria-hidden="true"><KampungLogo size={Math.max(1, size - 8)} /></span>;
+  return <KampungLogo className="assistant-chat-logo" size={size} />;
 }
 
 function Avatar({ src, name, size, group = false }: { src: string | null; name: string; size: number; group?: boolean }) {

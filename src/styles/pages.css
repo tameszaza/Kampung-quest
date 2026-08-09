@@ -1959,14 +1959,9 @@
   object-fit: cover;
 }
 
-.assistant-chat-avatar {
-  background: var(--green-800);
-  color: white;
-  font-size: 18px;
-}
-
-.assistant-chat-avatar .kampung-logo {
+.assistant-chat-logo {
   flex: 0 0 auto;
+  object-fit: contain;
 }
 
 .chat-profile-trigger {
@@ -2577,6 +2572,20 @@
 .chat-loading strong {
   color: var(--ink-soft);
   font-size: 13px;
+}
+
+.chat-loading small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.coordination-chat-loading {
+  align-self: center;
+  min-height: 240px;
+}
+
+.coordination-chat-loading-embedded {
+  min-height: min(420px, 55dvh);
 }
 
 .chat-alert {
@@ -4840,7 +4849,12 @@
   gap: 13px;
 }
 
-.assistant-home-callout > span,
+.assistant-home-mark {
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+}
+
 .home-assistant-empty > .home-assistant-empty-mark {
   width: 46px;
   height: 46px;
@@ -5241,7 +5255,7 @@
     grid-template-columns: 42px minmax(0, 1fr);
   }
 
-  .assistant-home-callout > span {
+  .assistant-home-mark {
     width: 42px;
     height: 42px;
   }
