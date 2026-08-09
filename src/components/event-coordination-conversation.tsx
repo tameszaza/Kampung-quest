@@ -51,9 +51,11 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [groupHistoryState, setGroupHistoryState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const bottomRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const initialLoadInFlightRef = useRef(false);
+  const groupLoadInFlightRef = useRef(false);
   const refreshInFlightRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const lastLoadedAtRef = useRef(0);
@@ -79,6 +81,8 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   }, []);
 
   const load = useCallback(async (quiet = false) => {
+    const loadingGroupHistory = activeScope === "group" && groupThreadRef.current?.runId !== runId;
+    if (loadingGroupHistory) setGroupHistoryState("loading");
     try {
       const privateSync = privateSyncRef.current?.runId === runId ? privateSyncRef.current : null;
       const [rawThread, nextQuest] = await Promise.all([
@@ -103,11 +107,15 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
         )
         : null;
       const nextGroupThread = rawGroupThread ? mergeCoordinationThread(groupThreadRef.current, rawGroupThread) : null;
-      if (rawGroupThread) groupSyncRef.current = { runId, cursor: rawGroupThread.sync.cursor, hasMore: rawGroupThread.sync.hasMore };
+      if (rawGroupThread) {
+        groupSyncRef.current = { runId, cursor: rawGroupThread.sync.cursor, hasMore: rawGroupThread.sync.hasMore };
+        setGroupHistoryState("loaded");
+      }
       setThread(nextThread);
       if (nextGroupThread || !groupAvailable) setGroupThread(nextGroupThread);
       onGroupAvailabilityChangeRef.current?.(groupAvailable);
       if (!groupAvailable) {
+        setGroupHistoryState("idle");
         setScope("private");
         onScopeChangeRef.current?.("private");
       }
@@ -125,7 +133,8 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
         });
       }
     } catch (reason) {
-      if (!quiet) setError(reason instanceof Error ? reason.message : "Coordination could not be loaded");
+      if (loadingGroupHistory) setGroupHistoryState("error");
+      if (!quiet || loadingGroupHistory) setError(reason instanceof Error ? reason.message : "Coordination could not be loaded");
     } finally {
       lastLoadedAtRef.current = Date.now();
       if (!quiet) {
@@ -152,11 +161,21 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
   useEffect(() => {
     let active = true;
     const initialLoad = window.setTimeout(() => {
-      if (!active || initialLoadInFlightRef.current) return;
+      if (!active) return;
       if (hasLoadedRef.current) {
+        const needsGroupHistory = activeScope === "group" && groupThreadRef.current?.runId !== runId;
+        if (needsGroupHistory) {
+          if (groupLoadInFlightRef.current) return;
+          groupLoadInFlightRef.current = true;
+          void load(true).finally(() => {
+            groupLoadInFlightRef.current = false;
+          });
+          return;
+        }
         void refresh();
         return;
       }
+      if (initialLoadInFlightRef.current) return;
       initialLoadInFlightRef.current = true;
       void load().finally(() => {
         initialLoadInFlightRef.current = false;
@@ -173,7 +192,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenActive);
     };
-  }, [load, refresh]);
+  }, [activeScope, load, refresh, runId]);
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -338,6 +357,9 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
     participant.invitationStatus === "organizer" || isActiveMembershipStatus(participant.membershipStatus)).length;
   const title = quest.proposal.quest.title;
   const activeMessages = activeScope === "group" ? groupThread?.messages ?? [] : thread.messages;
+  const groupHistoryLoading = activeScope === "group"
+    && groupHistoryState !== "error"
+    && (groupHistoryState !== "loaded" || groupThread?.runId !== runId);
 
   const overviewDetails = <>
     <dl className="coordination-facts">
@@ -392,9 +414,10 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
           </section> : null}
         </div>
 
-        <div className="message-history coordination-message-history" aria-live="polite" aria-busy={sending}>
-          <ChatDayLabel />
-          {activeMessages.map((message) => {
+        <div className="message-history coordination-message-history" aria-live="polite" aria-busy={sending || groupHistoryLoading}>
+          {groupHistoryLoading ? <CoordinationHistoryLoadingState /> : <>
+            <ChatDayLabel />
+            {activeMessages.map((message) => {
             const presentation = coordinationMessagePresentation(message.kind);
             return <ChatMessageBubble
               key={message.messageId}
@@ -411,14 +434,15 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
               variant={presentation.variant}
               label={presentation.label}
             />;
-          })}
-          {sending ? <div className="coordination-agent-working" role="status"><span aria-hidden="true" />Senior Quest is checking the group’s preferences…</div> : null}
-          {activeScope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
-            <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
-            <h3>Start with what matters most</h3>
-            <p>Senior Quest already knows this activity. Ask about timing, the venue, or what the group needs next.</p>
-            <div><button type="button" onClick={() => setDraft("Who are we still waiting to hear from?")}>Who are we waiting for?</button><button type="button" onClick={() => setDraft("Help me choose the next coordination step.")}>What should I do next?</button></div>
-          </div> : null}
+            })}
+            {sending ? <div className="coordination-agent-working" role="status"><span aria-hidden="true" />Senior Quest is checking the group’s preferences…</div> : null}
+            {activeScope === "private" && quest.viewer.role === "organizer" && thread.messages.length <= 1 ? <div className="coordination-starting-prompts">
+              <span className="coordination-prompt-icon"><Icon name="message" size={22} /></span>
+              <h3>Start with what matters most</h3>
+              <p>Senior Quest already knows this activity. Ask about timing, the venue, or what the group needs next.</p>
+              <div><button type="button" onClick={() => setDraft("Who are we still waiting to hear from?")}>Who are we waiting for?</button><button type="button" onClick={() => setDraft("Help me choose the next coordination step.")}>What should I do next?</button></div>
+            </div> : null}
+          </>}
           <div ref={bottomRef} />
         </div>
 
@@ -448,7 +472,7 @@ export function EventCoordinationConversation({ runId, embedded = false, showHea
             onInputKeyDown={submitOnEnter}
             onSubmit={send}
             maxLength={2_000}
-            disabled={Boolean(busy) || sending}
+            disabled={Boolean(busy) || sending || groupHistoryLoading}
             placeholder={activeScope === "group" ? "Message the group or ask Senior Quest…" : quest.viewer.role === "organizer" ? "Ask Senior Quest about this activity…" : "Share availability or anything you need…"}
           /> : <div className="coordination-chat-locked"><Icon name="lock" size={18} /><span>Join the activity to start your private coordination chat.</span></div>}
         </div>
@@ -554,6 +578,14 @@ function CoordinationLoadingState({ embedded }: { embedded: boolean }) {
     <span className="connected-spinner" aria-hidden="true" />
     <strong>Loading conversation…</strong>
     <small>Retrieving chat history</small>
+  </output>;
+}
+
+function CoordinationHistoryLoadingState() {
+  return <output className="chat-loading coordination-history-loading" role="status" aria-live="polite">
+    <span className="connected-spinner" aria-hidden="true" />
+    <strong>Loading group chat…</strong>
+    <small>Retrieving the latest messages</small>
   </output>;
 }
 
