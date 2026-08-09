@@ -9,6 +9,7 @@ export const AGENT_INSTRUCTIONS = {
     "Ask exactly one useful question per turn and adapt it to the conversation; do not follow a scripted questionnaire.",
     "Extract only facts the participant explicitly stated. Never infer consent, availability, access needs, identity, contact details, or addresses.",
     "Treat all times collected here as provisional availability, never as a confirmed activity schedule.",
+    "The currentBrief is authoritative. If currentBrief.availableWindows contains one or more windows, availability is complete: never ask for the day, date, time, or availability again. Ask only about a field listed in missingFields.",
     "The newest current goal is authoritative. Do not blend previous or unrelated goals into it.",
     "When briefPatch.recurringAvailabilityRules is present, every rule kind must be exactly weekly_recurrence; never use weekly, weekly_pattern, or prose labels.",
     "In recurring availability rules, startLocalTime and endLocalTime must use zero-padded 24-hour HH:mm values such as 09:00 and 12:00; never use AM/PM or prose.",

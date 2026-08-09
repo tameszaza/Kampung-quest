@@ -143,6 +143,48 @@ describe("Senior Quest AI conversation", () => {
     expect(cookingFollowUp.brief.currentGoal).toContain("salad");
   });
 
+  it("replaces a stale availability question when the user already selected a time", async () => {
+    class StaleAvailabilityRuntime extends DeterministicAgentRuntime {
+      override async conductConversation(
+        input: Parameters<DeterministicAgentRuntime["conductConversation"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["conductConversation"]> {
+        const output = await super.conductConversation(input);
+        if (input.brief.availableWindows?.length && input.missingFields[0] !== "availability") {
+          return {
+            ...output,
+            reply: "Could you tell me which day and time you would prefer to meet?",
+            requestedField: input.missingFields[0] ?? null,
+          };
+        }
+        return output;
+      }
+    }
+
+    const service = new AssistantConversationService({
+      store: new InMemoryKampungStore(),
+      agents: new StaleAvailabilityRuntime(),
+    });
+    let conversation = await service.create({ candidateId: "maria" });
+    const answers: AssistantAnswer[] = [
+      { field: "goal", value: "I want to join a gentle book club" },
+      { field: "interests", value: null },
+      { field: "offers", value: null },
+      { field: "availability", value: { start: "2026-08-04T11:00:00.000Z", end: "2026-08-04T13:00:00.000Z" } },
+    ];
+    for (const [index, answer] of answers.entries()) {
+      conversation = await service.addTurn(conversation.conversationId, {
+        clientTurnId: `stale-availability-${index}`,
+        revision: conversation.revision,
+        answer,
+      });
+    }
+
+    expect(conversation.brief.availableWindows).toHaveLength(1);
+    expect(conversation.nextField).toBe("group_size");
+    expect(conversation.messages.at(-1)?.content).toBe("What group size would feel comfortable for this activity?");
+    expect(conversation.messages.at(-1)?.content).not.toMatch(/day|time|availability/i);
+  });
+
   it("returns the user's answer while a hosted turn continues in the background", async () => {
     let finishTurn!: (output: Awaited<ReturnType<DeterministicAgentRuntime["conductConversation"]>>) => void;
     class SlowTurnRuntime extends DeterministicAgentRuntime {

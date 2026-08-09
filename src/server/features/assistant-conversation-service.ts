@@ -30,6 +30,23 @@ const REQUIRED_FIELDS: AssistantBriefField[] = [
   "consent",
 ];
 
+const ASSISTANT_QUESTIONS: Record<AssistantBriefField, string> = {
+  goal: "What would feel helpful or enjoyable for your next quest?",
+  interests: "What interests would you like this quest to include?",
+  offers: "Is there anything you would enjoy contributing?",
+  availability: "When are you generally available? You can share several times or a weekly pattern; this will not schedule the activity yet.",
+  group_size: "What group size would feel comfortable for this activity?",
+  indoor: "Would you prefer an indoor setting?",
+  stairs: "Are stairs comfortable for you?",
+  distance: "How far would you be comfortable travelling?",
+  language: "Which language should the group use?",
+  consent: "May I use these details to look for suitable neighbours?",
+};
+
+function assistantQuestionForField(field: AssistantBriefField) {
+  return ASSISTANT_QUESTIONS[field];
+}
+
 interface AssistantConversationDependencies {
   store: KampungStore;
   agents: AgentRuntime;
@@ -159,14 +176,16 @@ export class AssistantConversationService {
       const patchedBrief = questBriefDraftSchema.parse(this.applySafePatch(brief, turn.briefPatch, answer.field));
       const remaining = this.missingFields(patchedBrief);
       const ready = remaining.length === 0;
+      const nextField = this.safeNextField(turn.requestedField, patchedBrief);
+      const reconciledTurn = this.reconcileTurn(turn, nextField, patchedBrief);
       const updated: AssistantConversationSnapshot = {
         ...agentPending,
         status: ready ? "ready_for_review" : "collecting",
         revision: agentPending.revision + 1,
-        messages: [...messages, this.message("assistant", turn.reply)],
+        messages: [...messages, this.message("assistant", reconciledTurn.reply)],
         brief: patchedBrief,
-        nextField: ready ? null : this.safeNextField(turn.requestedField, patchedBrief),
-        suggestedReplies: turn.suggestedReplies,
+        nextField: ready ? null : nextField,
+        suggestedReplies: reconciledTurn.suggestedReplies,
         questRunId: current.status === "no_match" ? null : agentPending.questRunId,
         events: current.status === "no_match" ? [] : agentPending.events,
         error: null,
@@ -415,6 +434,27 @@ export class AssistantConversationService {
     const missing = this.missingFields(brief);
     if (missing.length === 0) return null;
     return requestedField && missing.includes(requestedField) ? requestedField : missing[0];
+  }
+
+  private reconcileTurn(
+    turn: Awaited<ReturnType<AgentRuntime["conductConversation"]>>,
+    nextField: AssistantBriefField | null,
+    brief: QuestBriefDraft,
+  ) {
+    const staleAvailabilityQuestion = Boolean(
+      brief.availableWindows?.length
+      && nextField !== "availability"
+      && /\?/.test(turn.reply)
+      && /(?:what|which|when|could you|tell me).*?(?:day|date|time|availability|available)/i.test(turn.reply),
+    );
+    if (turn.requestedField === nextField && !staleAvailabilityQuestion) return turn;
+    return {
+      ...turn,
+      reply: nextField ? assistantQuestionForField(nextField) : "I have enough information to prepare your quest brief.",
+      requestedField: nextField,
+      suggestedReplies: [],
+      status: nextField ? "collecting" as const : "ready_for_review" as const,
+    };
   }
 
   private applyAnswer(brief: QuestBriefDraft, answer: AssistantAnswer): QuestBriefDraft {
