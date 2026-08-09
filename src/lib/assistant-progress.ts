@@ -1,4 +1,4 @@
-import type { AssistantConversationStatus } from "@/server/domain/schemas";
+import type { AssistantBriefField, AssistantConversationStatus } from "@/server/domain/schemas";
 
 export function showQuestFindingProgress(
   status: AssistantConversationStatus,
@@ -15,4 +15,16 @@ export function showAssistantTurnThinking(
   submitting: boolean,
 ) {
   return submitting || (status === "processing" && workflowEventCount === 0 && !confirming);
+}
+
+export function showSavedPreferenceRetrieval(
+  status: AssistantConversationStatus,
+  nextField: AssistantBriefField | null,
+  editingField: AssistantBriefField | null,
+  hasSavedAccessibility: boolean,
+) {
+  return hasSavedAccessibility
+    && status === "collecting"
+    && nextField === "consent"
+    && editingField === null;
 }

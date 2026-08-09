@@ -8,7 +8,7 @@ import { KampungLogo } from "@/components/kampung-logo";
 import { createClientRequestId } from "@/lib/client-request-id";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { questParticipantStatus } from "@/lib/quest-participant-status";
-import { showAssistantTurnThinking, showQuestFindingProgress } from "@/lib/assistant-progress";
+import { showAssistantTurnThinking, showQuestFindingProgress, showSavedPreferenceRetrieval } from "@/lib/assistant-progress";
 import { useUser } from "@/components/user-context";
 import {
   confirmAssistantConversation,
@@ -118,6 +118,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
   const pendingTurnId = useRef<string | null>(null);
   const reconnectConversationId = conversation?.conversationId ?? null;
   const reconnectStatus = conversation?.status ?? null;
+  const reconnectNextField = conversation?.nextField ?? null;
   const reconnectAfterSequence = conversation?.events.at(-1)?.sequence ?? 0;
 
   useEffect(() => {
@@ -144,12 +145,12 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
   }, [conversationKey, hasSavedAccessibility, startFresh, user.id]);
 
   useEffect(() => {
-    if (!reconnectConversationId || reconnectStatus !== "ready_for_review" || editingField || !hasSavedAccessibility) return;
+    if (!reconnectConversationId || !showSavedPreferenceRetrieval(reconnectStatus ?? "collecting", reconnectNextField, editingField, hasSavedAccessibility)) return;
     setShowAccessibilityRetrieval(true);
     setAccessibilityRetrieving(true);
     const timer = window.setTimeout(() => setAccessibilityRetrieving(false), 1_600);
     return () => window.clearTimeout(timer);
-  }, [reconnectConversationId, reconnectStatus, editingField, hasSavedAccessibility]);
+  }, [reconnectConversationId, reconnectStatus, reconnectNextField, editingField, hasSavedAccessibility]);
 
   useEffect(() => {
     if (!reconnectConversationId || reconnectStatus !== "processing" || confirming) return;
@@ -218,6 +219,11 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
   const assistantTurnThinking = conversation
     ? showAssistantTurnThinking(conversation.status, latestEvents.length, confirming, thinking)
     : thinking;
+  const savedPreferenceRetrieval = conversation
+    ? showSavedPreferenceRetrieval(conversation.status, conversation.nextField, editingField, hasSavedAccessibility)
+    : false;
+  const savedPreferenceRetrievalActive = savedPreferenceRetrieval
+    && (!showAccessibilityRetrieval || accessibilityRetrieving);
 
   async function answer(answer: AssistantAnswer) {
     if (!conversation || thinking) return;
@@ -337,7 +343,11 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
           </div>
         ) : null}
 
-        {conversation.status === "collecting" || editingField ? (
+        {savedPreferenceRetrieval ? (
+          <AccessibilityRetrievalCard preferences={user.preferences.accessibilityPreferences} active={savedPreferenceRetrievalActive} />
+        ) : null}
+
+        {(conversation.status === "collecting" || editingField) && !savedPreferenceRetrievalActive ? (
           <AnswerControl
             embedded={embedded}
             field={activeField}
@@ -351,10 +361,7 @@ export function AssistantConversation({ embedded = false, resetToken = 0, startF
         ) : null}
 
         {conversation.status === "ready_for_review" && !editingField ? (
-          <>
-            {showAccessibilityRetrieval ? <AccessibilityRetrievalCard preferences={user.preferences.accessibilityPreferences} active={accessibilityRetrieving} /> : null}
-            <ReviewCard conversation={conversation} onEdit={setEditingField} onConfirm={() => void confirm()} />
-          </>
+          <ReviewCard conversation={conversation} onEdit={setEditingField} onConfirm={() => void confirm()} />
         ) : null}
 
         {questFinding ? (
