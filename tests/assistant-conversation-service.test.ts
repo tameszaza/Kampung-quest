@@ -446,17 +446,22 @@ describe("Senior Quest AI conversation", () => {
     }));
   });
 
-  it("does not automatically retry a Gemini quota failure", async () => {
-    class QuotaRuntime extends DeterministicAgentRuntime {
+  it("shows a Gemini rate-limit wait and retries quest creation once", async () => {
+    class QuotaOnceRuntime extends DeterministicAgentRuntime {
       synthesisCalls = 0;
 
-      override async synthesizeQuest(): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+      override async synthesizeQuest(
+        input: Parameters<DeterministicAgentRuntime["synthesizeQuest"]>[0],
+      ): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
         this.synthesisCalls += 1;
-        throw new Error("Gemini request quota is temporarily exhausted. Please try again later.");
+        if (this.synthesisCalls === 1) {
+          throw new Error("Gemini request quota is temporarily exhausted. Please try again in about 47 seconds.");
+        }
+        return super.synthesizeQuest(input);
       }
     }
     const store = new InMemoryKampungStore();
-    const agents = new QuotaRuntime();
+    const agents = new QuotaOnceRuntime();
     const engine = new KampungQuestEngine({
       store,
       agents,
@@ -471,15 +476,51 @@ describe("Senior Quest AI conversation", () => {
         provider: "gemini",
         demoSeedEnabled: true,
       }),
+      wait: async () => undefined,
+    });
+    const ready = await readyConversation(service);
+
+    const completed = await service.confirm(ready.conversationId, { revision: ready.revision });
+
+    expect(completed.status).toBe("complete");
+    expect(agents.synthesisCalls).toBe(2);
+    expect(completed.events).toContainEqual(expect.objectContaining({
+      stage: "synthesis",
+      status: "started",
+      message: "Gemini is busy; retrying once in 47 seconds",
+    }));
+  });
+
+  it("does not retry Gemini's daily quota because it cannot become available soon", async () => {
+    class DailyQuotaRuntime extends DeterministicAgentRuntime {
+      synthesisCalls = 0;
+
+      override async synthesizeQuest(): ReturnType<DeterministicAgentRuntime["synthesizeQuest"]> {
+        this.synthesisCalls += 1;
+        throw new Error("Gemini's daily request quota for this model is exhausted. It resets at midnight Pacific time.");
+      }
+    }
+    const store = new InMemoryKampungStore();
+    const agents = new DailyQuotaRuntime();
+    const engine = new KampungQuestEngine({ store, agents, embeddings: new DeterministicEmbeddingProvider() });
+    const service = new AssistantConversationService({
+      store,
+      agents,
+      recommendations: new AssistantRecommendationService({
+        store,
+        engine,
+        provider: "gemini",
+        demoSeedEnabled: true,
+      }),
+      wait: async () => undefined,
     });
     const ready = await readyConversation(service);
 
     const failed = await service.confirm(ready.conversationId, { revision: ready.revision });
 
     expect(failed.status).toBe("failed");
-    expect(failed.error).toContain("quota");
+    expect(failed.error).toContain("daily request quota");
     expect(agents.synthesisCalls).toBe(1);
-    expect(failed.events.some((event) => event.message.includes("retrying"))).toBe(false);
   });
 
   it("returns an organizer-only recruitment draft when no eligible neighbour is available yet", async () => {

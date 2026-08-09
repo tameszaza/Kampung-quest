@@ -36,6 +36,7 @@ interface AssistantConversationDependencies {
   recommendations?: AssistantRecommendationService;
   allowDemoNeighbors?: (candidateId: string) => Promise<boolean>;
   resolveAccessibilityPreferences?: (candidateId: string) => Promise<AccessibilityPreferences | null>;
+  wait?: (milliseconds: number) => Promise<void>;
 }
 
 export class AssistantConversationService {
@@ -287,7 +288,9 @@ export class AssistantConversationService {
         const failedEvent = current.events.at(-1);
         const retryableStage = failedEvent?.status === "failed"
           && (failedEvent.stage === "synthesis" || failedEvent.stage === "safety");
-        if (!retryableStage || !this.isTransientProviderFailure(error)) throw error;
+        const retryDelayMs = this.providerRetryDelayMs(error);
+        if (!retryableStage || retryDelayMs === null) throw error;
+        const rateLimited = this.isRateLimitFailure(error);
         current = await this.saveWithEvent({
           ...current,
           revision: current.revision + 1,
@@ -295,9 +298,12 @@ export class AssistantConversationService {
         }, current.revision, {
           stage: failedEvent.stage,
           status: "started",
-          message: `${failedEvent.stage === "safety" ? "Safety Guardian" : "Matchmaker"} timed out; retrying once`,
+          message: rateLimited
+            ? `Gemini is busy; retrying once in ${Math.ceil(retryDelayMs / 1_000)} seconds`
+            : `${failedEvent.stage === "safety" ? "Safety Guardian" : "Matchmaker"} was interrupted; retrying once`,
           kind: "agent",
         }, onEvent);
+        if (retryDelayMs > 0) await (this.dependencies.wait ?? wait)(retryDelayMs);
         result = await recommendationService.recommend(recommendationCommand, observeRecommendation, {
           allowDemoNeighbors: this.dependencies.allowDemoNeighbors
             ? await this.dependencies.allowDemoNeighbors(current.candidateId)
@@ -476,9 +482,24 @@ export class AssistantConversationService {
     };
   }
 
-  private isTransientProviderFailure(error: unknown): boolean {
+  private providerRetryDelayMs(error: unknown): number | null {
     const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-    if (/quota|rate limit|too many requests|daily limit|429/.test(message)) return false;
-    return /timed? out|timeout|connection reset|econnreset|fetch failed|service unavailable|\b503\b/.test(message);
+    if (/daily (?:request )?quota|daily limit|resets at midnight/.test(message)) return null;
+    if (this.isRateLimitFailure(error)) {
+      const hint = message.match(/(?:about|in)\s+([0-9]+)\s+seconds?/);
+      return Math.min(Number(hint?.[1] ?? 5) * 1_000, 60_000);
+    }
+    return /timed? out|timeout|connection reset|econnreset|fetch failed|service unavailable|\b503\b/.test(message)
+      ? 0
+      : null;
   }
+
+  private isRateLimitFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    return /quota|rate limit|too many requests|\b429\b/.test(message);
+  }
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -1,5 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { replayAssistantEvents } from "@/features/assistant/client";
+import { confirmAssistantConversation, replayAssistantEvents } from "@/features/assistant/client";
+import type { AssistantConversationSnapshot } from "@/server/domain/schemas";
+
+function conversation(status: AssistantConversationSnapshot["status"] = "ready_for_review"): AssistantConversationSnapshot {
+  return {
+    conversationId: "conversation/id",
+    candidateId: "member-1",
+    status,
+    revision: 3,
+    messages: [],
+    brief: {},
+    nextField: null,
+    suggestedReplies: [],
+    questRunId: null,
+    events: [],
+    error: null,
+    createdAt: "2026-08-03T00:00:00.000Z",
+    updatedAt: "2026-08-03T00:00:00.000Z",
+  };
+}
 
 describe("assistant workflow event replay client", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -21,5 +40,29 @@ describe("assistant workflow event replay client", () => {
       [4, "synthesis", "agent"],
       [5, "validation", "system"],
     ]);
+  });
+
+  it("parses a final complete frame even when the stream omits the trailing blank line", async () => {
+    const completed = conversation("complete");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      `event: complete\ndata: ${JSON.stringify(completed)}`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    )));
+
+    await expect(confirmAssistantConversation(conversation(), vi.fn())).resolves.toEqual(completed);
+  });
+
+  it("restores persisted progress when an intermediary closes the stream", async () => {
+    const processing = conversation("processing");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(": keep-alive\n\n", { headers: { "Content-Type": "text/event-stream" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(processing), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(confirmAssistantConversation(conversation(), vi.fn())).resolves.toEqual(processing);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/assistant/conversations/conversation%2Fid",
+      { cache: "no-store" },
+    );
   });
 });

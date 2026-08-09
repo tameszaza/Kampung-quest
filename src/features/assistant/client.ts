@@ -133,9 +133,14 @@ export async function confirmAssistantConversation(
   let completed: AssistantConversationSnapshot | null = null;
   while (true) {
     const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
+    if (value) buffer += decoder.decode(value, { stream: true });
+    if (done) buffer += decoder.decode();
     const frames = buffer.split("\n\n");
     buffer = frames.pop() ?? "";
+    if (done && buffer.trim()) {
+      frames.push(buffer);
+      buffer = "";
+    }
     for (const frame of frames) {
       const eventName = frame.split("\n").find((line) => line.startsWith("event: "))?.slice(7);
       const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
@@ -146,6 +151,13 @@ export async function confirmAssistantConversation(
     }
     if (done) break;
   }
-  if (!completed) throw new Error("Senior Quest did not return a completed workflow");
+  if (!completed) {
+    // A reverse proxy or mobile connection can close a long-running SSE
+    // response even though the server workflow is still safely persisted.
+    // Resume from that state instead of presenting a false terminal failure.
+    const restored = await getAssistantConversation(conversation.conversationId);
+    if (restored) return restored;
+    throw new Error("Senior Quest did not return a completed workflow");
+  }
   return completed;
 }
