@@ -286,11 +286,11 @@ export class AssistantConversationService {
         });
       } catch (error) {
         const failedEvent = current.events.at(-1);
+        const rateLimited = this.isRateLimitFailure(error);
         const retryableStage = failedEvent?.status === "failed"
-          && (failedEvent.stage === "synthesis" || failedEvent.stage === "safety");
+          && (rateLimited || failedEvent.stage === "synthesis" || failedEvent.stage === "safety");
         const retryDelayMs = this.providerRetryDelayMs(error);
         if (!retryableStage || retryDelayMs === null) throw error;
-        const rateLimited = this.isRateLimitFailure(error);
         current = await this.saveWithEvent({
           ...current,
           revision: current.revision + 1,

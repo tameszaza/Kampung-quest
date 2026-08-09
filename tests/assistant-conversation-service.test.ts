@@ -491,6 +491,51 @@ describe("Senior Quest AI conversation", () => {
     }));
   });
 
+  it("retries a Gemini rate limit raised while preparing neighbour memory", async () => {
+    class QuotaOnceEmbeddingProvider extends DeterministicEmbeddingProvider {
+      calls = 0;
+
+      override async embedMemory(
+        input: Parameters<DeterministicEmbeddingProvider["embedMemory"]>[0],
+      ): ReturnType<DeterministicEmbeddingProvider["embedMemory"]> {
+        this.calls += 1;
+        if (this.calls === 1) {
+          throw new Error("Gemini request quota is temporarily exhausted. Please try again in about 3 seconds.");
+        }
+        return super.embedMemory(input);
+      }
+    }
+
+    const store = new InMemoryKampungStore();
+    const agents = new DeterministicAgentRuntime();
+    const embeddings = new QuotaOnceEmbeddingProvider();
+    const engine = new KampungQuestEngine({ store, agents, embeddings });
+    const service = new AssistantConversationService({
+      store,
+      agents,
+      recommendations: new AssistantRecommendationService({
+        store,
+        engine,
+        provider: "gemini",
+        demoSeedEnabled: true,
+      }),
+      wait: async () => undefined,
+    });
+    const ready = await readyConversation(service);
+
+    const completed = await service.confirm(ready.conversationId, { revision: ready.revision });
+
+    expect(completed.status).toBe("complete");
+    expect(embeddings.calls).toBeGreaterThan(1);
+    expect(completed.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        stage: "memory",
+        status: "started",
+        message: "Gemini is busy; retrying once in 3 seconds",
+      }),
+    ]));
+  });
+
   it("does not retry Gemini's daily quota because it cannot become available soon", async () => {
     class DailyQuotaRuntime extends DeterministicAgentRuntime {
       synthesisCalls = 0;
