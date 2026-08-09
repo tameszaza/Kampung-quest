@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { eventCoordinator } from "@/server/container";
 import type { EventCoordinationMessage, EventQuestView } from "@/server/domain/event-coordination";
 import { decodeMessageCursor, pageChatMessages, syncMeta } from "@/server/chat/message-sync";
@@ -71,6 +71,7 @@ export async function POST(request: Request, context: RouteContext) {
             clientMessageId,
             expectedRevision: thread.revision,
             waitForAgent: false,
+            scheduleAgent: (task) => after(task),
           })
         : await eventCoordinator.addCoordinationMessage({
             runId: questConversation.runId,
@@ -79,6 +80,7 @@ export async function POST(request: Request, context: RouteContext) {
             clientMessageId,
             expectedRevision: thread.revision,
             waitForAgent: false,
+            scheduleAgent: (task) => after(task),
           });
       const message = updated.messages.find((candidate) => candidate.messageId === clientMessageId)!;
       const quest = await eventCoordinator.getStateForUser(questConversation.runId, user.id);

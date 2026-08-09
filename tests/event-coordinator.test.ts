@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { QuestRun } from "@/server/domain/schemas";
 import { EventCoordinator } from "@/server/features/event-coordinator";
 import { expandAvailability, findClosestCommonAvailability, findCommonAvailability } from "@/server/features/availability-service";
@@ -1334,9 +1334,14 @@ describe("EventCoordinator", () => {
 
   it("makes a group message durable before the hosted provider finishes", async () => {
     const store = new InMemoryKampungStore();
+    let scheduledAgent: (() => Promise<unknown>) | null = null;
+    const coordinate = vi.fn(async () => ({
+      reply: "The group can coordinate the venue next.",
+      requirementPatch: {},
+    }));
     const coordinator = new EventCoordinator({
       store,
-      coordinate: () => new Promise(() => undefined),
+      coordinate,
     });
     const forming = await coordinator.createFormation(approvedRun());
     let state = await coordinator.confirmRoster({ runId: forming.runId, actorId: "maria", expectedRevision: forming.revision, idempotencyKey: "pending-provider-roster" });
@@ -1353,14 +1358,28 @@ describe("EventCoordinator", () => {
       clientMessageId: "pending-provider-message",
       expectedRevision: group.revision,
       waitForAgent: false,
+      scheduleAgent: (task) => {
+        scheduledAgent = task;
+      },
     });
 
+    expect(coordinate).not.toHaveBeenCalled();
     expect(updated.messages).toContainEqual(expect.objectContaining({
       messageId: "pending-provider-message",
       role: "participant",
     }));
     expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
       .toContainEqual(expect.objectContaining({ messageId: "pending-provider-message" }));
+    expect(scheduledAgent).not.toBeNull();
+
+    await scheduledAgent!();
+
+    expect(coordinate).toHaveBeenCalledOnce();
+    expect((await store.findEventCoordinationState(state.runId))?.groupThread?.messages)
+      .toContainEqual(expect.objectContaining({
+        role: "assistant",
+        body: "The group can coordinate the venue next.",
+      }));
   });
 
   it("keeps the agent reply when quest state changes while the provider is running", async () => {

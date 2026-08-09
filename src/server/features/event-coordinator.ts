@@ -712,6 +712,7 @@ export class EventCoordinator {
     clientMessageId: string;
     expectedRevision: number;
     waitForAgent?: boolean;
+    scheduleAgent?: (task: () => Promise<unknown>) => void;
   }): Promise<EventCoordinationThread> {
     const current = await this.requireState(input.runId);
     const thread = current.threads.find((candidate) => candidate.userId === input.actorId);
@@ -959,11 +960,13 @@ export class EventCoordinator {
       return structuredClone(updatedThread);
     };
     if (input.waitForAgent === false) {
-      void this.enqueueCoordinationEnrichment(`private:${input.runId}`, enrich).catch((error) => logger.warn("event_coordination.enrichment_failed", {
-        runId: input.runId,
-        scope: "private",
-        error: safeErrorMessage(error),
-      }));
+      const task = () => this.enqueueCoordinationEnrichment(`private:${input.runId}`, enrich).catch((error) => logger.warn("event_coordination.enrichment_failed", {
+          runId: input.runId,
+          scope: "private",
+          error: safeErrorMessage(error),
+        }));
+      if (input.scheduleAgent) input.scheduleAgent(task);
+      else void task();
       return structuredClone(acceptedThread);
     }
     return enrich();
@@ -984,6 +987,7 @@ export class EventCoordinator {
     clientMessageId: string;
     expectedRevision: number;
     waitForAgent?: boolean;
+    scheduleAgent?: (task: () => Promise<unknown>) => void;
   }): Promise<EventGroupCoordinationThread> {
     const current = await this.requireState(input.runId);
     const group = current.groupThread;
@@ -1241,11 +1245,13 @@ export class EventCoordinator {
       return structuredClone(updatedGroup);
     };
     if (input.waitForAgent === false) {
-      void this.enqueueCoordinationEnrichment(`group:${input.runId}`, enrich).catch((error) => logger.warn("event_coordination.enrichment_failed", {
-        runId: input.runId,
-        scope: "group",
-        error: safeErrorMessage(error),
-      }));
+      const task = () => this.enqueueCoordinationEnrichment(`group:${input.runId}`, enrich).catch((error) => logger.warn("event_coordination.enrichment_failed", {
+          runId: input.runId,
+          scope: "group",
+          error: safeErrorMessage(error),
+        }));
+      if (input.scheduleAgent) input.scheduleAgent(task);
+      else void task();
       return structuredClone(acceptedGroup);
     }
     return enrich();

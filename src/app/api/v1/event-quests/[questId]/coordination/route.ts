@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { eventCoordinator } from "@/server/container";
 import { decodeMessageCursor, pageMessages, syncMeta } from "@/server/chat/message-sync";
 import { coordinationMessageRequestSchema } from "@/server/domain/event-coordination";
@@ -37,6 +37,7 @@ export async function POST(request: Request, context: RouteContext) {
       actorId: user.id,
       ...command,
       waitForAgent: false,
+      scheduleAgent: (task) => after(task),
     });
     timing.mark("persist_message");
     return timing.apply(
