@@ -402,7 +402,7 @@ export function ChatCenter({ initialConversation, initialQuest, startNewAssistan
         </header>
         <label className="message-search"><span className="sr-only">Search messages</span><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search messages" /></label>
         {error ? <div className="chat-alert" role="alert">{error}<button type="button" onClick={() => { setError(""); void loadConversations(); }}>Try again</button></div> : null}
-        {loading ? <ChatLoadingState label="Loading your conversations…" /> : null}
+        {loading ? <ChatLoadingState className="conversation-list-loading" label="Loading your conversations…" /> : null}
         {!loading && filtered.length === 0 ? (
           <div className="empty-chat-list"><span aria-hidden="true">💬</span><h2>{query ? "No messages found" : "Start a conversation"}</h2><p>{query ? "Try another name or word." : "Connect one-to-one or bring friends together in a group."}</p>{!query ? <button className="primary-button" type="button" onClick={() => setCreating(true)}>New Message</button> : null}</div>
         ) : null}
@@ -613,8 +613,8 @@ function Avatar({ src, name, size, group = false }: { src: string | null; name: 
   return <span className="chat-avatar" style={{ width: size, height: size }}>{showImage ? <AvatarImage src={src!} alt="" sizes={`${size}px`} onError={() => setFailed(true)} /> : <span aria-hidden="true">{group ? "👥" : name.slice(0, 1).toUpperCase()}</span>}</span>;
 }
 
-function ChatLoadingState({ label }: { label: string }) {
-  return <output className="chat-loading" role="status" aria-live="polite"><span className="connected-spinner" aria-hidden="true" /><strong>{label}</strong></output>;
+function ChatLoadingState({ label, className = "" }: { label: string; className?: string }) {
+  return <output className={`chat-loading${className ? ` ${className}` : ""}`} role="status" aria-live="polite"><span className="connected-spinner" aria-hidden="true" /><strong>{label}</strong></output>;
 }
 
 function formatThreadTime(value: string) {
