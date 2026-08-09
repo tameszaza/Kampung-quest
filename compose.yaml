@@ -2,7 +2,8 @@ services:
   database:
     image: pgvector/pgvector:pg16
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Keep PostgreSQL local-only; the API reaches it over the Compose network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-kampung_quest}
       POSTGRES_USER: ${POSTGRES_USER:-kampung}
@@ -22,13 +23,16 @@ services:
       - path: .env
         required: false
     ports:
-      - "${PORT:-3000}:3000"
+      # Local browser access remains available while cloudflared uses the
+      # internal Compose network (http://api:3000).
+      - "127.0.0.1:${PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-kampung}:${POSTGRES_PASSWORD:-kampung_dev_password}@database:5432/${POSTGRES_DB:-kampung_quest}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-compose-secret-change-before-production-1234}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       AVATAR_STORAGE_DIR: /app/.data/avatars
@@ -57,6 +61,23 @@ services:
     restart: unless-stopped
     volumes:
       - kampung-uploads:/app/.data
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate --loglevel info run
+    environment:
+      # cloudflared reads the token from the environment instead of exposing it
+      # in the process command. Configure the public hostname to http://api:3000
+      # in the Cloudflare dashboard.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   kampung-data:

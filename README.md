@@ -20,6 +20,35 @@ docker compose up --build
 
 Open [http://localhost:3000](http://localhost:3000). The root redirects to `/login`.
 
+### Cloudflare Tunnel demo
+
+The default Compose stack stays reachable at `http://localhost:3000`. To expose
+the same container through a named Cloudflare Tunnel:
+
+1. In Cloudflare, create a remotely-managed tunnel and add a published
+   application route whose service is `http://api:3000`.
+2. In `.env`, set `CLOUDFLARE_TUNNEL_TOKEN` to the tunnel token and set
+   `BETTER_AUTH_URL` to the route's fixed HTTPS URL. Keep
+   `BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000`
+   so local sign-in remains available.
+3. Start the demo stack and the optional tunnel profile:
+
+```bash
+docker compose --profile tunnel up --build -d
+```
+
+Check both the local app and tunnel connector with:
+
+```bash
+curl --fail http://localhost:3000/health
+docker compose --profile tunnel ps
+docker compose logs --tail=50 tunnel
+```
+
+For Google sign-in, also register
+`https://<your-public-hostname>/api/auth/callback/google` in Google Cloud. Email
+and password sign-in does not require that OAuth callback configuration.
+
 Useful routes:
 
 - `/register` — create a member account

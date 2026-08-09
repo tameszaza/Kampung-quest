@@ -24,6 +24,10 @@ export const betterAuthPool = globals.betterAuthPool ?? new Pool({
 if (process.env.NODE_ENV !== "production") globals.betterAuthPool = betterAuthPool;
 
 const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+const trustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const authSecret = process.env.BETTER_AUTH_SECRET
   ?? (isNextProductionBuild() ? "build-only-secret-not-used-at-runtime" : "senior-quest-development-secret-change-me-before-production");
 
@@ -33,6 +37,7 @@ export const auth = betterAuth({
   appName: "Senior Quest",
   database: betterAuthPool,
   baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+  trustedOrigins,
   secret: authSecret,
   emailAndPassword: {
     enabled: true,
