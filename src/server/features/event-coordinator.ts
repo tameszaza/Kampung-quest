@@ -7,6 +7,7 @@ import type {
   EventAppointmentSuggestion,
   EventActivityCard,
   EventCoordinationMessage,
+  EventCoordinationMessagePersistence,
   EventCoordinationThread,
   EventGroupCoordinationThread,
   EventCoordinationState,
@@ -42,6 +43,11 @@ export interface EventCoordinationStore {
     state: EventCoordinationState,
     expectedRevision: number,
     eligibilityGuard?: EventRecruitmentEligibilityGuard,
+  ): Promise<EventCoordinationState>;
+  saveEventCoordinationMessage?(
+    state: EventCoordinationState,
+    expectedRevision: number,
+    persistence: EventCoordinationMessagePersistence,
   ): Promise<EventCoordinationState>;
   listEventCoordinationStates(userId: string): Promise<EventCoordinationState[]>;
   listRecruitingEventCoordinationStates(): Promise<EventCoordinationState[]>;
@@ -127,6 +133,16 @@ export class EventCoordinator {
       },
     );
     return next;
+  }
+
+  private saveAcceptedMessage(
+    state: EventCoordinationState,
+    expectedRevision: number,
+    persistence: EventCoordinationMessagePersistence,
+  ): Promise<EventCoordinationState> {
+    return this.dependencies.store.saveEventCoordinationMessage
+      ? this.dependencies.store.saveEventCoordinationMessage(state, expectedRevision, persistence)
+      : this.dependencies.store.saveEventCoordinationState(state, expectedRevision);
   }
 
   async createFormation(run: QuestRun): Promise<EventCoordinationState> {
@@ -721,16 +737,26 @@ export class EventCoordinator {
     };
     // A participant's send is authoritative and must not share the hosted
     // agent's failure boundary. Agent output is a follow-up mutation.
-    const acceptedState = await this.dependencies.store.saveEventCoordinationState({
+    const acceptedAuditEvent = this.auditEvent(current, "coordination_message_added", input.actorId, null, {
+      threadId: thread.threadId,
+      messageId: input.clientMessageId,
+    }, current.lifecycle);
+    const acceptedStateValue: EventCoordinationState = {
       ...current,
       revision: current.revision + 1,
       threads: current.threads.map((candidate) => candidate.threadId === thread.threadId ? acceptedThread : candidate),
-      auditEvents: [...current.auditEvents, this.auditEvent(current, "coordination_message_added", input.actorId, null, {
-        threadId: thread.threadId,
-        messageId: input.clientMessageId,
-      }, current.lifecycle)],
+      auditEvents: [...current.auditEvents, acceptedAuditEvent],
       updatedAt: now,
-    }, current.revision);
+    };
+    const acceptedState = await this.saveAcceptedMessage(acceptedStateValue, current.revision, {
+      scope: "private",
+      threadId: thread.threadId,
+      threadRevision: acceptedThread.revision,
+      message: participantMessage,
+      notifications: [],
+      outbox: [],
+      auditEvents: [acceptedAuditEvent],
+    });
     const enrich = async () => {
       let output: Awaited<ReturnType<NonNullable<EventCoordinatorDependencies["coordinate"]>>>;
       try {
@@ -1010,18 +1036,28 @@ export class EventCoordinator {
     };
     // Keep the human message even when the hosted coordinator is slow or
     // unavailable; its response is enrichment, not part of message delivery.
-    const acceptedState = await this.dependencies.store.saveEventCoordinationState({
+    const acceptedAuditEvent = this.auditEvent(current, "group_coordination_message_added", input.actorId, null, {
+      threadId: group.threadId,
+      messageId: input.clientMessageId,
+    }, current.lifecycle);
+    const acceptedStateValue: EventCoordinationState = {
       ...current,
       revision: current.revision + 1,
       groupThread: acceptedGroup,
       notifications: [...current.notifications, ...groupMessageNotifications],
       outbox: [...current.outbox, ...groupMessageOutbox],
-      auditEvents: [...current.auditEvents, this.auditEvent(current, "group_coordination_message_added", input.actorId, null, {
-        threadId: group.threadId,
-        messageId: input.clientMessageId,
-      }, current.lifecycle)],
+      auditEvents: [...current.auditEvents, acceptedAuditEvent],
       updatedAt: now,
-    }, current.revision);
+    };
+    const acceptedState = await this.saveAcceptedMessage(acceptedStateValue, current.revision, {
+      scope: "group",
+      threadId: group.threadId,
+      threadRevision: acceptedGroup.revision,
+      message: participantMessage,
+      notifications: groupMessageNotifications,
+      outbox: groupMessageOutbox,
+      auditEvents: [acceptedAuditEvent],
+    });
     const groupContext: EventCoordinationThread = {
       ...privateThread,
       messages: acceptedGroup.messages,

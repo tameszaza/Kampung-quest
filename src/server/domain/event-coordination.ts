@@ -188,6 +188,17 @@ export interface EventCoordinationMessage {
   receipt?: "delivered" | "read";
 }
 
+/** Minimal normalized rows written with an accepted chat message. */
+export interface EventCoordinationMessagePersistence {
+  scope: "private" | "group";
+  threadId: string;
+  threadRevision: number;
+  message: EventCoordinationMessage;
+  notifications: EventNotification[];
+  outbox: EventOutboxJob[];
+  auditEvents: EventCoordinationAuditEvent[];
+}
+
 export interface EventGroupCoordinationThread {
   threadId: string;
   runId: string;

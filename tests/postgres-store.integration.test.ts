@@ -116,7 +116,10 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
     await engine.recordMemory({ profile: profile(secondId), narrative: "Second participant" });
     const run = await engine.proposeQuest({ initiatingCandidateId: firstId });
     integrationRunIds.add(run.runId);
-    const coordinator = new EventCoordinator({ store: store! });
+    const coordinator = new EventCoordinator({
+      store: store!,
+      coordinate: () => new Promise(() => undefined),
+    });
     let state = (await store!.findEventCoordinationState(run.runId))!;
     state = await coordinator.confirmRoster({ runId: run.runId, actorId: firstId, expectedRevision: state.revision, idempotencyKey: `integration-roster-${suffix}` });
     for (const invitation of state.invitations) {
@@ -129,6 +132,27 @@ describe.skipIf(!store)("PostgreSQL Kampung store", () => {
         idempotencyKey: `integration-accept-${invitation.guestId}`,
       });
     }
+    const group = await coordinator.getGroupCoordinationThread(run.runId, firstId);
+    const messageId = `integration_message_${suffix}`;
+    const messageStartedAt = Date.now();
+    const acceptedGroup = await coordinator.addGroupCoordinationMessage({
+      runId: run.runId,
+      actorId: firstId,
+      body: "Hello from the PostgreSQL fast path",
+      clientMessageId: messageId,
+      expectedRevision: group.revision,
+      waitForAgent: false,
+    });
+    expect(Date.now() - messageStartedAt).toBeLessThan(2_000);
+    expect(acceptedGroup.messages).toContainEqual(expect.objectContaining({ messageId }));
+    await expect(store!.pool.query(
+      "SELECT message_id FROM quest.event_group_coordination_messages WHERE message_id = $1",
+      [messageId],
+    )).resolves.toMatchObject({ rowCount: 1 });
+    await expect(store!.pool.query(
+      "SELECT notification_id FROM quest.event_notifications WHERE run_id = $1 AND kind = 'group_message'",
+      [run.runId],
+    )).resolves.toMatchObject({ rowCount: 1 });
 
     const restartedEngine = new KampungQuestEngine({
       store: store!,

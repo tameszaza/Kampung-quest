@@ -11,7 +11,11 @@ import type {
   MemoryUpdateCommand,
   QuestRun,
 } from "@/server/domain/schemas";
-import type { EventCoordinationState, EventRecruitmentEligibilityGuard } from "@/server/domain/event-coordination";
+import type {
+  EventCoordinationMessagePersistence,
+  EventCoordinationState,
+  EventRecruitmentEligibilityGuard,
+} from "@/server/domain/event-coordination";
 import type {
   ActivateMemoryInput,
   CandidateCommitment,
@@ -123,6 +127,138 @@ export class PostgresKampungStore implements KampungStore {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Chat delivery changes only one thread plus a few append-only rows. Keeping
+   * this as one CTE avoids replaying every participant, task, and old message
+   * across dozens of database round trips for each send.
+   */
+  async saveEventCoordinationMessage(
+    state: EventCoordinationState,
+    expectedRevision: number,
+    persistence: EventCoordinationMessagePersistence,
+  ): Promise<EventCoordinationState> {
+    const notifications = persistence.notifications.map((notification) => ({
+      notification_id: notification.notificationId,
+      user_id: notification.userId,
+      kind: notification.kind,
+      title: notification.title,
+      body: notification.body,
+      read_at: notification.readAt,
+      deduplication_key: notification.deduplicationKey,
+      created_at: notification.createdAt,
+    }));
+    const outbox = persistence.outbox.map((job) => ({
+      job_id: job.jobId,
+      kind: job.kind,
+      recipient_id: job.recipientId,
+      deduplication_key: job.deduplicationKey,
+      payload: job.payload,
+      status: job.status,
+      attempts: job.attempts,
+      created_at: job.createdAt,
+      updated_at: job.updatedAt,
+    }));
+    const auditEvents = persistence.auditEvents.map((event) => ({
+      event_id: event.eventId,
+      event_type: event.type,
+      actor_id: event.actorId,
+      aggregate_revision: event.aggregateRevision,
+      previous_lifecycle: event.previousLifecycle,
+      new_lifecycle: event.newLifecycle,
+      idempotency_key: event.idempotencyKey,
+      safe_diff: event.safeDiff,
+      created_at: event.createdAt,
+    }));
+    const result = await this.pool.query<{ saved: boolean }>(
+      `WITH updated_state AS (
+         UPDATE quest.event_coordination_states
+         SET revision = $2, lifecycle = $3, payload = $4::jsonb, updated_at = $5
+         WHERE run_id = $1 AND revision = $6
+         RETURNING run_id
+       ), updated_private_thread AS (
+         UPDATE quest.event_coordination_threads
+         SET revision = $9, updated_at = $5
+         WHERE $7 = 'private' AND thread_id = $8 AND EXISTS (SELECT 1 FROM updated_state)
+       ), updated_group_thread AS (
+         UPDATE quest.event_group_coordination_threads
+         SET revision = $9, updated_at = $5
+         WHERE $7 = 'group' AND thread_id = $8 AND EXISTS (SELECT 1 FROM updated_state)
+       ), inserted_private_message AS (
+         INSERT INTO quest.event_coordination_messages
+           (message_id, thread_id, role, kind, body, created_at)
+         SELECT $10, $8, $12, $13, $14, $15
+         WHERE $7 = 'private' AND EXISTS (SELECT 1 FROM updated_state)
+         ON CONFLICT (message_id) DO NOTHING
+       ), inserted_group_message AS (
+         INSERT INTO quest.event_group_coordination_messages
+           (message_id, thread_id, sender_id, role, kind, body, created_at)
+         SELECT $10, $8, $11, $12, $13, $14, $15
+         WHERE $7 = 'group' AND EXISTS (SELECT 1 FROM updated_state)
+         ON CONFLICT (message_id) DO NOTHING
+       ), inserted_notifications AS (
+         INSERT INTO quest.event_notifications
+           (notification_id, run_id, user_id, kind, title, body, read_at, deduplication_key, created_at)
+         SELECT item.notification_id, $1, item.user_id, item.kind, item.title, item.body,
+                item.read_at, item.deduplication_key, item.created_at
+         FROM jsonb_to_recordset($16::jsonb) AS item(
+           notification_id text, user_id text, kind text, title text, body text,
+           read_at timestamptz, deduplication_key text, created_at timestamptz
+         )
+         WHERE EXISTS (SELECT 1 FROM updated_state)
+         ON CONFLICT (notification_id) DO UPDATE SET read_at = EXCLUDED.read_at
+       ), inserted_outbox AS (
+         INSERT INTO quest.event_outbox
+           (job_id, run_id, kind, recipient_id, deduplication_key, payload, status, attempts, created_at, updated_at)
+         SELECT item.job_id, $1, item.kind, item.recipient_id, item.deduplication_key,
+                item.payload, item.status, item.attempts, item.created_at, item.updated_at
+         FROM jsonb_to_recordset($17::jsonb) AS item(
+           job_id text, kind text, recipient_id text, deduplication_key text,
+           payload jsonb, status text, attempts integer, created_at timestamptz, updated_at timestamptz
+         )
+         WHERE EXISTS (SELECT 1 FROM updated_state)
+         ON CONFLICT (job_id) DO UPDATE
+         SET status = EXCLUDED.status, attempts = EXCLUDED.attempts, updated_at = EXCLUDED.updated_at
+       ), inserted_audit_events AS (
+         INSERT INTO quest.event_coordination_audit_events
+           (event_id, run_id, event_type, actor_id, aggregate_revision, previous_lifecycle,
+            new_lifecycle, idempotency_key, safe_diff, created_at)
+         SELECT item.event_id, $1, item.event_type, item.actor_id, item.aggregate_revision,
+                item.previous_lifecycle, item.new_lifecycle, item.idempotency_key,
+                item.safe_diff, item.created_at
+         FROM jsonb_to_recordset($18::jsonb) AS item(
+           event_id text, event_type text, actor_id text, aggregate_revision integer,
+           previous_lifecycle text, new_lifecycle text, idempotency_key text,
+           safe_diff jsonb, created_at timestamptz
+         )
+         WHERE EXISTS (SELECT 1 FROM updated_state)
+         ON CONFLICT (event_id) DO NOTHING
+       )
+       SELECT EXISTS (SELECT 1 FROM updated_state) AS saved`,
+      [
+        state.runId,
+        state.revision,
+        state.lifecycle,
+        JSON.stringify(state),
+        state.updatedAt,
+        expectedRevision,
+        persistence.scope,
+        persistence.threadId,
+        persistence.threadRevision,
+        persistence.message.messageId,
+        persistence.message.senderId ?? null,
+        persistence.message.role,
+        persistence.message.kind,
+        persistence.message.body,
+        persistence.message.createdAt,
+        JSON.stringify(notifications),
+        JSON.stringify(outbox),
+        JSON.stringify(auditEvents),
+      ],
+    );
+    if (!result.rows[0]?.saved) throw new Error("Quest state conflict; reload and retry");
+    return structuredClone(state);
   }
 
   private async assertRecruitmentEligibilityGuard(
