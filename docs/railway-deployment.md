@@ -33,6 +33,8 @@ Set these in Railway Variables. Keep secrets sealed and never commit their value
 
 Railway supplies `PORT`; do not hard-code it in service variables. Optional model, logging, Google OAuth, and reward-code rotation variables are listed in [`.env.example`](../.env.example).
 
+AI requests have shared PostgreSQL rate limits, daily reserved-cost allowances, and concurrency limits. Review [AI abuse controls](ai-abuse-controls.md) before deployment, especially the input/output price ceilings for your configured models. Defaults allow 20 provider attempts per member per minute, a $5 daily member allowance, and a $100 shared daily allowance. Budget estimates are conservative reservations rather than actual invoice totals.
+
 ## 3. Persistent uploads
 
 Attach a Railway volume mounted at `/app/.data`. Without a volume, database-backed member data remains durable but uploaded avatars and generated quest images are lost when the container is replaced.

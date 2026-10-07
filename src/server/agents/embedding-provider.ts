@@ -1,5 +1,6 @@
 import type { CandidateEmbedding, MemoryAgentOutput } from "@/server/domain/schemas";
 import OpenAI from "openai";
+import { findAiControlError } from "@/server/security/ai-policy";
 
 interface EmbedMemoryInput {
   candidateId: string;
@@ -104,6 +105,8 @@ export class HostedEmbeddingProvider implements EmbeddingProvider {
         };
       });
     } catch (error) {
+      const admissionError = findAiControlError(error);
+      if (admissionError) throw admissionError;
       const message = error instanceof Error ? error.message : "Unknown hosted embedding error";
       throw new Error(`${this.options.provider} embedding provider unavailable: ${message}`, {
         cause: error,

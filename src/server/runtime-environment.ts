@@ -1,3 +1,5 @@
+import { readAiPolicy } from "@/server/security/ai-policy";
+
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 
 /**
@@ -17,6 +19,7 @@ export function assertProductionEnvironment(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): void {
   if (!isProductionRuntime(environment)) return;
+  readAiPolicy(environment);
 
   const missing: string[] = [];
   const required = (name: string) => {

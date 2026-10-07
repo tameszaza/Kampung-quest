@@ -33,6 +33,7 @@ import { rewardOffers } from "@/server/features/reward-service";
 import { createQuestImageStorage } from "@/server/quest/quest-image-storage";
 import { identityStore } from "@/server/identity/container";
 import { assertProductionEnvironment, isProductionRuntime } from "@/server/runtime-environment";
+import { createApplicationAiFetch } from "@/server/security/application-ai-control";
 
 const globals = globalThis as typeof globalThis & {
   kampungStore?: KampungStore;
@@ -75,33 +76,30 @@ function createAgentDependencies() {
   }
   const apiKey = providerConfiguration.apiKey;
   if (!apiKey) throw new Error(`Missing API key for ${providerConfiguration.provider}`);
-  const geminiFetch = providerConfiguration.provider === "gemini"
-    ? createGeminiCompatibleFetch()
-    : undefined;
-  const modelProvider = providerConfiguration.provider === "gemini"
-    ? new OpenAIProvider({
-        openAIClient: new OpenAI({
-          apiKey,
-          baseURL: providerConfiguration.baseURL,
-          fetch: geminiFetch,
-          maxRetries: 0,
-          timeout: 90_000,
-        }) as unknown as AgentOpenAIClient,
-        useResponses: providerConfiguration.useResponses,
-        strictFeatureValidation: false,
-      })
-    : new OpenAIProvider({
-        apiKey,
-        baseURL: providerConfiguration.baseURL,
-        useResponses: providerConfiguration.useResponses,
-        strictFeatureValidation: false,
-      });
+  const controlledFetch = createApplicationAiFetch([
+    ...Object.values(providerConfiguration.models),
+    process.env.GEMINI_SVG_IMAGE_MODEL ?? providerConfiguration.models.memory,
+  ]);
+  const providerFetch = providerConfiguration.provider === "gemini"
+    ? createGeminiCompatibleFetch(controlledFetch)
+    : controlledFetch;
+  const modelProvider = new OpenAIProvider({
+    openAIClient: new OpenAI({
+      apiKey,
+      baseURL: providerConfiguration.baseURL,
+      fetch: providerFetch,
+      maxRetries: 0,
+      timeout: 90_000,
+    }) as unknown as AgentOpenAIClient,
+    useResponses: providerConfiguration.useResponses,
+    strictFeatureValidation: false,
+  });
   const geminiSvgAgent = providerConfiguration.provider === "gemini"
     ? new GeminiSvgThumbnailAgent({
         apiKey,
         model: process.env.GEMINI_SVG_IMAGE_MODEL ?? providerConfiguration.models.memory,
         baseURL: providerConfiguration.baseURL ?? "https://generativelanguage.googleapis.com/v1beta/openai/",
-        fetch: geminiFetch,
+        fetch: providerFetch,
       })
     : undefined;
   return {
@@ -111,7 +109,7 @@ function createAgentDependencies() {
       modelProvider,
       auditSink: (record) => kampungStore.recordAgentRun(record),
     }),
-    embeddings: createConfiguredEmbeddingProvider(providerConfiguration, geminiFetch),
+    embeddings: createConfiguredEmbeddingProvider(providerConfiguration, providerFetch),
     imageAgent: geminiSvgAgent ? new RetryingQuestImageAgent(geminiSvgAgent) : undefined,
     imageStorage: createQuestImageStorage(),
   };

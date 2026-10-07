@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { RewardDomainError } from "@/server/repositories/reward-store";
+import { findAiControlError } from "@/server/security/ai-policy";
 
 function isPostgresError(error: unknown): error is Error & { code: string } {
   return error instanceof Error
@@ -10,6 +11,11 @@ function isPostgresError(error: unknown): error is Error & { code: string } {
 }
 
 export function errorResponse(error: unknown): NextResponse {
+  const aiError = findAiControlError(error);
+  if (aiError) return NextResponse.json({ error: aiError.message, code: aiError.code }, {
+    status: aiError.status,
+    headers: aiError.retryAfter ? { "Retry-After": String(aiError.retryAfter) } : undefined,
+  });
   if (error instanceof ZodError) {
     return NextResponse.json(
       { error: "Invalid request", issues: error.issues },

@@ -4,6 +4,7 @@ import { resolveProviderConfiguration } from "@/server/agents/provider-configura
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { PostgresIdentityStore } from "@/server/identity/postgres-identity-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
+import { closeApplicationAiControl, withAiOperator } from "@/server/security/application-ai-control";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -27,10 +28,10 @@ const engine = new KampungQuestEngine({
 
 try {
   const before = await engine.getEmbeddingIndexStatus();
-  const result = await engine.reindexActiveMemories();
+  const result = await withAiOperator("reindex", () => engine.reindexActiveMemories());
   const after = await engine.getEmbeddingIndexStatus();
   console.log(JSON.stringify({ before, result, after }, null, 2));
   if (result.failures.length > 0 || !after.ready) process.exitCode = 1;
 } finally {
-  await Promise.allSettled([store.pool.end(), identities.pool.end()]);
+  await Promise.allSettled([store.pool.end(), identities.pool.end(), closeApplicationAiControl()]);
 }

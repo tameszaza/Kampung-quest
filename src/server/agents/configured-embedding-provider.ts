@@ -7,10 +7,11 @@ import { createGeminiCompatibleFetch } from "@/server/agents/gemini-provider-fet
 import type { ProviderConfiguration } from "@/server/agents/provider-configuration";
 import { UnavailableEmbeddingProvider } from "@/server/agents/unavailable-agent-runtime";
 import { isProductionRuntime } from "@/server/runtime-environment";
+import { createApplicationAiFetch } from "@/server/security/application-ai-control";
 
 export function createConfiguredEmbeddingProvider(
   configuration: ProviderConfiguration,
-  geminiFetch?: typeof fetch,
+  providerFetch?: typeof fetch,
 ): EmbeddingProvider {
   if (configuration.provider === "deterministic") return new DeterministicEmbeddingProvider();
   if (!configuration.ready || !configuration.apiKey) {
@@ -26,8 +27,8 @@ export function createConfiguredEmbeddingProvider(
     baseURL: configuration.baseURL,
     model: configuration.models.embedding,
     dimensions: configuration.embeddingDimensions,
-    fetch: configuration.provider === "gemini"
-      ? geminiFetch ?? createGeminiCompatibleFetch()
-      : undefined,
+    fetch: providerFetch ?? (configuration.provider === "gemini"
+      ? createGeminiCompatibleFetch(createApplicationAiFetch([configuration.models.embedding]))
+      : createApplicationAiFetch([configuration.models.embedding])),
   });
 }

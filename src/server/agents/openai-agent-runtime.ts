@@ -16,6 +16,7 @@ import {
 } from "@/server/agents/coordination-agent-output";
 import type { AgentProviderName, HostedModelConfiguration } from "@/server/agents/provider-configuration";
 import { minimizeProviderInput, stableFactRef } from "@/server/agents/provider-privacy";
+import { findAiControlError } from "@/server/security/ai-policy";
 import {
   eventTaskPlanAgentOutputSchema,
   eventTaskReassignmentAgentOutputSchema,
@@ -44,7 +45,8 @@ export function hostedRetrySettings(
     // state immediately so the member can try again later.
     maxRetries: provider === "gemini" ? 0 : 2,
     backoff: { initialDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2, jitter: true },
-    policy: ({ normalized, providerAdvice }) => {
+    policy: ({ error, normalized, providerAdvice }) => {
+      if (findAiControlError(error)) return false;
       if (provider === "gemini" && normalized.statusCode === 429) {
         // Deliberately never wait/retry a quota response. providerAdvice is
         // retained in the signature for the shared OpenAI policy shape.
@@ -451,6 +453,8 @@ export class HostedAgentRuntime implements AgentRuntime {
       return result.finalOutput;
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
+      const admissionError = findAiControlError(error);
+      if (admissionError) throw admissionError;
       logger.error("agent.run.failed", {
         runId,
         role: agent.name,

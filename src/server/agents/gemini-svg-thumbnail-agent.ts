@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { QuestImageInput, QuestImageAgent, QuestImageResult } from "@/server/agents/quest-image-agent";
 import { buildQuestImagePrompt } from "@/server/agents/quest-image-prompt";
 import { logger, safeErrorMessage } from "@/server/observability/logger";
+import { findAiControlError } from "@/server/security/ai-policy";
 
 const MAX_SVG_BYTES = 120_000;
 
@@ -72,6 +73,8 @@ export class GeminiSvgThumbnailAgent implements QuestImageAgent {
       });
       return { bytes: Buffer.from(sanitized.svg), mimeType: "image/svg+xml", model: this.options.model };
     } catch (error) {
+      const admissionError = findAiControlError(error);
+      if (admissionError) throw admissionError;
       const providerError = error as {
         status?: unknown;
         code?: unknown;

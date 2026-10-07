@@ -72,4 +72,20 @@ if (process.env.REWARD_CODE_FINGERPRINT_KEY.length < 32) {
   process.exit(1);
 }
 
+for (const name of [
+  "AI_USER_REQUESTS_PER_MINUTE", "AI_GLOBAL_REQUESTS_PER_MINUTE",
+  "AI_USER_CONCURRENCY", "AI_GLOBAL_CONCURRENCY", "AI_MAX_INPUT_BYTES", "AI_MAX_OUTPUT_TOKENS",
+  "AI_USER_DAILY_BUDGET_USD", "AI_GLOBAL_DAILY_BUDGET_USD",
+  "AI_INPUT_USD_PER_MILLION_TOKENS", "AI_OUTPUT_USD_PER_MILLION_TOKENS",
+]) {
+  if (process.env[name] === undefined) continue;
+  const value = Number(process.env[name]);
+  const decimal = name.includes("USD");
+  if (!Number.isFinite(value) || value <= 0 || (!decimal && !Number.isSafeInteger(value))
+    || (name.endsWith("BUDGET_USD") && !Number.isSafeInteger(Math.ceil(value * 1_000_000)))) {
+    console.error(`${name} must be a positive ${decimal ? "number" : "integer"}.`);
+    process.exit(1);
+  }
+}
+
 console.log("Production environment validation passed.");

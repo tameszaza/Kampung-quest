@@ -1,5 +1,6 @@
 import type { QuestImageInput, QuestImageAgent, QuestImageResult } from "@/server/agents/quest-image-agent";
 import { logger, safeErrorMessage } from "@/server/observability/logger";
+import { findAiControlError } from "@/server/security/ai-policy";
 
 export interface RetryingQuestImageAgentOptions {
   maxAttempts?: number;
@@ -35,6 +36,7 @@ export class RetryingQuestImageAgent implements QuestImageAgent {
         }
         logger.warn("quest_image.retry.empty", { attempt, maxAttempts: this.maxAttempts });
       } catch (error) {
+        if (findAiControlError(error)) return null;
         logger.warn("quest_image.retry.error", {
           attempt,
           maxAttempts: this.maxAttempts,

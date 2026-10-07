@@ -6,6 +6,7 @@ import { resolveProviderConfiguration } from "@/server/agents/provider-configura
 import { KampungQuestEngine } from "@/server/core/kampung-quest-engine";
 import { PostgresIdentityStore } from "@/server/identity/postgres-identity-store";
 import { PostgresKampungStore } from "@/server/repositories/postgres-kampung-store";
+import { closeApplicationAiControl, withAiOperator } from "@/server/security/application-ai-control";
 import {
   createTestCandidateProfile,
   createTestPersonaNarrative,
@@ -122,11 +123,11 @@ try {
     if (current && current.narrative === narrative && isDeepStrictEqual(current.profile, profile)) {
       result.reusedMemories += 1;
     } else {
-      await engine.recordMemory({
+      await withAiOperator("seed-test-users", () => engine.recordMemory({
         profile,
         narrative,
         providedSoftFacts: { need: true, interests: true, offers: true },
-      });
+      }));
       result.updatedMemories += 1;
     }
     result.users.push({ fixtureKey: persona.fixtureKey, userId: authUser.id, username: persona.username, email: persona.email });
@@ -138,7 +139,7 @@ try {
   if (fixtureUserIds.length) {
     await betterAuthPool.query('DELETE FROM auth."session" WHERE "userId" = ANY($1::text[])', [fixtureUserIds]);
   }
-  await Promise.allSettled([identityStore.pool.end(), kampungStore.pool.end(), betterAuthPool.end()]);
+  await Promise.allSettled([identityStore.pool.end(), kampungStore.pool.end(), betterAuthPool.end(), closeApplicationAiControl()]);
 }
 
 async function verifyLogin(username: string): Promise<void> {
